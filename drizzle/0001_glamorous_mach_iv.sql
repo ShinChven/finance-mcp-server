@@ -1,0 +1,1 @@
+ALTER TABLE "oauth_auth_codes" ADD COLUMN "issued_family_id" text;
