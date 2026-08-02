@@ -19,8 +19,9 @@ Hono runs inside the Vite dev server; in production, Hono serves the built SPA.
 - **OAuth 2.1 authorization server** — PKCE (S256) required, dynamic client
   registration (RFC 7591), discovery metadata (RFC 8414/9728), refresh token
   rotation with reuse detection, revocation (RFC 7009), consent screen.
-- **MCP endpoint** — Streamable HTTP at `/mcp` with `whoami` and `echo` starter
-  tools; add tools under `src/server/mcp/`.
+- **Finance MCP endpoint** — Streamable HTTP at `/mcp` with 10 read-only Yahoo
+  Finance tools plus `whoami`; requests use the same PAT/OAuth 2.1 authorization
+  layer as the rest of the MCP service.
 - **Client integration center** — in-dashboard, copy-ready setup guides for
   Claude, Claude Code, Codex, Cursor, Antigravity 2 and generic MCP clients,
   with both OAuth and personal-token instructions.
@@ -77,6 +78,27 @@ configuration files, authentication steps and troubleshooting.
   **OAuth Clients** page.
 - **Personal access token:** create one on the **Access Tokens** page and send
   it as `Authorization: Bearer mcp_…`.
+
+### Available MCP tools
+
+| Tool | Purpose |
+|---|---|
+| `search` | Find symbols, companies and related news |
+| `quote` | Current or near-current quotes for up to 50 symbols |
+| `quoteSummary` | Selected company, price, ownership, filing and fund modules |
+| `chart` | Historical/intraday OHLCV data and market events |
+| `screener` | Predefined screens such as gainers, losers and most active |
+| `trendingSymbols` | Region-specific trending instruments |
+| `options` | Option expiration dates and call/put chains |
+| `insights` | Analyst research, developments and technical outlooks |
+| `recommendationsBySymbol` | Related and similar instruments |
+| `fundamentalsTimeSeries` | Financial statement data over time |
+| `whoami` | Current MCP user and authorization method |
+
+Market data is provided through the unofficial `yahoo-finance2` integration and
+may be delayed, unavailable, changed, or removed for delisted symbols. Tool
+responses are capped at 1 MB; narrow large requests by symbol count, date range,
+or summary modules.
 
 ## Scripts
 

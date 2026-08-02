@@ -20,7 +20,7 @@ both personal access tokens and OAuth 2.1 access tokens.
 | Database | PostgreSQL + Drizzle ORM 0.45.x | pg 8.22.x (node-postgres) | Connection via `DATABASE_URL`; `drizzle-kit` migrations run at boot; docker-compose ships a `postgres:17` service |
 | Validation | Zod 4.x + `@hono/zod-validator` | | Shared schemas between API and client where useful |
 | Auth (dashboard) | Google OIDC via `arctic` 3.x + `jose` 6.x | | Google login **only**; server-side sessions in HttpOnly cookies |
-| MCP | `@modelcontextprotocol/sdk` 1.29.x + `@hono/mcp` 0.3.x | | Streamable HTTP transport at `/mcp` |
+| MCP | `@modelcontextprotocol/sdk` 1.30.x + `@hono/mcp` 0.3.x + `yahoo-finance2` 4.x | | Streamable HTTP transport at `/mcp`; read-only market data tools |
 | Language | TypeScript 7.x | | Native (tsgo) compiler; fall back to 5.9 only if a tool in the chain can't handle 7 yet |
 
 **Project shape:** single package, two source roots — `src/server/` (Hono) and
@@ -137,9 +137,13 @@ auth guards via loader redirects, error boundaries, toast notifications.
 
 ### MCP endpoint
 - `ALL /mcp` — Streamable HTTP via `@hono/mcp`, guarded by the bearer middleware.
-- Starter tools so the server is immediately testable: `whoami` (returns the
-  authenticated user + auth method) and `echo`. Tool surface is a clean extension
-  point (`src/server/mcp/tools/`) for the container's real tools later.
+- System tool: `whoami` returns the authenticated user and auth method.
+- Yahoo Finance tools: `search`, `quote`, `quoteSummary`, `chart`, `screener`,
+  `trendingSymbols`, `options`, `insights`, `recommendationsBySymbol`, and
+  `fundamentalsTimeSeries`.
+- The process reuses one Yahoo Finance client for cookies and queueing. Each call
+  has a timeout and result-size limit; inputs constrain symbol counts, date
+  ranges, module names, screeners, and result counts.
 
 ---
 
@@ -160,8 +164,9 @@ Each phase ends with typecheck + tests green and a commit.
    enable/disable/revoke/delete, last-access display; PAT bearer middleware.
 6. **OAuth 2.1 AS** — metadata endpoints, DCR, authorize + consent UI, token with
    PKCE + refresh rotation, revocation; user Clients page + admin clients page.
-7. **MCP endpoint** — `@hono/mcp` wiring, both auth methods, `whoami`/`echo` tools,
-   `WWW-Authenticate` discovery; verified end-to-end with MCP inspector.
+7. **MCP endpoint** — `@hono/mcp` wiring, both auth methods, `whoami` plus the 10
+   read-only Yahoo Finance tools, `WWW-Authenticate` discovery; verified through
+   an in-memory MCP client and optionally with MCP Inspector.
 8. **Settings** — profile (display name), preferences (theme, page size), applied
    app-wide.
 9. **Polish & hardening** — overview dashboard, audit log page, rate limiting on
