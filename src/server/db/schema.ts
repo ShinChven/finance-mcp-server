@@ -1,4 +1,7 @@
 import {
+  boolean,
+  date,
+  doublePrecision,
   index,
   jsonb,
   pgEnum,
@@ -205,6 +208,157 @@ export const auditLog = pgTable(
   },
   (t) => [index("audit_log_created_at_idx").on(t.createdAt), index("audit_log_actor_idx").on(t.actorUserId)],
 );
+
+/* ------------------------------------------------------------------ *
+ * Fund relationship layer
+ *
+ * These tables answer "which fund gives me exposure to X" without full-text
+ * search: holdings and index membership are ingested offline, and the derived
+ * `fund_exposure` table is what the MCP tools actually read.
+ * ------------------------------------------------------------------ */
+
+/** Canonical symbol format is Yahoo-style so US and CN legs share one key space
+ *  (`600519.SS`, `0700.HK`, `AAPL`). */
+export const instruments = pgTable(
+  "instruments",
+  {
+    symbol: text("symbol").primaryKey(),
+    name: text("name"),
+    market: text("market").notNull(),
+    type: text("type").notNull().default("stock"),
+    currency: text("currency"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index("instruments_market_idx").on(t.market)],
+);
+
+/** One row per (symbol, taxonomy): `sw` for Shenwan/Eastmoney boards on the CN
+ *  side, `gics` for the Yahoo sector on the US/global side. */
+export const instrumentSectors = pgTable(
+  "instrument_sectors",
+  {
+    symbol: text("symbol").notNull(),
+    taxonomy: text("taxonomy").notNull(),
+    sectorCode: text("sector_code").notNull(),
+    sectorName: text("sector_name"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("instrument_sectors_symbol_taxonomy_idx").on(t.symbol, t.taxonomy),
+    index("instrument_sectors_lookup_idx").on(t.taxonomy, t.sectorCode),
+  ],
+);
+
+export const funds = pgTable(
+  "funds",
+  {
+    // 6-digit China fund code (场外 or 场内 primary code).
+    code: text("code").primaryKey(),
+    name: text("name").notNull(),
+    fundType: text("fund_type"),
+    isQdii: boolean("is_qdii").notNull().default(false),
+    isIndexFund: boolean("is_index_fund").notNull().default(false),
+    trackingIndex: text("tracking_index"),
+    trackingIndexCode: text("tracking_index_code"),
+    company: text("company"),
+    manager: text("manager"),
+    feeRate: doublePrecision("fee_rate"),
+    fundSize: doublePrecision("fund_size"),
+    currency: text("currency").notNull().default("CNY"),
+    // Exchange-traded share class, when one exists (`510300.SS`).
+    listedSymbol: text("listed_symbol"),
+    purchaseStatus: text("purchase_status"),
+    purchaseLimit: doublePrecision("purchase_limit"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("funds_qdii_idx").on(t.isQdii),
+    index("funds_tracking_index_idx").on(t.trackingIndexCode),
+  ],
+);
+
+export const fundHoldings = pgTable(
+  "fund_holdings",
+  {
+    fundCode: text("fund_code")
+      .notNull()
+      .references(() => funds.code, { onDelete: "cascade" }),
+    symbol: text("symbol").notNull(),
+    name: text("name"),
+    // Percent of net asset value, 0-100.
+    weight: doublePrecision("weight").notNull(),
+    reportDate: date("report_date").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("fund_holdings_unique_idx").on(t.fundCode, t.symbol, t.reportDate),
+    // Reverse index: "which funds hold this stock" is a single index scan.
+    index("fund_holdings_symbol_idx").on(t.symbol, t.weight),
+    index("fund_holdings_fund_report_idx").on(t.fundCode, t.reportDate),
+  ],
+);
+
+export const indexConstituents = pgTable(
+  "index_constituents",
+  {
+    indexCode: text("index_code").notNull(),
+    symbol: text("symbol").notNull(),
+    weight: doublePrecision("weight"),
+    asOf: date("as_of").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("index_constituents_unique_idx").on(t.indexCode, t.symbol, t.asOf),
+    index("index_constituents_symbol_idx").on(t.symbol),
+  ],
+);
+
+export const fundNav = pgTable(
+  "fund_nav",
+  {
+    fundCode: text("fund_code")
+      .notNull()
+      .references(() => funds.code, { onDelete: "cascade" }),
+    navDate: date("nav_date").notNull(),
+    nav: doublePrecision("nav"),
+    accNav: doublePrecision("acc_nav"),
+    dailyReturn: doublePrecision("daily_return"),
+  },
+  (t) => [uniqueIndex("fund_nav_unique_idx").on(t.fundCode, t.navDate)],
+);
+
+/** Derived from holdings × instrument metadata. `dimension` is `sector` or
+ *  `market`; `coverage` records how much of the fund's disclosed weight could
+ *  actually be classified, so callers can tell a real 5% from an unmapped one. */
+export const fundExposure = pgTable(
+  "fund_exposure",
+  {
+    fundCode: text("fund_code")
+      .notNull()
+      .references(() => funds.code, { onDelete: "cascade" }),
+    dimension: text("dimension").notNull(),
+    taxonomy: text("taxonomy").notNull().default(""),
+    key: text("key").notNull(),
+    label: text("label"),
+    weight: doublePrecision("weight").notNull(),
+    coverage: doublePrecision("coverage").notNull(),
+    reportDate: date("report_date"),
+    computedAt: timestamp("computed_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("fund_exposure_unique_idx").on(t.fundCode, t.dimension, t.taxonomy, t.key),
+    // Forward index: "which funds are heaviest in this sector".
+    index("fund_exposure_lookup_idx").on(t.dimension, t.taxonomy, t.key, t.weight),
+  ],
+);
+
+export type Instrument = typeof instruments.$inferSelect;
+export type InstrumentSector = typeof instrumentSectors.$inferSelect;
+export type Fund = typeof funds.$inferSelect;
+export type FundHolding = typeof fundHoldings.$inferSelect;
+export type IndexConstituent = typeof indexConstituents.$inferSelect;
+export type FundNavRow = typeof fundNav.$inferSelect;
+export type FundExposureRow = typeof fundExposure.$inferSelect;
 
 export type User = typeof users.$inferSelect;
 export type Session = typeof sessions.$inferSelect;

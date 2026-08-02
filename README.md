@@ -22,6 +22,9 @@ Hono runs inside the Vite dev server; in production, Hono serves the built SPA.
 - **Finance MCP endpoint** — Streamable HTTP at `/mcp` with 10 read-only Yahoo
   Finance tools plus `whoami`; requests use the same PAT/OAuth 2.1 authorization
   layer as the rest of the MCP service.
+- **China fund relationship layer** — 6 further tools that answer *which fund
+  gives me exposure to this stock, sector or theme*, using an offline-ingested
+  index of disclosed fund holdings rather than keyword search over fund names.
 - **Client integration center** — in-dashboard, copy-ready setup guides for
   Claude, Claude Code, Codex, Cursor, Antigravity 2 and generic MCP clients,
   with both OAuth and personal-token instructions.
@@ -93,6 +96,67 @@ configuration files, authentication steps and troubleshooting.
 | `insights` | Analyst research, developments and technical outlooks |
 | `recommendationsBySymbol` | Related and similar instruments |
 | `fundamentalsTimeSeries` | Financial statement data over time |
+
+Yahoo covers CN and HK listings through symbol suffixes (`600519.SS`,
+`0700.HK`), so the tools above already span the A-share, Hong Kong and US
+markets. What Yahoo does not carry is China's domestic public funds — that is
+what the tools below are for.
+
+#### Fund relationship tools
+
+| Tool | Purpose |
+|---|---|
+| `fundExposure` | Break a fund into sector/market exposure, with coverage and holdings stability |
+| `fundsByStock` | Reverse index — which funds hold a given stock, ranked by weight |
+| `fundsBySector` | Funds ranked by measured exposure to a sector or theme |
+| `similarFunds` | Substitutes for a fund, by cosine similarity of exposure vectors |
+| `themeToFunds` | Theme → tracking index / sector exposure / market exposure, in one call |
+| `compareFunds` | Fees, size, top sectors and pairwise portfolio overlap for 2-10 funds |
+
+Two numbers accompany every holdings-derived answer, and both matter:
+
+- **coverage** — the share of a fund's disclosed weight that could be
+  classified. A 60% sector weight at 0.3 coverage is a much weaker claim than
+  the same weight at 0.95.
+- **holdings stability** — how much of the previous report the fund still
+  holds. Index funds sit near 1.0; a low score means last quarter's portfolio no
+  longer describes the fund and its inferred exposure should be discounted.
+
+`themeToFunds` reports index-tracking matches separately from holdings-derived
+ones because a declared mandate does not drift, while a holdings snapshot can.
+
+### Fund data ingest
+
+The relationship tools read local tables only — no tool call ever hits an
+upstream data source. Populate them with:
+
+```sh
+npm run build
+npm run ingest:cn -- --limit=200            # QDII funds by default
+npm run ingest:cn -- --codes=162411,270042  # specific funds
+npm run ingest:cn -- --codes=162411 --skip-universe
+```
+
+The job pulls the fund universe, holdings and NAV history from Eastmoney /
+Tiantian Fund, classifies each holding's sector via Yahoo `assetProfile` (which
+covers CN, HK and US listings under one taxonomy), and recomputes derived
+exposure. Quarterly reports land roughly 15-30 days after quarter end, so
+running it monthly is enough.
+
+Per-fund failures are collected rather than fatal: the summary lists them and
+the process exits non-zero, while everything that succeeded is still committed.
+
+> **Note on upstream formats.** The Eastmoney endpoints are undocumented and
+> their response shapes were implemented from their known structure, not
+> verified against live responses. All shape knowledge is isolated in
+> `src/server/china/parse.ts` as pure functions with fixture-based tests, so a
+> format change is a fixture-plus-parser fix that touches nothing else.
+
+The theme crosswalk in `src/server/china/crosswalk.ts` is the one piece that
+cannot be scraped — it maps a theme onto Eastmoney board names, Yahoo GICS
+sectors and index names, which is what lets a single "半导体" query return both
+onshore sector funds and QDII funds holding the same sector offshore. Extend it
+by adding entries there.
 | `whoami` | Current MCP user and authorization method |
 
 Market data is provided through the unofficial `yahoo-finance2` integration and
