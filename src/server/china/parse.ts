@@ -41,6 +41,20 @@ export interface FundProfile {
   stockSymbols: string[];
 }
 
+export interface FundBasics {
+  code: string;
+  name: string | null;
+  fundType: string | null;
+  /** Declared benchmark index ("跟踪标的"); null when the fund has no mandate. */
+  trackingIndex: string | null;
+  company: string | null;
+  manager: string | null;
+  /** Management fee, percent per year. */
+  feeRate: number | null;
+  /** Net assets in 亿元 (100M CNY), as disclosed on the profile page. */
+  fundSize: number | null;
+}
+
 function toNumber(raw: unknown): number | null {
   if (typeof raw === "number") return Number.isFinite(raw) ? raw : null;
   if (typeof raw !== "string") return null;
@@ -235,5 +249,64 @@ export function parseFundProfileJs(code: string, source: string): FundProfile {
     name: readString("fS_name"),
     feeRate: toNumber(readString("fund_Rate")),
     stockSymbols,
+  };
+}
+
+const TH_TD_PAIR_RE = /<th[^>]*>([\s\S]*?)<\/th>\s*<td[^>]*>([\s\S]*?)<\/td>/gi;
+
+/** Values Eastmoney uses to mean "not applicable" on the profile page. */
+const NULL_MARKERS = new Set(["", "-", "--", "---", "暂无数据", "该基金无跟踪标的"]);
+
+function cleanValue(raw: string): string | null {
+  const value = stripTags(raw).replace(/\s+/g, " ").trim();
+  return NULL_MARKERS.has(value) ? null : value;
+}
+
+/**
+ * `fundf10.eastmoney.com/jbgk_{code}.html` — the 基金概况 table.
+ *
+ * This is the only source for 跟踪标的, which is what makes index-tracking the
+ * high-confidence route from a theme to a fund: a declared mandate does not
+ * drift the way a quarterly holdings snapshot does.
+ */
+export function parseFundBasics(code: string, html: string): FundBasics {
+  const fields = new Map<string, string | null>();
+
+  TH_TD_PAIR_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = TH_TD_PAIR_RE.exec(html)) !== null) {
+    const label = stripTags(match[1] ?? "").replace(/\s+/g, "");
+    if (label === "") continue;
+    if (!fields.has(label)) fields.set(label, cleanValue(match[2] ?? ""));
+  }
+
+  const read = (...labels: string[]): string | null => {
+    for (const label of labels) {
+      const value = fields.get(label);
+      if (value !== undefined && value !== null) return value;
+    }
+    return null;
+  };
+
+  // "0.80%（每年）" → 0.8
+  const feeRaw = read("管理费率", "管理费");
+  const feeRate = feeRaw === null ? null : toNumber(/(-?\d+(?:\.\d+)?)\s*%/.exec(feeRaw)?.[1]);
+
+  // "12.34亿元（截止至：2026-03-31）" → 12.34
+  const sizeRaw = read("资产规模", "最新规模");
+  const fundSize = sizeRaw === null ? null : toNumber(/(-?\d+(?:\.\d+)?)\s*亿/.exec(sizeRaw)?.[1]);
+
+  return {
+    code,
+    name: read("基金全称", "基金简称"),
+    fundType: read("基金类型"),
+    // Only 跟踪标的 — deliberately NOT falling back to 业绩比较基准, which for an
+    // active fund is a blended benchmark, not a mandate. Filling this field from
+    // it would make every active fund look like an index fund.
+    trackingIndex: read("跟踪标的"),
+    company: read("基金管理人"),
+    manager: read("基金经理人", "基金经理"),
+    feeRate,
+    fundSize,
   };
 }

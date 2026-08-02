@@ -100,7 +100,6 @@ Fund relationship layer (read by the MCP tools, written only by the offline inge
 - **funds** — 6-digit code, name, fund_type, is_qdii, is_index_fund, tracking_index,
   company, manager, fee_rate, fund_size, currency, listed_symbol, purchase_status/limit
 - **fund_holdings** — fund_code, symbol, weight (% of NAV), report_date
-- **index_constituents** — index_code, symbol, weight, as_of
 - **fund_nav** — fund_code, nav_date, nav, acc_nav, daily_return
 - **fund_exposure** — derived: fund_code, dimension (`sector`|`market`), taxonomy, key,
   label, weight, **coverage**, report_date
@@ -169,12 +168,13 @@ Three routes connect a stock/sector/theme to a fund, in descending confidence:
 3. **Market exposure** — for country/region themes where sector is irrelevant.
 
 Tools: `fundExposure`, `fundsByStock`, `fundsBySector`, `similarFunds`,
-`themeToFunds`, `compareFunds`. All read-only, all local — no tool call reaches
-an upstream provider.
+`themeToFunds`, `compareFunds`, `fundPerformance`. All read-only, all local — no
+tool call reaches an upstream provider.
 
 Ingest (`npm run ingest:cn`, bundled to `dist/server/china/ingest-cli.js`) pulls
-the fund universe, holdings and NAV from Eastmoney, classifies holdings by
-sector via Yahoo `assetProfile` (one taxonomy across CN/HK/US), then recomputes
+the fund universe, per-fund profile detail (`跟踪标的` — without this step route
+1 has no data), holdings and NAV from Eastmoney, classifies holdings by sector
+via Yahoo `assetProfile` (one taxonomy across CN/HK/US), then recomputes
 `fund_exposure`. Upstream response shapes are isolated in pure parsers with
 fixture tests — see the README note on their unverified status.
 - System tool: `whoami` returns the authenticated user and auth method.

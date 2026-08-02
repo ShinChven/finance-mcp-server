@@ -6,9 +6,17 @@
  * injected client.
  */
 
-import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, or, sql, type SQL } from "drizzle-orm";
 import type { db as Database } from "../db/index.js";
-import { fundExposure, fundHoldings, funds, instruments, type Fund } from "../db/schema.js";
+import {
+  fundExposure,
+  fundHoldings,
+  fundNav,
+  funds,
+  instruments,
+  type Fund,
+} from "../db/schema.js";
+import type { NavSeriesPoint } from "./performance.js";
 
 export interface HoldingRow {
   symbol: string;
@@ -47,8 +55,15 @@ export interface SectorQuery {
   limit: number;
 }
 
+export interface NavQuery {
+  from?: string;
+  to?: string;
+  limit?: number;
+}
+
 export interface FundRepo {
   getFund(code: string): Promise<Fund | null>;
+  getNavSeries(code: string, query?: NavQuery): Promise<NavSeriesPoint[]>;
   getExposure(code: string): Promise<ExposureRow[]>;
   getHoldings(code: string, reportDate?: string): Promise<HoldingRow[]>;
   listReportDates(code: string): Promise<string[]>;
@@ -77,6 +92,19 @@ export function createFundRepo(db: Db): FundRepo {
     async getFund(code) {
       const [row] = await db.select().from(funds).where(eq(funds.code, code)).limit(1);
       return row ?? null;
+    },
+
+    async getNavSeries(code, query = {}) {
+      const conditions: (SQL | undefined)[] = [eq(fundNav.fundCode, code)];
+      if (query.from !== undefined) conditions.push(gte(fundNav.navDate, query.from));
+      if (query.to !== undefined) conditions.push(lte(fundNav.navDate, query.to));
+
+      return db
+        .select({ navDate: fundNav.navDate, nav: fundNav.nav, accNav: fundNav.accNav })
+        .from(fundNav)
+        .where(and(...conditions))
+        .orderBy(asc(fundNav.navDate))
+        .limit(query.limit ?? 2000);
     },
 
     async getExposure(code) {

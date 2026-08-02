@@ -112,6 +112,7 @@ what the tools below are for.
 | `similarFunds` | Substitutes for a fund, by cosine similarity of exposure vectors |
 | `themeToFunds` | Theme → tracking index / sector exposure / market exposure, in one call |
 | `compareFunds` | Fees, size, top sectors and pairwise portfolio overlap for 2-10 funds |
+| `fundPerformance` | Cumulative/annualized return, max drawdown and volatility from NAV history |
 
 Two numbers accompany every holdings-derived answer, and both matter:
 
@@ -124,6 +125,14 @@ Two numbers accompany every holdings-derived answer, and both matter:
 
 `themeToFunds` reports index-tracking matches separately from holdings-derived
 ones because a declared mandate does not drift, while a holdings snapshot can.
+The mandate itself (`跟踪标的`) comes from the fund profile page and is only
+populated from that field — never from `业绩比较基准`, which for an active fund
+is a blended benchmark and would make every active fund look like an index fund.
+
+`fundPerformance` measures from cumulative NAV (累计净值) whenever the series
+has it, so distributions are not read as losses — over a multi-year horizon that
+difference compounds into a materially wrong number. The response states which
+basis was used.
 
 ### Fund data ingest
 
@@ -137,11 +146,11 @@ npm run ingest:cn -- --codes=162411,270042  # specific funds
 npm run ingest:cn -- --codes=162411 --skip-universe
 ```
 
-The job pulls the fund universe, holdings and NAV history from Eastmoney /
-Tiantian Fund, classifies each holding's sector via Yahoo `assetProfile` (which
-covers CN, HK and US listings under one taxonomy), and recomputes derived
-exposure. Quarterly reports land roughly 15-30 days after quarter end, so
-running it monthly is enough.
+The job runs six steps: fund universe → per-fund profile detail (including
+`跟踪标的`) → holdings → NAV history → sector classification via Yahoo
+`assetProfile` (which covers CN, HK and US listings under one taxonomy) →
+recomputed exposure. Quarterly reports land roughly 15-30 days after quarter
+end, so running it monthly is enough.
 
 Per-fund failures are collected rather than fatal: the summary lists them and
 the process exits non-zero, while everything that succeeded is still committed.

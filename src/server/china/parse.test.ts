@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  parseFundBasics,
   parseFundCodeList,
   parseFundProfileJs,
   parseHoldings,
@@ -125,5 +126,52 @@ describe("parseFundProfileJs", () => {
   it("degrades to empty fields on an unexpected body", () => {
     const profile = parseFundProfileJs("162411", "");
     expect(profile).toEqual({ code: "162411", name: null, feeRate: null, stockSymbols: [] });
+  });
+});
+
+describe("parseFundBasics", () => {
+  const html = `
+    <table class="info w790">
+      <tr><th>基金全称</th><td>国泰纳斯达克100交易型开放式指数证券投资基金</td>
+          <th>基金简称</th><td>国泰纳斯达克100ETF</td></tr>
+      <tr><th>基金代码</th><td>513100</td><th>基金类型</th><td>国际(QDII)</td></tr>
+      <tr><th>跟踪标的</th><td>纳斯达克100指数</td><th>基金管理人</th><td>国泰基金</td></tr>
+      <tr><th>管理费率</th><td>0.80%（每年）</td><th>资产规模</th><td>123.45亿元（截止至：2026-03-31）</td></tr>
+      <tr><th>基金经理人</th><td>某某某</td><th>成立日期</th><td>2013-04-25</td></tr>
+    </table>`;
+
+  it("reads the tracking index and profile fields", () => {
+    expect(parseFundBasics("513100", html)).toEqual({
+      code: "513100",
+      name: "国泰纳斯达克100交易型开放式指数证券投资基金",
+      fundType: "国际(QDII)",
+      trackingIndex: "纳斯达克100指数",
+      company: "国泰基金",
+      manager: "某某某",
+      feeRate: 0.8,
+      fundSize: 123.45,
+    });
+  });
+
+  it("treats an absent mandate as null", () => {
+    const active = html.replace("<td>纳斯达克100指数</td>", "<td>该基金无跟踪标的</td>");
+    expect(parseFundBasics("513100", active).trackingIndex).toBeNull();
+  });
+
+  it("does not borrow 业绩比较基准 as a tracking index", () => {
+    const active = html.replace(
+      "<th>跟踪标的</th><td>纳斯达克100指数</td>",
+      "<th>业绩比较基准</th><td>沪深300指数收益率×80%+中债总指数×20%</td>",
+    );
+    // An active fund's blended benchmark is not a mandate — filling trackingIndex
+    // from it would make every active fund look like an index fund.
+    expect(parseFundBasics("513100", active).trackingIndex).toBeNull();
+  });
+
+  it("degrades to nulls on an unexpected page", () => {
+    const basics = parseFundBasics("513100", "<html>404</html>");
+    expect(basics.trackingIndex).toBeNull();
+    expect(basics.name).toBeNull();
+    expect(basics.feeRate).toBeNull();
   });
 });

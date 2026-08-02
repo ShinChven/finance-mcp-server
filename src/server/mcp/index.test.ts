@@ -75,6 +75,7 @@ describe("finance MCP server", () => {
         "similarFunds",
         "themeToFunds",
         "compareFunds",
+        "fundPerformance",
       ]);
       expect(result.tools.every((tool) => tool.annotations?.readOnlyHint)).toBe(true);
     } finally {

@@ -298,21 +298,6 @@ export const fundHoldings = pgTable(
   ],
 );
 
-export const indexConstituents = pgTable(
-  "index_constituents",
-  {
-    indexCode: text("index_code").notNull(),
-    symbol: text("symbol").notNull(),
-    weight: doublePrecision("weight"),
-    asOf: date("as_of").notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-  },
-  (t) => [
-    uniqueIndex("index_constituents_unique_idx").on(t.indexCode, t.symbol, t.asOf),
-    index("index_constituents_symbol_idx").on(t.symbol),
-  ],
-);
-
 export const fundNav = pgTable(
   "fund_nav",
   {
@@ -356,7 +341,6 @@ export type Instrument = typeof instruments.$inferSelect;
 export type InstrumentSector = typeof instrumentSectors.$inferSelect;
 export type Fund = typeof funds.$inferSelect;
 export type FundHolding = typeof fundHoldings.$inferSelect;
-export type IndexConstituent = typeof indexConstituents.$inferSelect;
 export type FundNavRow = typeof fundNav.$inferSelect;
 export type FundExposureRow = typeof fundExposure.$inferSelect;
 

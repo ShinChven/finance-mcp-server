@@ -84,6 +84,11 @@ function mockRepo(overrides: Partial<FundRepo> = {}) {
 
   const repo: FundRepo = {
     getFund: vi.fn(async (code: string) => (code === "999999" ? null : fund(code))),
+    getNavSeries: vi.fn(async () => [
+      { navDate: "2025-07-01", nav: 1, accNav: 1 },
+      { navDate: "2026-01-01", nav: 1.3, accNav: 1.3 },
+      { navDate: "2026-07-01", nav: 1.2, accNav: 1.2 },
+    ]),
     getExposure: vi.fn(async () => exposure),
     getHoldings: vi.fn(
       async (_code: string, reportDate?: string) => holdingsByDate[reportDate ?? "2026-03-31"] ?? [],
@@ -308,5 +313,50 @@ describe("compareFunds", () => {
   it("requires at least two codes", async () => {
     const result = await call(mockRepo(), "compareFunds", { codes: ["162411"] });
     expect(result.isError).toBe(true);
+  });
+});
+
+describe("fundPerformance", () => {
+  it("computes returns and drawdown over the NAV series", async () => {
+    const body = structured(await call(mockRepo(), "fundPerformance", { code: "162411" }));
+    const performance = body.performance as Record<string, unknown>;
+
+    expect(performance.cumulativeReturnPercent).toBe(20);
+    // Peak 1.3 → 1.2.
+    expect(performance.maxDrawdownPercent).toBeCloseTo(7.69, 1);
+    expect(performance.basis).toBe("accNav");
+    expect(body.series).toBeUndefined();
+  });
+
+  it("passes the date window through to the repo", async () => {
+    const repo = mockRepo();
+    await call(repo, "fundPerformance", { code: "162411", from: "2025-07-01", to: "2026-07-01" });
+    expect(repo.getNavSeries).toHaveBeenCalledWith("162411", {
+      from: "2025-07-01",
+      to: "2026-07-01",
+    });
+  });
+
+  it("returns the series on request", async () => {
+    const body = structured(
+      await call(mockRepo(), "fundPerformance", { code: "162411", includeSeries: true }),
+    );
+    expect(body.series).toHaveLength(3);
+  });
+
+  it("errors when the window holds too few observations", async () => {
+    const repo = mockRepo({ getNavSeries: vi.fn(async () => []) });
+    const result = await call(repo, "fundPerformance", { code: "162411" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]).toMatchObject({
+      text: expect.stringContaining("fewer than two NAV observations"),
+    });
+  });
+
+  it("rejects a malformed date before querying", async () => {
+    const repo = mockRepo();
+    const result = await call(repo, "fundPerformance", { code: "162411", from: "2026/01/01" });
+    expect(result.isError).toBe(true);
+    expect(repo.getNavSeries).not.toHaveBeenCalled();
   });
 });

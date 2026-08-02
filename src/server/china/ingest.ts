@@ -27,6 +27,7 @@ type Db = typeof Database;
 
 export interface IngestSummary {
   fundsUpserted: number;
+  fundDetailsUpserted: number;
   holdingsUpserted: number;
   navPointsUpserted: number;
   symbolsClassified: number;
@@ -37,6 +38,7 @@ export interface IngestSummary {
 function emptySummary(): IngestSummary {
   return {
     fundsUpserted: 0,
+    fundDetailsUpserted: 0,
     holdingsUpserted: 0,
     navPointsUpserted: 0,
     symbolsClassified: 0,
@@ -86,7 +88,44 @@ export async function ingestFundUniverse(
   return summary;
 }
 
-/** Step 2 — holdings for the requested funds, plus the instruments they reference. */
+/**
+ * Step 2 — per-fund profile detail, most importantly 跟踪标的.
+ *
+ * The universe list carries no mandate, so without this step `tracking_index`
+ * stays null and every index-tracking lookup returns nothing.
+ */
+export async function ingestFundDetails(
+  db: Db,
+  client: EastmoneyClient,
+  codes: string[],
+  summary: IngestSummary = emptySummary(),
+): Promise<IngestSummary> {
+  for (const code of codes) {
+    try {
+      const basics = await client.fetchFundBasics(code);
+      await db
+        .update(funds)
+        .set({
+          ...(basics.name !== null ? { name: basics.name } : {}),
+          ...(basics.fundType !== null ? { fundType: basics.fundType } : {}),
+          trackingIndex: basics.trackingIndex,
+          isIndexFund: basics.trackingIndex !== null,
+          company: basics.company,
+          manager: basics.manager,
+          feeRate: basics.feeRate,
+          fundSize: basics.fundSize,
+          updatedAt: new Date(),
+        })
+        .where(eq(funds.code, code));
+      summary.fundDetailsUpserted += 1;
+    } catch (error) {
+      summary.errors.push(`basics ${code}: ${(error as Error).message}`);
+    }
+  }
+  return summary;
+}
+
+/** Step 3 — holdings for the requested funds, plus the instruments they reference. */
 export async function ingestHoldings(
   db: Db,
   client: EastmoneyClient,
@@ -140,7 +179,7 @@ export async function ingestHoldings(
   return summary;
 }
 
-/** Step 3 — NAV history, used for performance and premium comparisons. */
+/** Step 4 — NAV history, read by the `fundPerformance` tool. */
 export async function ingestNav(
   db: Db,
   client: EastmoneyClient,
@@ -172,7 +211,7 @@ export async function ingestNav(
 }
 
 /**
- * Step 4 — sector tags from Yahoo `assetProfile`.
+ * Step 5 — sector tags from Yahoo `assetProfile`.
  *
  * Only symbols missing a tag are fetched, so re-running the ingest costs one
  * request per genuinely new holding rather than per position.
@@ -218,7 +257,7 @@ export async function ingestSectors(
   return summary;
 }
 
-/** Step 5 — recompute derived exposure for the given funds. */
+/** Step 6 — recompute derived exposure for the given funds. */
 export async function recomputeExposure(
   db: Db,
   codes: string[],
@@ -320,6 +359,7 @@ export async function runIngest(options: RunIngestOptions): Promise<IngestSummar
     codes = rows.map((row) => row.code);
   }
 
+  await ingestFundDetails(db, client, codes, summary);
   await ingestHoldings(db, client, codes, summary);
   await ingestNav(db, client, codes, summary);
 

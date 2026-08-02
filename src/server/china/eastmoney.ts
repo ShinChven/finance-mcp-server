@@ -8,10 +8,12 @@
  */
 
 import {
+  parseFundBasics,
   parseFundCodeList,
   parseFundProfileJs,
   parseHoldings,
   parseNavHistory,
+  type FundBasics,
   type FundListEntry,
   type FundProfile,
   type HoldingEntry,
@@ -25,6 +27,7 @@ const USER_AGENT =
 
 export interface EastmoneyEndpoints {
   fundCodeList: string;
+  basics: (code: string) => string;
   pingzhongData: (code: string) => string;
   holdings: (code: string, year?: number) => string;
   navHistory: (code: string, pageIndex: number, pageSize: number) => string;
@@ -32,6 +35,7 @@ export interface EastmoneyEndpoints {
 
 export const defaultEndpoints: EastmoneyEndpoints = {
   fundCodeList: "https://fund.eastmoney.com/js/fundcode_search.js",
+  basics: (code) => `https://fundf10.eastmoney.com/jbgk_${code}.html`,
   pingzhongData: (code) => `https://fund.eastmoney.com/pingzhongdata/${code}.js`,
   holdings: (code, year) =>
     `https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc&code=${code}&topline=20` +
@@ -87,6 +91,15 @@ export class EastmoneyClient {
   async fetchFundList(): Promise<FundListEntry[]> {
     const body = await this.get(this.endpoints.fundCodeList, "https://fund.eastmoney.com/");
     return parseFundCodeList(body);
+  }
+
+  /** 基金概况 — the only source of 跟踪标的. */
+  async fetchFundBasics(code: string): Promise<FundBasics> {
+    const body = await this.get(
+      this.endpoints.basics(code),
+      `https://fundf10.eastmoney.com/jbgk_${code}.html`,
+    );
+    return parseFundBasics(code, body);
   }
 
   async fetchFundProfile(code: string): Promise<FundProfile> {
