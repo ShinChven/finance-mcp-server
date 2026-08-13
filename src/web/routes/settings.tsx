@@ -33,7 +33,7 @@ function ProfileTab() {
   });
 
   return (
-    <Card className="max-w-lg p-6">
+    <Card className="max-w-2xl p-6">
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -79,7 +79,7 @@ function PreferencesTab() {
   });
 
   return (
-    <Card className="max-w-lg space-y-5 p-6">
+    <Card className="max-w-2xl space-y-5 p-6">
       <div>
         <Label>Theme</Label>
         <Select
