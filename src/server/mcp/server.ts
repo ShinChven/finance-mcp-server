@@ -13,9 +13,12 @@ import { registerSearchTool } from "./tools/search.js";
 import { registerTrendingSymbolsTool } from "./tools/trending-symbols.js";
 import { registerWhoamiTool } from "./tools/whoami.js";
 
-/** Builds a per-request MCP server while reusing the process-level Yahoo client. */
+/**
+ * Builds a per-request MCP server while reusing the process-level Yahoo client.
+ * Pass `auth: null` to build a metadata-only server for tool introspection.
+ */
 export function buildMcpServer(
-  auth: McpAuth,
+  auth: McpAuth | null,
   client: YahooFinanceClient = yahooFinanceClient,
 ): McpServer {
   const server = new McpServer(

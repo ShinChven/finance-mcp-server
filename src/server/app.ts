@@ -13,6 +13,7 @@ import { clientRoutes } from "./routes/clients.js";
 import { meRoutes } from "./routes/me.js";
 import { overviewRoutes } from "./routes/overview.js";
 import { tokenRoutes } from "./routes/tokens.js";
+import { toolRoutes } from "./routes/tools.js";
 
 export function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -52,6 +53,7 @@ export function createApp(): Hono<AppEnv> {
   api.route("/admin", adminRoutes);
   api.route("/overview", overviewRoutes);
   api.route("/chat", chatRoutes);
+  api.route("/tools", toolRoutes);
   app.route("/api", api);
 
   app.onError((err, c) => {
