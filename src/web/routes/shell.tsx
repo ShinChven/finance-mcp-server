@@ -141,10 +141,8 @@ export default function Shell() {
           </button>
         </div>
       </aside>
-      <main className="ml-60 flex-1 px-8 py-8">
-        <div className="mx-auto max-w-5xl">
-          <Outlet />
-        </div>
+      <main className="ml-60 min-w-0 flex-1 px-6 py-6 lg:px-8 lg:py-8">
+        <Outlet />
       </main>
     </div>
   );

@@ -563,7 +563,7 @@ export function IntegrationGuides({
         </div>
       </Card>
 
-      <nav aria-label="MCP client guides" className="mb-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      <nav aria-label="MCP client guides" className="mb-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
         {clients.map((client) => {
           const Icon = client.icon;
           const active = selectedClient === client.id;
