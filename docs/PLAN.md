@@ -26,7 +26,7 @@ both personal access tokens and OAuth 2.1 access tokens.
 **Project shape:** single package, two source roots — `src/server/` (Hono) and
 `src/web/` (React). Shared types/schemas in `src/shared/`. **One process in both
 modes:** in dev, the Hono app runs inside the Vite dev server via
-`@hono/vite-dev-server` (`npm run dev`, port 5173, SPA with HMR + backend paths);
+`@hono/vite-dev-server` (`npm run dev`, port `PORT`, SPA with HMR + backend paths);
 in production, one Hono process serves the API, OAuth, MCP endpoint, and the
 built `dist/web` assets with an SPA fallback.
 
@@ -113,6 +113,7 @@ Lifecycle semantics (tokens and grants alike):
 | `/tokens/new` (modal route) | Name + optional expiry; shows token **once** with copy button | — |
 | `/clients` | OAuth clients that have a grant from this user; disable/revoke/delete, last access | `?q=&status=&page=` |
 | `/assistant` | Built-in chat assistant (Anthropic / OpenAI / Gemini via env keys); streaming, per-user persisted conversations | `?c=<conversation>&q=` |
+| `/tools` | Browse the built-in MCP tools: description, annotations, parameter schemas | `?q=&tool=` |
 | `/settings` | Account name, preferences | `?tab=profile\|preferences` |
 | `/admin/users` | Admin: list/create users, enable/disable, role | `?q=&status=&role=&page=&sort=` |
 | `/admin/clients` | Admin: all registered OAuth clients | `?q=&status=&page=` |
@@ -128,6 +129,9 @@ auth guards via loader redirects, error boundaries, toast notifications.
   `POST /api/tokens/:id/revoke`, `DELETE /api/tokens/:id`
 - `GET /api/clients` (user's grants), `PATCH /api/clients/:id` (disable/enable grant),
   `POST /api/clients/:id/revoke`, `DELETE /api/clients/:id`
+- `GET /api/tools` — MCP tool catalog (accepts `q`), produced by running
+  `tools/list` against a metadata-only MCP server so it never drifts from the
+  real registrations
 - Admin: `GET|POST /api/admin/users`, `PATCH /api/admin/users/:id`,
   `GET /api/admin/clients`, `PATCH /api/admin/clients/:id`, `GET /api/admin/audit`
 - List endpoints accept `q`, `status`, `page`, `per_page`, `sort` — mirroring the
@@ -183,9 +187,9 @@ Each phase ends with typecheck + tests green and a commit.
 ## 6. Environment variables
 
 ```
-PORT=8787
+PORT=5173
 APP_URL=https://mcp.example.com        # public base URL (OAuth issuer, redirects)
-DATABASE_URL=postgres://mcp:mcp@db:5432/mcp
+DATABASE_URL=postgres://finance_mcp:finance_mcp@db:5432/finance_mcp
 SESSION_SECRET=<32+ random bytes>
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
