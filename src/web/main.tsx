@@ -9,6 +9,7 @@ import Shell, { shellLoader } from "./routes/shell.js";
 import OverviewPage from "./routes/overview.js";
 import ActivityPage from "./routes/activity.js";
 import IntegrationsPage from "./routes/integrations.js";
+import ToolsPage from "./routes/tools.js";
 import AssistantPage from "./routes/assistant.js";
 import TokensPage from "./routes/tokens.js";
 import ClientsPage from "./routes/clients.js";
@@ -49,6 +50,7 @@ const router = createBrowserRouter([
       { index: true, element: <OverviewPage /> },
       { path: "activity", element: <ActivityPage /> },
       { path: "integrations", element: <IntegrationsPage /> },
+      { path: "tools", element: <ToolsPage /> },
       { path: "assistant", element: <AssistantPage /> },
       { path: "tokens", element: <TokensPage /> },
       { path: "clients", element: <ClientsPage /> },

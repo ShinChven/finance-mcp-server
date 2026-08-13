@@ -16,6 +16,8 @@ export interface ListParamValues {
   tab: string;
   /** Selected entity (e.g. active conversation) — part of the URL so views are shareable. */
   c: string;
+  /** Selected MCP tool on the Tools browser. */
+  tool: string;
   page: number;
   per_page: number;
   sort: string;
@@ -37,6 +39,7 @@ export function useListParams(defaults: Partial<ListParamValues> = {}) {
       action: searchParams.get("action") ?? "",
       tab: searchParams.get("tab") ?? defaultTab,
       c: searchParams.get("c") ?? "",
+      tool: searchParams.get("tool") ?? "",
       page: Math.max(1, Number(searchParams.get("page")) || 1),
       per_page: Math.min(100, Math.max(1, Number(searchParams.get("per_page")) || defaultPerPage)),
       sort: searchParams.get("sort") ?? defaultSort,

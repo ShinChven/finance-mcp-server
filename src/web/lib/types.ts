@@ -1,3 +1,4 @@
+import type { JsonSchemaNode } from "./json-schema.js";
 import type { UserPreferences } from "../../shared/preferences.js";
 
 export interface Me {
@@ -85,6 +86,28 @@ export interface SessionItem {
   ip: string | null;
   userAgent: string | null;
   current: boolean;
+}
+
+/** A tool as returned by MCP `tools/list`, mirrored 1:1 by `GET /api/tools`. */
+export interface McpToolInfo {
+  name: string;
+  title?: string;
+  description?: string;
+  annotations?: {
+    title?: string;
+    readOnlyHint?: boolean;
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint?: boolean;
+  };
+  inputSchema: JsonSchemaNode;
+  outputSchema?: JsonSchemaNode;
+}
+
+export interface ToolCatalog {
+  server: { name: string; version: string; instructions: string | null };
+  items: McpToolInfo[];
+  total: number;
 }
 
 export interface Overview {

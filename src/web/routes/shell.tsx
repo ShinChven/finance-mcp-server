@@ -13,6 +13,7 @@ import {
   Server,
   Settings,
   Users,
+  Wrench,
 } from "lucide-react";
 import { api, ApiError } from "../lib/api.js";
 import type { Me } from "../lib/types.js";
@@ -83,6 +84,9 @@ export default function Shell() {
           </NavLink>
           <NavLink to="/integrations" className={navItemClass}>
             <BookOpen className="size-4" /> Integrations
+          </NavLink>
+          <NavLink to="/tools" className={navItemClass}>
+            <Wrench className="size-4" /> Tools
           </NavLink>
           <NavLink to="/tokens" className={navItemClass}>
             <KeyRound className="size-4" /> Access Tokens
