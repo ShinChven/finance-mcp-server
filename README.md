@@ -42,7 +42,7 @@ Requirements: Node 22+, PostgreSQL.
 ```sh
 cp .env.example .env   # fill in DATABASE_URL, SESSION_SECRET, Google credentials, ADMIN_EMAILS
 npm install
-npm run dev            # one process: http://localhost:5173
+npm run dev            # one process: http://localhost:5173 (follows PORT)
 ```
 
 Migrations run automatically at boot, and every `ADMIN_EMAILS` entry is seeded
@@ -53,7 +53,8 @@ as an active admin. Sign in with the matching Google account.
 Create an OAuth client (type "Web application") at
 [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials)
 and add the redirect URI `{APP_URL}/auth/google/callback`
-(e.g. `http://localhost:5173/auth/google/callback` for dev).
+(e.g. `http://localhost:5173/auth/google/callback` for dev). Dev and production
+share one port, so a single `APP_URL` and one registered redirect URI cover both.
 
 ## Deployment (Docker)
 

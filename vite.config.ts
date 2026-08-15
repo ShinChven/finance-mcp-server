@@ -1,5 +1,12 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
+// Same trick as src/server/load-env.ts, repeated here because the config is
+// evaluated before any entry point runs — it makes PORT available below.
+try {
+  process.loadEnvFile();
+} catch {
+  // No .env file — rely on real environment variables.
+}
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import devServer from "@hono/vite-dev-server";
@@ -24,6 +31,8 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
-    port: 5173,
+    // Same port as the built server (src/server/index.ts), so APP_URL — and the
+    // Google redirect URI derived from it — is identical in dev and production.
+    port: Number(process.env.PORT) || 5173,
   },
 });
