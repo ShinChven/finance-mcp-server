@@ -24,8 +24,8 @@ COPY --from=build /app/package.json ./
 # Run as non-root
 USER node
 
-ENV PORT=8787
-EXPOSE 8787
+ENV PORT=5173
+EXPOSE 5173
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
   CMD wget -qO- "http://127.0.0.1:${PORT}/healthz" || exit 1
