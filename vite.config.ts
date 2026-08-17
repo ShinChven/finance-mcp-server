@@ -34,5 +34,9 @@ export default defineConfig({
     // Same port as the built server (src/server/index.ts), so APP_URL — and the
     // Google redirect URI derived from it — is identical in dev and production.
     port: Number(process.env.PORT) || 5173,
+    // Fail instead of falling back to the next free port: the Google redirect
+    // URI is registered against this exact port, so a shifted port silently
+    // breaks OAuth.
+    strictPort: true,
   },
 });
