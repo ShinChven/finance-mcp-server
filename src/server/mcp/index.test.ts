@@ -51,7 +51,7 @@ async function connect(client: YahooFinanceClient) {
 }
 
 describe("finance MCP server", () => {
-  it("exposes ten finance tools plus whoami, without echo", async () => {
+  it("exposes the Yahoo and fund-relationship tools plus whoami, without echo", async () => {
     const { client } = mockYahooClient();
     const { server, mcpClient } = await connect(client);
 
@@ -69,6 +69,13 @@ describe("finance MCP server", () => {
         "insights",
         "recommendationsBySymbol",
         "fundamentalsTimeSeries",
+        "fundExposure",
+        "fundsByStock",
+        "fundsBySector",
+        "similarFunds",
+        "themeToFunds",
+        "compareFunds",
+        "fundPerformance",
       ]);
       expect(result.tools.every((tool) => tool.annotations?.readOnlyHint)).toBe(true);
     } finally {

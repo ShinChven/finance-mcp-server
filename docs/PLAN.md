@@ -94,6 +94,21 @@ avoid write amplification).
 - **audit_log** — id, actor_user_id, action, target_type, target_id, meta (JSON),
   ip, created_at
 
+Fund relationship layer (read by the MCP tools, written only by the offline ingest):
+- **instruments** — symbol (Yahoo-style canonical key), name, market, type, currency
+- **instrument_sectors** — symbol, taxonomy (`gics` today, `sw` reserved), sector_code, sector_name
+- **funds** — 6-digit code, name, fund_type, is_qdii, is_index_fund, tracking_index,
+  company, manager, fee_rate, fund_size, currency, listed_symbol, purchase_status/limit
+- **fund_holdings** — fund_code, symbol, weight (% of NAV), report_date
+- **fund_nav** — fund_code, nav_date, nav, acc_nav, daily_return
+- **fund_exposure** — derived: fund_code, dimension (`sector`|`market`), taxonomy, key,
+  label, weight, **coverage**, report_date
+
+`coverage` is carried on every derived row on purpose: exposure inferred from
+partially-classified holdings is a materially weaker claim than fully-classified
+exposure, and a schema that cannot express the difference forces the tools to
+present both identically.
+
 Lifecycle semantics (tokens and grants alike):
 - **Disable/enable** — reversible; token stays valid data but is rejected while disabled.
 - **Revoke** — permanent; row kept for audit/history, can never authenticate again.
@@ -141,6 +156,31 @@ auth guards via loader redirects, error boundaries, toast notifications.
 
 ### MCP endpoint
 - `ALL /mcp` — Streamable HTTP via `@hono/mcp`, guarded by the bearer middleware.
+
+### Fund relationship tools
+
+Keyword search over fund names cannot answer "which fund holds this stock" —
+fund names do not describe their portfolios. The relationship layer inverts the
+problem: holdings and index membership are ingested offline into the tables
+above, and the tools query that index.
+
+Three routes connect a stock/sector/theme to a fund, in descending confidence:
+
+1. **Tracking index** — an index fund declares its mandate; it will not drift.
+2. **Disclosed holdings** — quarterly top holdings, aggregated into sector and
+   market exposure. Accurate but a snapshot; paired with a stability score.
+3. **Market exposure** — for country/region themes where sector is irrelevant.
+
+Tools: `fundExposure`, `fundsByStock`, `fundsBySector`, `similarFunds`,
+`themeToFunds`, `compareFunds`, `fundPerformance`. All read-only, all local — no
+tool call reaches an upstream provider.
+
+Ingest (`npm run ingest:cn`, bundled to `dist/server/china/ingest-cli.js`) pulls
+the fund universe, per-fund profile detail (`跟踪标的` — without this step route
+1 has no data), holdings and NAV from Eastmoney, classifies holdings by sector
+via Yahoo `assetProfile` (one taxonomy across CN/HK/US), then recomputes
+`fund_exposure`. Upstream response shapes are isolated in pure parsers with
+fixture tests — see the README note on their unverified status.
 - System tool: `whoami` returns the authenticated user and auth method.
 - Yahoo Finance tools: `search`, `quote`, `quoteSummary`, `chart`, `screener`,
   `trendingSymbols`, `options`, `insights`, `recommendationsBySymbol`, and

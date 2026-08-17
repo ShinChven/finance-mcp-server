@@ -1,8 +1,9 @@
 import { build } from "esbuild";
 
 await build({
-  entryPoints: ["src/server/index.ts"],
-  outfile: "dist/server/index.js",
+  entryPoints: ["src/server/index.ts", "src/server/china/ingest-cli.ts"],
+  outdir: "dist/server",
+  outbase: "src/server",
   bundle: true,
   platform: "node",
   format: "esm",

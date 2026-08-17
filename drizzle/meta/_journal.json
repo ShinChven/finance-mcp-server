@@ -22,6 +22,20 @@
       "when": 1783728811643,
       "tag": "0002_lowly_tusk",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785668332940,
+      "tag": "0003_classy_spirit",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785712516800,
+      "tag": "0004_complete_jetstream",
+      "breakpoints": true
     }
   ]
 }

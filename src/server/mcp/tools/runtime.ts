@@ -45,6 +45,14 @@ export function yahooRequestOptions() {
   };
 }
 
+export const fundCodeSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{6}$/, "must be a 6-digit China fund code")
+  .describe('China public fund code, for example "162411" or "270042".');
+
+export const fundCodesSchema = z.array(fundCodeSchema).min(2).max(10);
+
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {
     if (error.name === "AbortError" || error.name === "TimeoutError") {
@@ -55,7 +63,13 @@ function errorMessage(error: unknown): string {
   return `Error: ${String(error)}`;
 }
 
-export async function runYahooFinanceTool(operation: () => Promise<unknown>): Promise<CallToolResult> {
+/**
+ * Provider-neutral tool envelope: JSON-serializes a result, enforces the size
+ * cap, and turns thrown errors into an `isError` result instead of a transport
+ * failure. `runYahooFinanceTool` is the Yahoo-named alias kept for the existing
+ * tools; relationship tools call `runTool` directly.
+ */
+export async function runTool(operation: () => Promise<unknown>): Promise<CallToolResult> {
   try {
     const result = await operation();
     const text = JSON.stringify(result);
@@ -78,3 +92,6 @@ export async function runYahooFinanceTool(operation: () => Promise<unknown>): Pr
     };
   }
 }
+
+/** Backwards-compatible alias for the Yahoo tools. */
+export const runYahooFinanceTool = runTool;
