@@ -13,12 +13,18 @@ export type Market = "CN" | "HK" | "US" | "JP" | "DE" | "OTHER";
  *
  * - 6-digit CN codes gain `.SS` / `.SZ` / `.BJ` from their prefix
  * - 5-digit HK codes collapse to Yahoo's 4-digit `.HK` form (`00700` → `0700.HK`)
+ * - 3-digit + letter codes are Tokyo's post-2024 alphanumeric form (`285A` → `285A.T`)
  * - anything already carrying a suffix, or alphabetic (US), passes through
  */
 export function toCanonicalSymbol(raw: string): string | undefined {
   const code = raw.trim().toUpperCase();
   if (code === "") return undefined;
   if (code.includes(".")) return code;
+
+  // Checked before the numeric branches: TSE began issuing codes like `285A`
+  // (Kioxia) in 2024, and a leading digit would otherwise fall through to the
+  // US branch, which requires an alphabetic first character.
+  if (/^\d{3}[A-Z]$/.test(code)) return `${code}.T`;
 
   if (/^\d{6}$/.test(code)) {
     if (/^(60|68|51|56|58|50)/.test(code)) return `${code}.SS`;

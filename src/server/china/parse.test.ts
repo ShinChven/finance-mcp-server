@@ -91,6 +91,21 @@ describe("parseHoldings", () => {
     ]);
   });
 
+  it("keeps holdings whose code is a Tokyo alphanumeric ticker", () => {
+    // Regression: `285A` (Kioxia) matched neither the code pattern nor the
+    // canonical-symbol rules, so a QDII's Japanese positions vanished silently.
+    const withTokyo = jsonp.replace(
+      "<tr><td>3</td><td>00700</td><td>腾讯控股</td><td>5.10%</td></tr>",
+      "<tr><td>3</td><td>285A</td><td>KIOXIA</td><td>5.89%</td></tr>",
+    );
+    expect(parseHoldings(withTokyo)).toContainEqual({
+      symbol: "285A.T",
+      name: "KIOXIA",
+      weight: 5.89,
+      reportDate: "2026-03-31",
+    });
+  });
+
   it("returns nothing when no report date can be established", () => {
     const undated =
       'var apidata={ content:"<table><tr><td>1</td><td>NVDA</td><td>英伟达</td><td>9.85%</td></tr></table>",arryear:[]};';

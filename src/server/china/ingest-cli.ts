@@ -8,6 +8,7 @@
  * so the container can run it from cron without a TypeScript toolchain.
  */
 
+import "../load-env.js";
 import { db, pool, waitForDb } from "../db/index.js";
 import { yahooFinanceClient } from "../mcp/client.js";
 import { runIngest } from "./ingest.js";
