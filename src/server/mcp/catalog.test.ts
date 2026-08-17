@@ -19,6 +19,13 @@ describe("mcp tool catalog", () => {
       "insights",
       "recommendationsBySymbol",
       "fundamentalsTimeSeries",
+      "fundExposure",
+      "fundsByStock",
+      "fundsBySector",
+      "similarFunds",
+      "themeToFunds",
+      "compareFunds",
+      "fundPerformance",
     ]);
     for (const tool of catalog.tools) {
       expect(tool.title, tool.name).toBeTruthy();
