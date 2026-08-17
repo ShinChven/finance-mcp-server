@@ -18,6 +18,15 @@ export const tokenStatus = pgEnum("token_status", ["active", "disabled", "revoke
 export const clientStatus = pgEnum("client_status", ["active", "disabled"]);
 export const grantStatus = pgEnum("grant_status", ["active", "disabled", "revoked"]);
 export const oauthTokenKind = pgEnum("oauth_token_kind", ["access", "refresh"]);
+export const ingestJobStatus = pgEnum("ingest_job_status", [
+  "queued",
+  "running",
+  "succeeded",
+  "failed",
+  "cancelled",
+]);
+/** Which slice of the fund universe a sync covers. `codes` is an explicit list. */
+export const ingestScope = pgEnum("ingest_scope", ["qdii", "index", "equity", "all", "codes"]);
 
 const id = () =>
   text("id")
@@ -270,10 +279,22 @@ export const funds = pgTable(
     purchaseStatus: text("purchase_status"),
     purchaseLimit: doublePrecision("purchase_limit"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    // Per-step watermarks. A re-run skips whatever is still inside its freshness
+    // window, which is what turns a 3-hour full sync into a short incremental
+    // one. The three steps age at different rates — holdings are quarterly,
+    // NAV is daily, the profile barely changes — so they are tracked apart.
+    detailsSyncedAt: timestamp("details_synced_at", { withTimezone: true }),
+    holdingsSyncedAt: timestamp("holdings_synced_at", { withTimezone: true }),
+    navSyncedAt: timestamp("nav_synced_at", { withTimezone: true }),
+    /** Last failure for this fund, cleared on the next success. */
+    lastSyncError: text("last_sync_error"),
   },
   (t) => [
     index("funds_qdii_idx").on(t.isQdii),
     index("funds_tracking_index_idx").on(t.trackingIndexCode),
+    // Drives both the "what still needs fetching" scan and the /funds listing's
+    // default "recently cached first" order.
+    index("funds_holdings_synced_idx").on(t.holdingsSyncedAt),
   ],
 );
 
@@ -337,6 +358,42 @@ export const fundExposure = pgTable(
   ],
 );
 
+/**
+ * One row per sync run, so a job that takes hours is inspectable while it is
+ * still going rather than only via whatever the CLI printed at the end.
+ *
+ * `processedFunds`/`totalFunds` are updated as the run walks the fund list;
+ * `summary` holds the final `IngestSummary`.
+ */
+export const ingestJobs = pgTable(
+  "ingest_jobs",
+  {
+    id: id(),
+    scope: ingestScope("scope").notNull(),
+    status: ingestJobStatus("status").notNull().default("queued"),
+    /** Null for runs started by the CLI rather than a dashboard user. */
+    requestedBy: text("requested_by").references(() => users.id, { onDelete: "set null" }),
+    /** Explicit fund codes, when `scope` is `codes`. */
+    codes: jsonb("codes").$type<string[]>(),
+    /** Cap on funds fetched in this run. */
+    fundLimit: doublePrecision("fund_limit"),
+    /** Funds skipped because their watermark was still inside the window. */
+    skippedFresh: doublePrecision("skipped_fresh").notNull().default(0),
+    totalFunds: doublePrecision("total_funds").notNull().default(0),
+    processedFunds: doublePrecision("processed_funds").notNull().default(0),
+    summary: jsonb("summary").$type<Record<string, unknown>>(),
+    error: text("error"),
+    createdAt: createdAt(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("ingest_jobs_status_idx").on(t.status),
+    index("ingest_jobs_created_idx").on(t.createdAt),
+  ],
+);
+
+export type IngestJob = typeof ingestJobs.$inferSelect;
 export type Instrument = typeof instruments.$inferSelect;
 export type InstrumentSector = typeof instrumentSectors.$inferSelect;
 export type Fund = typeof funds.$inferSelect;

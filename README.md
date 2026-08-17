@@ -138,23 +138,66 @@ basis was used.
 ### Fund data ingest
 
 The relationship tools read local tables only — no tool call ever hits an
-upstream data source. Populate them with:
+upstream data source. Populate them from the **Fund Cache** page in the
+dashboard, or from the CLI:
 
 ```sh
 npm run build
 npm run ingest:cn -- --limit=200            # QDII funds by default
+npm run ingest:cn -- --types=index          # qdii | index | equity | all
+npm run ingest:cn -- --types=qdii --dry-run # counts only, fetches nothing
 npm run ingest:cn -- --codes=162411,270042  # specific funds
 npm run ingest:cn -- --codes=162411 --skip-universe
+npm run ingest:cn -- --types=qdii --force   # ignore the freshness windows
 ```
 
 The job runs six steps: fund universe → per-fund profile detail (including
 `跟踪标的`) → holdings → NAV history → sector classification via Yahoo
 `assetProfile` (which covers CN, HK and US listings under one taxonomy) →
-recomputed exposure. Quarterly reports land roughly 15-30 days after quarter
-end, so running it monthly is enough.
+recomputed exposure.
+
+**Freshness windows.** Each fund carries a per-step watermark, and a run skips
+whatever is still current: profile detail for 30 days, holdings for 7, NAV for
+1. The three differ because they age differently — a fund's profile barely
+moves, portfolios are disclosed quarterly (re-checked weekly so a new quarter
+lands within days of publication), and NAV changes every trading day. This is
+what makes a repeat run cheap; `--force` overrides it.
+
+**Share classes are ingested per fund code.** A fund's A/C/现汇/现钞 classes
+share a portfolio, so fetching holdings once per class is redundant — but
+deduplicating means inferring the grouping from the fund name, and there is no
+share-class identifier in the upstream payload. A wrong grouping writes one
+fund's holdings under another's code, and nothing surfaces it. Since NAV and
+fees genuinely differ per class and must be fetched per code anyway, the
+deduplication would only save about 14% of a run's requests. Correct by
+construction beat it.
 
 Per-fund failures are collected rather than fatal: the summary lists them and
 the process exits non-zero, while everything that succeeded is still committed.
+The last failure is also written to `funds.last_sync_error` so the dashboard can
+show which funds are failing.
+
+**Unparseable holdings are counted, not swallowed.** `holdingsDropped` in the
+summary reports rows the parser could not read. A non-zero value means an
+upstream format drift — the failure mode that once made Tokyo-coded positions
+(`285A`) vanish from QDII portfolios with no error at all.
+
+### Fund Cache dashboard page
+
+`/funds` shows what is actually cached — fund count, holdings rows, distinct
+stocks, latest report date — and lists every fund with its holdings count and
+cache age, filterable by category and by cached / not cached / failing. Clicking
+a fund opens its stored portfolio.
+
+Admins can start a sync per category. Picking one opens a confirmation showing
+how many funds it matches, how many are already fresh, how many will actually be
+fetched, the request count and an estimated duration — nothing is fetched until
+that is confirmed. A run is tracked in `ingest_jobs` with live progress and can
+be stopped; it is single-flight, since two concurrent runs would double the
+request rate against hosts that already throttle.
+
+Syncs run in the server process, so a restart interrupts one; jobs left running
+are marked failed at boot rather than appearing stuck forever.
 
 > **Note on upstream formats.** The Eastmoney endpoints are undocumented and
 > their response shapes were implemented from their known structure, not

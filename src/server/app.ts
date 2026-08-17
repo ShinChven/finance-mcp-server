@@ -10,6 +10,7 @@ import { adminRoutes } from "./routes/admin.js";
 import { authRoutes } from "./routes/auth.js";
 import { chatRoutes } from "./routes/chat.js";
 import { clientRoutes } from "./routes/clients.js";
+import { fundRoutes, syncRoutes } from "./routes/funds.js";
 import { meRoutes } from "./routes/me.js";
 import { overviewRoutes } from "./routes/overview.js";
 import { tokenRoutes } from "./routes/tokens.js";
@@ -54,6 +55,8 @@ export function createApp(): Hono<AppEnv> {
   api.route("/overview", overviewRoutes);
   api.route("/chat", chatRoutes);
   api.route("/tools", toolRoutes);
+  api.route("/funds", fundRoutes);
+  api.route("/sync", syncRoutes);
   app.route("/api", api);
 
   app.onError((err, c) => {

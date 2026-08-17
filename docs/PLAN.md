@@ -98,11 +98,14 @@ Fund relationship layer (read by the MCP tools, written only by the offline inge
 - **instruments** — symbol (Yahoo-style canonical key), name, market, type, currency
 - **instrument_sectors** — symbol, taxonomy (`gics` today, `sw` reserved), sector_code, sector_name
 - **funds** — 6-digit code, name, fund_type, is_qdii, is_index_fund, tracking_index,
-  company, manager, fee_rate, fund_size, currency, listed_symbol, purchase_status/limit
+  company, manager, fee_rate, fund_size, currency, listed_symbol, purchase_status/limit,
+  per-step sync watermarks (details/holdings/nav_synced_at), last_sync_error
 - **fund_holdings** — fund_code, symbol, weight (% of NAV), report_date
 - **fund_nav** — fund_code, nav_date, nav, acc_nav, daily_return
 - **fund_exposure** — derived: fund_code, dimension (`sector`|`market`), taxonomy, key,
   label, weight, **coverage**, report_date
+- **ingest_jobs** — scope, status, requested_by, codes, fund_limit, skipped_fresh,
+  total/processed_funds, summary, error, created/started/finished_at
 
 `coverage` is carried on every derived row on purpose: exposure inferred from
 partially-classified holdings is a materially weaker claim than fully-classified
@@ -181,6 +184,23 @@ the fund universe, per-fund profile detail (`跟踪标的` — without this step
 via Yahoo `assetProfile` (one taxonomy across CN/HK/US), then recomputes
 `fund_exposure`. Upstream response shapes are isolated in pure parsers with
 fixture tests — see the README note on their unverified status.
+
+The same pipeline is drivable from the dashboard's Fund Cache page. Three pieces
+make that safe:
+
+- **Per-step watermarks** (`funds.details_synced_at`, `holdings_synced_at`,
+  `nav_synced_at`) with separate freshness windows, so a repeat run costs only
+  what actually went stale rather than three requests per fund every time.
+- **`ingest_jobs`** records each run with live progress, because a full sync is
+  hours of throttled HTTP and would otherwise be a black box between start and
+  summary. Runs are single-flight and in-process; `reconcileOrphanedJobs` fails
+  anything left running by a dead process at boot.
+- **A preview** (`previewSync`, `GET /api/sync/preview`) computes what a run
+  would fetch from the same `selectCandidates` + freshness logic the run itself
+  uses, so the counts a user confirms cannot drift from what then happens.
+
+Share classes are ingested per fund code rather than deduplicated by portfolio —
+see the README for why the deduplication loses more than it saves.
 - System tool: `whoami` returns the authenticated user and auth method.
 - Yahoo Finance tools: `search`, `quote`, `quoteSummary`, `chart`, `screener`,
   `trendingSymbols`, `options`, `insights`, `recommendationsBySymbol`, and

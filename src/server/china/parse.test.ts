@@ -4,7 +4,9 @@ import {
   parseFundCodeList,
   parseFundProfileJs,
   parseHoldings,
+  parseHoldingsWithStats,
   parseNavHistory,
+  totalDrops,
 } from "./parse.js";
 
 /**
@@ -119,6 +121,50 @@ describe("parseHoldings", () => {
       "<tr><td>3</td><td>NVDA</td><td>英伟达</td><td>9.85%</td></tr>",
     );
     expect(parseHoldings(duplicated).filter((row) => row.symbol === "NVDA")).toHaveLength(1);
+  });
+
+  describe("drop counting", () => {
+    it("reports nothing dropped for a clean table", () => {
+      const { entries, stats } = parseHoldingsWithStats(jsonp);
+      expect(entries).toHaveLength(3);
+      expect(stats).toEqual({ noCode: 0, unmappedSymbol: 0, noWeight: 0 });
+      expect(totalDrops(stats)).toBe(0);
+    });
+
+    it("counts a row whose code shape is unrecognised", () => {
+      // The shape of the `285A` bug: a real holding the code pattern misses.
+      // Before the counter this returned two rows and said nothing.
+      const unknownCode = jsonp.replace(
+        "<tr><td>3</td><td>00700</td><td>腾讯控股</td><td>5.10%</td></tr>",
+        "<tr><td>3</td><td>12345678</td><td>某新市场</td><td>5.10%</td></tr>",
+      );
+      const { entries, stats } = parseHoldingsWithStats(unknownCode);
+      expect(entries).toHaveLength(2);
+      expect(stats.noCode).toBe(1);
+      expect(totalDrops(stats)).toBe(1);
+    });
+
+    it("counts a row with a code but no readable weight", () => {
+      const noWeight = jsonp.replace(
+        "<tr><td>3</td><td>00700</td><td>腾讯控股</td><td>5.10%</td></tr>",
+        "<tr><td>3</td><td>00700</td><td>腾讯控股</td><td>---</td></tr>",
+      );
+      const { entries, stats } = parseHoldingsWithStats(noWeight);
+      expect(entries).toHaveLength(2);
+      expect(stats.noWeight).toBe(1);
+    });
+
+    it("does not count header or subtotal rows as drops", () => {
+      // Both carry no usable code; neither is missing data. Counting them would
+      // make every healthy table report drops and train the reader to ignore it.
+      const withSubtotal = jsonp.replace(
+        "</tbody>",
+        "<tr><td></td><td>股票投资合计</td><td></td><td>22.15%</td></tr></tbody>",
+      );
+      const { entries, stats } = parseHoldingsWithStats(withSubtotal);
+      expect(entries).toHaveLength(3);
+      expect(totalDrops(stats)).toBe(0);
+    });
   });
 });
 
