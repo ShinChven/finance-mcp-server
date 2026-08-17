@@ -357,6 +357,22 @@ export async function runIngest(options: RunIngestOptions): Promise<IngestSummar
       .where(eq(funds.isQdii, true))
       .limit(limit);
     codes = rows.map((row) => row.code);
+  } else if (skipUniverse) {
+    // `fund_holdings.fund_code` is a foreign key into `funds`, so an explicit
+    // code that was never seeded fails every insert with a bare constraint
+    // violation. Drop it here with an actionable message instead.
+    const known = await db
+      .select({ code: funds.code })
+      .from(funds)
+      .where(inArray(funds.code, codes));
+    const knownCodes = new Set(known.map((row) => row.code));
+    const missing = codes.filter((code) => !knownCodes.has(code));
+    for (const code of missing) {
+      summary.errors.push(
+        `${code}: not in the local fund index — run once without --skip-universe to seed it.`,
+      );
+    }
+    codes = codes.filter((code) => knownCodes.has(code));
   }
 
   await ingestFundDetails(db, client, codes, summary);

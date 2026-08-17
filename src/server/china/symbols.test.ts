@@ -21,6 +21,16 @@ describe("toCanonicalSymbol", () => {
     expect(toCanonicalSymbol("0700.HK")).toBe("0700.HK");
   });
 
+  it("routes Tokyo's alphanumeric codes to .T", () => {
+    // TSE started issuing these in 2024; 285A is Kioxia.
+    expect(toCanonicalSymbol("285A")).toBe("285A.T");
+    expect(toCanonicalSymbol("130A")).toBe("130A.T");
+    expect(marketOf("285A.T")).toBe("JP");
+    // Purely numeric 4-digit codes stay HK — the two forms are ambiguous and
+    // Eastmoney renders HK holdings this way.
+    expect(toCanonicalSymbol("9988")).toBe("9988.HK");
+  });
+
   it("rejects input it cannot classify", () => {
     expect(toCanonicalSymbol("")).toBeUndefined();
     expect(toCanonicalSymbol("贵州茅台")).toBeUndefined();

@@ -188,7 +188,9 @@ export function parseHoldings(source: string): HoldingEntry[] {
       }
       if (cells.length < 4) continue;
 
-      const rawCode = cells.find((cell) => /^\d{5,6}$|^[A-Z]{1,5}$/.test(cell));
+      // `\d{3}[A-Z]` catches Tokyo's post-2024 alphanumeric codes (`285A`);
+      // without it a QDII's Japanese holdings are dropped with no error.
+      const rawCode = cells.find((cell) => /^\d{5,6}$|^[A-Z]{1,5}$|^\d{3}[A-Z]$/.test(cell));
       if (!rawCode) continue;
       const symbol = toCanonicalSymbol(rawCode);
       if (!symbol) continue;
