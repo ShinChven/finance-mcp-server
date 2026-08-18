@@ -97,11 +97,38 @@ configuration files, authentication steps and troubleshooting.
 | `insights` | Analyst research, developments and technical outlooks |
 | `recommendationsBySymbol` | Related and similar instruments |
 | `fundamentalsTimeSeries` | Financial statement data over time |
+| `earningsAnalysis` | Beats/misses, estimate revisions and the next report date, in one call |
+
+`earningsAnalysis` stitches together four `quoteSummary` modules and does the
+arithmetic, so answering "did they beat, and are estimates moving up or down"
+takes one call instead of four plus manual work. It reports estimate
+*revisions*, not just a current snapshot — a single estimate says nothing about
+direction.
 
 Yahoo covers CN and HK listings through symbol suffixes (`600519.SS`,
 `0700.HK`), so the tools above already span the A-share, Hong Kong and US
 markets. What Yahoo does not carry is China's domestic public funds — that is
 what the tools below are for.
+
+#### SEC EDGAR tools
+
+For US issuers, EDGAR is the source of record that Yahoo mirrors — late,
+partially, and without provenance. These tools read it directly.
+
+| Tool | Purpose |
+|---|---|
+| `secFilings` | An issuer's filing index, newest first, with direct document URLs |
+| `secFinancials` | As-reported XBRL financials as a time series, with the filing behind every value |
+
+Reach for these over the Yahoo statement tools when you need as-reported rather
+than vendor-normalised figures, restatement-accurate history, or a citable
+filing URL. `secFinancials` deduplicates each period to its latest restatement
+and carries the `us-gaap` concept and accession number for every value.
+
+Coverage is SEC registrants only: non-US listings and most ADRs have no CIK, and
+filers predating XBRL have no company facts. Both tools say so explicitly rather
+than returning an empty result. EDGAR requires a contact address in the
+`User-Agent` on every request — set `SEC_EDGAR_CONTACT_EMAIL`.
 
 #### Fund relationship tools
 
