@@ -11,6 +11,25 @@ export const readOnlyToolAnnotations = {
   openWorldHint: true,
 } satisfies ToolAnnotations;
 
+/**
+ * Tools that change stored state. `openWorldHint` is false because these touch
+ * this server's own rows, not an external service, and `idempotentHint` is true
+ * because adds are conflict-tolerant and removes are by identity — repeating a
+ * call converges rather than duplicating.
+ */
+export const writeToolAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+} satisfies ToolAnnotations;
+
+/** As above, for tools that delete rows. */
+export const destructiveToolAnnotations = {
+  ...writeToolAnnotations,
+  destructiveHint: true,
+} satisfies ToolAnnotations;
+
 export const symbolSchema = z
   .string()
   .trim()

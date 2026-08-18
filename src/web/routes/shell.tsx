@@ -13,6 +13,7 @@ import {
   ScrollText,
   Server,
   Settings,
+  Star,
   Users,
   Wrench,
 } from "lucide-react";
@@ -88,6 +89,9 @@ export default function Shell() {
           </NavLink>
           <NavLink to="/tools" className={navItemClass}>
             <Wrench className="size-4" /> Tools
+          </NavLink>
+          <NavLink to="/watchlist" className={navItemClass}>
+            <Star className="size-4" /> Watchlists
           </NavLink>
           <NavLink to="/funds" className={navItemClass}>
             <Database className="size-4" /> Fund Cache

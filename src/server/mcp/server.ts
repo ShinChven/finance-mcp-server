@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createLazyFundRepo, type FundRepo } from "../china/repo.js";
 import type { McpAuth } from "../lib/http.js";
 import { getEdgarClient, type EdgarClient } from "../sec/edgar.js";
+import { createLazyWatchlistRepo, type WatchlistRepo } from "../watchlist/repo.js";
 import { yahooFinanceClient, type YahooFinanceClient } from "./client.js";
 import { registerCompareFundsTool } from "./tools/compare-funds.js";
 import { registerFundExposureTool } from "./tools/fund-exposure.js";
@@ -22,24 +23,41 @@ import { registerScreenerTool } from "./tools/screener.js";
 import { registerSearchTool } from "./tools/search.js";
 import { registerSecFilingsTool } from "./tools/sec-filings.js";
 import { registerSecFinancialsTool } from "./tools/sec-financials.js";
+import { registerWatchlistTool } from "./tools/watchlist.js";
+import { registerWatchlistAddTool } from "./tools/watchlist-add.js";
+import { registerWatchlistRemoveTool } from "./tools/watchlist-remove.js";
+import { registerWatchlistsTool } from "./tools/watchlists.js";
 import { registerTrendingSymbolsTool } from "./tools/trending-symbols.js";
 import { registerWhoamiTool } from "./tools/whoami.js";
 
 /**
- * Builds a per-request MCP server while reusing the process-level Yahoo client.
- * Pass `auth: null` to build a metadata-only server for tool introspection.
+ * Injectable dependencies. An object rather than positional parameters: every
+ * new data source added one more argument that every call site had to skip
+ * past, and tests only ever override one of them.
  */
-export function buildMcpServer(
-  auth: McpAuth | null,
-  client: YahooFinanceClient = yahooFinanceClient,
-  repo: FundRepo = createLazyFundRepo(),
-  edgar: EdgarClient = getEdgarClient(),
-): McpServer {
+export interface McpDeps {
+  client?: YahooFinanceClient;
+  funds?: FundRepo;
+  edgar?: EdgarClient;
+  watchlists?: WatchlistRepo;
+}
+
+/**
+ * Builds a per-request MCP server while reusing the process-level Yahoo client.
+ * Pass `auth: null` to build a metadata-only server for tool introspection —
+ * the watchlist tools refuse to run without an identity.
+ */
+export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpServer {
+  const client = deps.client ?? yahooFinanceClient;
+  const repo = deps.funds ?? createLazyFundRepo();
+  const edgar = deps.edgar ?? getEdgarClient();
+  const watchlists = deps.watchlists ?? createLazyWatchlistRepo();
+
   const server = new McpServer(
     { name: "finance-mcp-server", version: "0.1.0" },
     {
       instructions:
-        "Three tool families. Yahoo Finance tools return global market data for stocks, ETFs, and indices " +
+        "Four tool families. Yahoo Finance tools return global market data for stocks, ETFs, and indices " +
         "(CN and HK listings included, via suffixes like 600519.SS and 0700.HK); search for a symbol first " +
         "when it is uncertain, and expect delayed or missing data for delisted symbols. " +
         "Fund relationship tools (fundExposure, fundsByStock, fundsBySector, similarFunds, themeToFunds, " +
@@ -49,7 +67,11 @@ export function buildMcpServer(
         "Earnings tools cover company reporting: earningsAnalysis works for any Yahoo-covered symbol and is " +
         "the fastest way to see surprises, estimate revisions, and the next report date; secFilings and " +
         "secFinancials read SEC EDGAR directly and are the right choice for US issuers when you need " +
-        "as-reported figures, restatement-accurate history, or a citable filing URL.",
+        "as-reported figures, restatement-accurate history, or a citable filing URL. " +
+        "Watchlist tools (watchlists, watchlist, watchlistAdd, watchlistRemove) read and edit the " +
+        "signed-in user's own saved lists, which span both families — Yahoo symbols and China fund " +
+        "codes in one list — and are shared with the web dashboard. Read a watchlist before answering " +
+        "questions about what this user is tracking, rather than assuming from the conversation.",
     },
   );
 
@@ -68,6 +90,11 @@ export function buildMcpServer(
 
   registerSecFilingsTool(server, edgar);
   registerSecFinancialsTool(server, edgar);
+
+  registerWatchlistsTool(server, watchlists, auth);
+  registerWatchlistTool(server, watchlists, client, auth);
+  registerWatchlistAddTool(server, watchlists, auth);
+  registerWatchlistRemoveTool(server, watchlists, auth);
 
   registerFundExposureTool(server, repo);
   registerFundsByStockTool(server, repo);

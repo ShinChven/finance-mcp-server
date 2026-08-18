@@ -205,6 +205,13 @@ see the README for why the deduplication loses more than it saves.
 - Yahoo Finance tools: `search`, `quote`, `quoteSummary`, `chart`, `screener`,
   `trendingSymbols`, `options`, `insights`, `recommendationsBySymbol`,
   `fundamentalsTimeSeries`, and `earningsAnalysis`.
+- Watchlist tools: `watchlists`, `watchlist`, `watchlistAdd` and `watchlistRemove`
+  are the only tools that write. They are scoped to `auth.user.id` — never to a
+  user id in the arguments — and go through `watchlist/repo.ts`, which takes the
+  owner on every call so the MCP and dashboard paths cannot diverge on access
+  control. `watchlist/live.ts` attaches values at read time (Yahoo for symbols,
+  the cached NAV for funds) and degrades to `available: false` with a reason
+  rather than failing the call. List deletion is deliberately dashboard-only.
 - SEC EDGAR tools: `secFilings` and `secFinancials` read data.sec.gov directly
   for US registrants — the filing index with document URLs, and as-reported XBRL
   financials carrying the accession number behind each value. `sec/edgar.ts`

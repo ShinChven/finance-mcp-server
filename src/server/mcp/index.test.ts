@@ -42,7 +42,7 @@ function mockYahooClient() {
 }
 
 async function connect(client: YahooFinanceClient) {
-  const server = buildMcpServer(auth, client);
+  const server = buildMcpServer(auth, { client });
   const mcpClient = new Client({ name: "finance-mcp-test", version: "0.1.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -72,6 +72,10 @@ describe("finance MCP server", () => {
         "earningsAnalysis",
         "secFilings",
         "secFinancials",
+        "watchlists",
+        "watchlist",
+        "watchlistAdd",
+        "watchlistRemove",
         "fundExposure",
         "fundsByStock",
         "fundsBySector",
@@ -80,7 +84,11 @@ describe("finance MCP server", () => {
         "compareFunds",
         "fundPerformance",
       ]);
-      expect(result.tools.every((tool) => tool.annotations?.readOnlyHint)).toBe(true);
+      // Watchlist writes are the only mutating tools; everything else reads.
+      const mutating = result.tools
+        .filter((tool) => tool.annotations?.readOnlyHint !== true)
+        .map((tool) => tool.name);
+      expect(mutating).toEqual(["watchlistAdd", "watchlistRemove"]);
     } finally {
       await mcpClient.close();
       await server.close();
