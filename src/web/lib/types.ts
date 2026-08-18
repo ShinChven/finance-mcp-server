@@ -129,6 +129,15 @@ export interface FundItem {
   navSyncedAt: string | null;
   lastSyncError: string | null;
   holdingsCount: number;
+  /** Report the holdings above were disclosed in; null when nothing is cached. */
+  latestReport: string | null;
+  /** Set when the search term matched a holding rather than the fund itself. */
+  matchedHolding: {
+    symbol: string;
+    name: string | null;
+    weight: number;
+    reportDate: string;
+  } | null;
 }
 
 export interface FundCacheStats {

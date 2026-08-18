@@ -101,8 +101,18 @@ export default function FundsPage() {
           >
             {fund.name}
           </button>
-          {fund.trackingIndex && (
-            <span className="text-xs text-zinc-400">tracks {fund.trackingIndex}</span>
+          {fund.matchedHolding ? (
+            // Says why this row matched — a search for "NVDA" otherwise returns
+            // a page of Chinese fund names with no visible connection to it.
+            <span className="text-xs text-emerald-600 dark:text-emerald-400">
+              holds {fund.matchedHolding.symbol}
+              {fund.matchedHolding.name ? ` ${fund.matchedHolding.name}` : ""} ·{" "}
+              {fund.matchedHolding.weight.toFixed(2)}%
+            </span>
+          ) : (
+            fund.trackingIndex && (
+              <span className="text-xs text-zinc-400">tracks {fund.trackingIndex}</span>
+            )
           )}
         </div>
       ),
@@ -118,6 +128,18 @@ export default function FundsPage() {
       render: (fund) =>
         fund.holdingsCount > 0 ? (
           <span className="tabular-nums">{fund.holdingsCount}</span>
+        ) : (
+          <span className="text-zinc-400">—</span>
+        ),
+    },
+    {
+      key: "report",
+      label: "Report",
+      render: (fund) =>
+        fund.latestReport ? (
+          // The disclosure date, not the cache date: a fresh sync of a fund
+          // that last reported in 2023 is still 2023 data.
+          <span className="text-xs tabular-nums text-zinc-500">{fund.latestReport}</span>
         ) : (
           <span className="text-zinc-400">—</span>
         ),
@@ -207,7 +229,11 @@ export default function FundsPage() {
         loading={list.isPending}
         empty={{
           title: "No funds match",
-          description: "Run a category sync to populate the fund index, or clear the filters.",
+          // The old copy always blamed an unpopulated index, which is wrong
+          // advice once funds are cached and misreads as a failed sync.
+          description: params.q
+            ? "Search covers fund code, name, company, tracking index, and the holdings of cached funds — a stock symbol only matches funds whose portfolio has been cached."
+            : "Cache a category above to populate the fund index, or clear the filters.",
         }}
         total={list.data?.total ?? 0}
         totalPages={list.data?.total_pages ?? 1}

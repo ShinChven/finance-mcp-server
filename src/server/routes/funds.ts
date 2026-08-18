@@ -7,7 +7,7 @@
  */
 
 import { zValidator } from "@hono/zod-validator";
-import { and, count, desc, eq, ilike, isNotNull, or, sql, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, exists, ilike, inArray, isNotNull, or, sql, type SQL } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { previewSync } from "../china/ingest.js";
@@ -32,17 +32,73 @@ const fundListQuerySchema = listQuerySchema.extend({
   type: z.enum(INGEST_SCOPES).optional(),
 });
 
-/** Holdings count per fund, joined into the list so the page can show coverage. */
+/**
+ * Per-fund holdings summary for the list: how many names the fund discloses,
+ * and when it disclosed them.
+ *
+ * Restricted to the newest report. Older quarters stay in the table, but
+ * counting across them inflates the number badly — a fund with four cached
+ * reports of 15 names reads as holding 60 — and the same rule already governs
+ * the drill-down and the reverse lookups.
+ */
+const latestOnly = sql`${fundHoldings.reportDate} = (select max(report_date) from fund_holdings latest where latest.fund_code = ${fundHoldings.fundCode})`;
+
 const holdingsCount = db
   .select({
     fundCode: fundHoldings.fundCode,
     n: count().as("n"),
+    reportDate: fundHoldings.reportDate,
   })
   .from(fundHoldings)
-  .groupBy(fundHoldings.fundCode)
+  .where(latestOnly)
+  .groupBy(fundHoldings.fundCode, fundHoldings.reportDate)
   .as("holdings_count");
 
 const fundCache = createLazyFundCache();
+
+/**
+ * The holding that caused each fund to match, newest report first.
+ *
+ * DISTINCT ON keeps one row per fund — the heaviest holding in the latest
+ * report that matches — so a fund holding both NVDA and NVDA-adjacent names
+ * still explains itself with a single line.
+ */
+async function matchedHoldings(
+  codes: string[],
+  q: string,
+): Promise<Map<string, { symbol: string; name: string | null; weight: number; reportDate: string }>> {
+  const found = new Map<string, { symbol: string; name: string | null; weight: number; reportDate: string }>();
+  if (codes.length === 0) return found;
+
+  const like = `%${escapeLike(q)}%`;
+  const rows = await db
+    .selectDistinctOn([fundHoldings.fundCode], {
+      fundCode: fundHoldings.fundCode,
+      symbol: fundHoldings.symbol,
+      name: fundHoldings.name,
+      weight: fundHoldings.weight,
+      reportDate: fundHoldings.reportDate,
+    })
+    .from(fundHoldings)
+    .where(
+      and(
+        inArray(fundHoldings.fundCode, codes),
+        or(ilike(fundHoldings.symbol, like), ilike(fundHoldings.name, like))!,
+        sql`${fundHoldings.reportDate} = (select max(report_date) from fund_holdings latest where latest.fund_code = ${fundHoldings.fundCode})`,
+      ),
+    )
+    .orderBy(fundHoldings.fundCode, desc(fundHoldings.reportDate), desc(fundHoldings.weight));
+
+  for (const row of rows) {
+    found.set(row.fundCode, {
+      symbol: row.symbol,
+      name: row.name,
+      weight: row.weight,
+      reportDate: row.reportDate,
+    });
+  }
+  return found;
+}
 
 export const fundRoutes = new Hono<AppEnv>()
   .use(requireAuth)
@@ -107,12 +163,31 @@ export const fundRoutes = new Hono<AppEnv>()
 
     if (query.q) {
       const like = `%${escapeLike(query.q)}%`;
+      // A fund's own identity, plus what it holds. Searching "NVDA" or "英伟达"
+      // is the reverse lookup the holdings cache exists for, and it is what a
+      // user types first — matching only fund names sends them away believing
+      // nothing was ingested. Only cached funds can match this leg, since an
+      // uncached fund has no holdings rows.
       filters.push(
         or(
           ilike(funds.code, like),
           ilike(funds.name, like),
           ilike(funds.company, like),
           ilike(funds.trackingIndex, like),
+          exists(
+            db
+              .select({ one: sql`1` })
+              .from(fundHoldings)
+              .where(
+                and(
+                  eq(fundHoldings.fundCode, funds.code),
+                  or(ilike(fundHoldings.symbol, like), ilike(fundHoldings.name, like))!,
+                  // Current portfolio only: a fund that held the name in 2022
+                  // and has since sold it is not an answer to "who holds this".
+                  sql`${fundHoldings.reportDate} = (select max(report_date) from fund_holdings latest where latest.fund_code = ${funds.code})`,
+                ),
+              ),
+          ),
         )!,
       );
     }
@@ -155,6 +230,7 @@ export const fundRoutes = new Hono<AppEnv>()
         navSyncedAt: funds.navSyncedAt,
         lastSyncError: funds.lastSyncError,
         holdingsCount: sql<number>`coalesce(${holdingsCount.n}, 0)`.mapWith(Number),
+        latestReport: holdingsCount.reportDate,
       })
       .from(funds)
       .leftJoin(holdingsCount, eq(holdingsCount.fundCode, funds.code))
@@ -163,7 +239,19 @@ export const fundRoutes = new Hono<AppEnv>()
       .limit(query.per_page)
       .offset((query.page - 1) * query.per_page);
 
-    return c.json(listResponse(rows, totalRow?.n ?? 0, query));
+    // Why each row came back, when the match was a holding rather than the
+    // fund's own name: without it a search for "NVDA" returns a page of
+    // Chinese fund names with no visible connection to what was typed.
+    // One extra round trip over the page's own codes, not the whole result.
+    const matched = query.q ? await matchedHoldings(rows.map((row) => row.code), query.q) : new Map();
+
+    return c.json(
+      listResponse(
+        rows.map((row) => ({ ...row, matchedHolding: matched.get(row.code) ?? null })),
+        totalRow?.n ?? 0,
+        query,
+      ),
+    );
   })
 
   /**
