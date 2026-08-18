@@ -110,6 +110,97 @@ export interface ToolCatalog {
   total: number;
 }
 
+export type IngestScope = "qdii" | "index" | "equity" | "all" | "codes";
+
+export interface FundItem {
+  code: string;
+  name: string;
+  fundType: string | null;
+  isQdii: boolean;
+  isIndexFund: boolean;
+  trackingIndex: string | null;
+  company: string | null;
+  fundSize: number | null;
+  feeRate: number | null;
+  detailsSyncedAt: string | null;
+  holdingsSyncedAt: string | null;
+  navSyncedAt: string | null;
+  lastSyncError: string | null;
+  holdingsCount: number;
+}
+
+export interface FundCacheStats {
+  funds: { total: number; cached: number; failing: number };
+  holdings: { rows: number; symbols: number; latestReport: string | null };
+  byScope: Record<string, { total: number; cached: number }>;
+  activeJobId: string | null;
+}
+
+export interface HoldingRow {
+  symbol: string;
+  name: string | null;
+  weight: number;
+  reportDate: string;
+}
+
+export interface FundHoldingsResult {
+  fund: {
+    code: string;
+    name: string;
+    fundType: string | null;
+    company: string | null;
+    trackingIndex: string | null;
+    holdingsSyncedAt: string | null;
+    lastSyncError: string | null;
+  };
+  latestReport: string | null;
+  disclosedWeight: number;
+  items: HoldingRow[];
+  reportDates: string[];
+}
+
+/** The counts shown before a sync is confirmed. */
+export interface SyncPreview {
+  scope: IngestScope;
+  matched: number;
+  fresh: number;
+  toFetch: number;
+  estimatedRequests: number;
+  estimatedMinutes: number;
+}
+
+export interface IngestJobItem {
+  id: string;
+  scope: IngestScope;
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  requestedBy: string | null;
+  codes: string[] | null;
+  fundLimit: number | null;
+  skippedFresh: number;
+  totalFunds: number;
+  processedFunds: number;
+  summary: {
+    fundsUpserted?: number;
+    fundDetailsUpserted?: number;
+    holdingsUpserted?: number;
+    navPointsUpserted?: number;
+    symbolsClassified?: number;
+    exposuresComputed?: number;
+    skippedFresh?: number;
+    holdingsDropped?: number;
+    errors?: string[];
+  } | null;
+  error: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+export interface JobsResult {
+  items: IngestJobItem[];
+  activeJobId: string | null;
+}
+
 export interface Overview {
   activeTokens: number;
   expiringSoon: number;

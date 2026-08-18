@@ -45,6 +45,10 @@ function fund(code: string, overrides: Partial<Fund> = {}): Fund {
     purchaseStatus: "限购",
     purchaseLimit: 1000,
     updatedAt: new Date("2026-07-01T00:00:00Z"),
+    detailsSyncedAt: null,
+    holdingsSyncedAt: null,
+    navSyncedAt: null,
+    lastSyncError: null,
     ...overrides,
   };
 }

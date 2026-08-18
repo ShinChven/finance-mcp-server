@@ -11,12 +11,13 @@ import {
   parseFundBasics,
   parseFundCodeList,
   parseFundProfileJs,
-  parseHoldings,
+  parseHoldingsWithStats,
   parseNavHistory,
   type FundBasics,
   type FundListEntry,
   type FundProfile,
   type HoldingEntry,
+  type HoldingParseResult,
   type NavPoint,
 } from "./parse.js";
 
@@ -111,11 +112,17 @@ export class EastmoneyClient {
   }
 
   async fetchHoldings(code: string, year?: number): Promise<HoldingEntry[]> {
+    return (await this.fetchHoldingsWithStats(code, year)).entries;
+  }
+
+  /** As `fetchHoldings`, but keeps the parser's drop counts so the ingest can
+   *  report a format drift instead of silently storing fewer positions. */
+  async fetchHoldingsWithStats(code: string, year?: number): Promise<HoldingParseResult> {
     const body = await this.get(
       this.endpoints.holdings(code, year),
       `https://fundf10.eastmoney.com/ccmx_${code}.html`,
     );
-    return parseHoldings(body);
+    return parseHoldingsWithStats(body);
   }
 
   async fetchNavHistory(code: string, pageSize = 60): Promise<NavPoint[]> {

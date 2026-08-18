@@ -32,6 +32,33 @@ export interface HoldingEntry {
   reportDate: string;
 }
 
+/**
+ * Why a holdings row was thrown away.
+ *
+ * Every drop in `parseHoldings` used to be a bare `continue`, which is how the
+ * Tokyo `285A` code gap stayed invisible for a whole release: the affected
+ * QDIIs just silently held fewer stocks. Counting the drops turns the next
+ * such gap into a number the ingest can report.
+ */
+export interface HoldingParseStats {
+  /** Carried a weight but no cell matched a known code shape — where a new
+   *  exchange's code format lands. */
+  noCode: number;
+  /** A code matched the shape but no market could be assigned to it. */
+  unmappedSymbol: number;
+  /** A code matched but the row carried no readable weight. */
+  noWeight: number;
+}
+
+export interface HoldingParseResult {
+  entries: HoldingEntry[];
+  stats: HoldingParseStats;
+}
+
+export function totalDrops(stats: HoldingParseStats): number {
+  return stats.noCode + stats.unmappedSymbol + stats.noWeight;
+}
+
 export interface FundProfile {
   code: string;
   name: string | null;
@@ -160,6 +187,16 @@ function quarterEndFrom(text: string): string | null {
  * date. Rows are `序号 | 股票代码 | 股票名称 | 占净值比例 | …`.
  */
 export function parseHoldings(source: string): HoldingEntry[] {
+  return parseHoldingsWithStats(source).entries;
+}
+
+const HEADER_ROW_RE = /<th[\s>]/i;
+/** 股票投资合计 / 总计 / 小计 footers carry a weight but no code, and would
+ *  otherwise inflate `noCode` on every well-formed table. */
+const SUBTOTAL_RE = /合计|总计|小计/;
+
+/** As `parseHoldings`, but also reports what it threw away. */
+export function parseHoldingsWithStats(source: string): HoldingParseResult {
   const contentMatch = /content\s*:\s*"([\s\S]*?)"\s*,\s*(?:arryear|curyear)/.exec(source);
   const html = contentMatch?.[1]
     ? contentMatch[1].replace(/\\"/g, '"').replace(/\\\//g, "/").replace(/\\r|\\n/g, "")
@@ -167,6 +204,7 @@ export function parseHoldings(source: string): HoldingEntry[] {
 
   const out: HoldingEntry[] = [];
   const seen = new Set<string>();
+  const stats: HoldingParseStats = { noCode: 0, unmappedSymbol: 0, noWeight: 0 };
 
   let tableMatch: RegExpExecArray | null;
   TABLE_RE.lastIndex = 0;
@@ -180,25 +218,42 @@ export function parseHoldings(source: string): HoldingEntry[] {
     ROW_RE.lastIndex = 0;
     let rowMatch: RegExpExecArray | null;
     while ((rowMatch = ROW_RE.exec(table)) !== null) {
+      const row = rowMatch[0];
+      // Header rows are structure, not dropped data.
+      if (HEADER_ROW_RE.test(row)) continue;
+
       const cells: string[] = [];
       CELL_RE.lastIndex = 0;
       let cellMatch: RegExpExecArray | null;
-      while ((cellMatch = CELL_RE.exec(rowMatch[0])) !== null) {
+      while ((cellMatch = CELL_RE.exec(row)) !== null) {
         cells.push(stripTags(cellMatch[1] ?? ""));
       }
       if (cells.length < 4) continue;
+      if (cells.some((cell) => SUBTOTAL_RE.test(cell))) continue;
+
+      // The weight is the first percentage-looking cell after the name.
+      const weightCell = cells.find((cell) => /^\d+(\.\d+)?%$/.test(cell));
 
       // `\d{3}[A-Z]` catches Tokyo's post-2024 alphanumeric codes (`285A`);
       // without it a QDII's Japanese holdings are dropped with no error.
       const rawCode = cells.find((cell) => /^\d{5,6}$|^[A-Z]{1,5}$|^\d{3}[A-Z]$/.test(cell));
-      if (!rawCode) continue;
-      const symbol = toCanonicalSymbol(rawCode);
-      if (!symbol) continue;
+      if (!rawCode) {
+        // Only a row that carried a weight was plausibly a holding.
+        if (weightCell !== undefined) stats.noCode += 1;
+        continue;
+      }
 
-      // The weight is the first percentage-looking cell after the name.
-      const weightCell = cells.find((cell) => /^\d+(\.\d+)?%$/.test(cell));
+      const symbol = toCanonicalSymbol(rawCode);
+      if (!symbol) {
+        stats.unmappedSymbol += 1;
+        continue;
+      }
+
       const weight = toNumber(weightCell);
-      if (weight === null) continue;
+      if (weight === null) {
+        stats.noWeight += 1;
+        continue;
+      }
 
       const codeIndex = cells.indexOf(rawCode);
       const name = cells[codeIndex + 1] ?? null;
@@ -210,7 +265,7 @@ export function parseHoldings(source: string): HoldingEntry[] {
     }
   }
 
-  return out;
+  return { entries: out, stats };
 }
 
 /**

@@ -8,7 +8,7 @@
  * needing a name-level translation at query time.
  */
 
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { db as Database } from "../db/index.js";
 import {
   fundExposure,
@@ -21,6 +21,8 @@ import {
 import type { YahooFinanceClient } from "../mcp/client.js";
 import { EastmoneyClient } from "./eastmoney.js";
 import { computeExposure, type SectorTag } from "./exposure.js";
+import { totalDrops } from "./parse.js";
+import { isFresh, scopeFilter, type IngestScope } from "./scope.js";
 import { currencyOf, looksLikeQdii, marketOf } from "./symbols.js";
 
 type Db = typeof Database;
@@ -32,6 +34,11 @@ export interface IngestSummary {
   navPointsUpserted: number;
   symbolsClassified: number;
   exposuresComputed: number;
+  /** Funds skipped because every step was still inside its freshness window. */
+  skippedFresh: number;
+  /** Holdings rows the parser could not read. Non-zero means a format drift —
+   *  the failure mode that made Tokyo-coded positions vanish silently. */
+  holdingsDropped: number;
   errors: string[];
 }
 
@@ -43,6 +50,8 @@ function emptySummary(): IngestSummary {
     navPointsUpserted: 0,
     symbolsClassified: 0,
     exposuresComputed: 0,
+    skippedFresh: 0,
+    holdingsDropped: 0,
     errors: [],
   };
 }
@@ -114,6 +123,7 @@ export async function ingestFundDetails(
           manager: basics.manager,
           feeRate: basics.feeRate,
           fundSize: basics.fundSize,
+          detailsSyncedAt: new Date(),
           updatedAt: new Date(),
         })
         .where(eq(funds.code, code));
@@ -134,8 +144,29 @@ export async function ingestHoldings(
 ): Promise<IngestSummary> {
   for (const code of codes) {
     try {
-      const holdings = await client.fetchHoldings(code);
-      if (holdings.length === 0) continue;
+      const { entries: holdings, stats } = await client.fetchHoldingsWithStats(code);
+
+      const dropped = totalDrops(stats);
+      if (dropped > 0) {
+        summary.holdingsDropped += dropped;
+        // Surfaced as an error, not a debug log: an unreadable row means this
+        // fund's stored portfolio is incomplete, and every exposure figure
+        // derived from it is understated.
+        summary.errors.push(
+          `holdings ${code}: dropped ${dropped} unparseable row(s) ` +
+            `(no code ${stats.noCode}, unmapped ${stats.unmappedSymbol}, no weight ${stats.noWeight})`,
+        );
+      }
+
+      // A fund with no disclosed portfolio is still a completed fetch — mark it
+      // so the next run does not retry it every time.
+      if (holdings.length === 0) {
+        await db
+          .update(funds)
+          .set({ holdingsSyncedAt: new Date() })
+          .where(eq(funds.code, code));
+        continue;
+      }
 
       const symbols = [...new Set(holdings.map((holding) => holding.symbol))];
       await db
@@ -171,6 +202,7 @@ export async function ingestHoldings(
           target: [fundHoldings.fundCode, fundHoldings.symbol, fundHoldings.reportDate],
         });
 
+      await db.update(funds).set({ holdingsSyncedAt: new Date() }).where(eq(funds.code, code));
       summary.holdingsUpserted += holdings.length;
     } catch (error) {
       summary.errors.push(`holdings ${code}: ${(error as Error).message}`);
@@ -189,20 +221,22 @@ export async function ingestNav(
   for (const code of codes) {
     try {
       const points = await client.fetchNavHistory(code);
-      if (points.length === 0) continue;
-      await db
-        .insert(fundNav)
-        .values(
-          points.map((point) => ({
-            fundCode: code,
-            navDate: point.navDate,
-            nav: point.nav,
-            accNav: point.accNav,
-            dailyReturn: point.dailyReturn,
-          })),
-        )
-        .onConflictDoNothing({ target: [fundNav.fundCode, fundNav.navDate] });
-      summary.navPointsUpserted += points.length;
+      if (points.length > 0) {
+        await db
+          .insert(fundNav)
+          .values(
+            points.map((point) => ({
+              fundCode: code,
+              navDate: point.navDate,
+              nav: point.nav,
+              accNav: point.accNav,
+              dailyReturn: point.dailyReturn,
+            })),
+          )
+          .onConflictDoNothing({ target: [fundNav.fundCode, fundNav.navDate] });
+        summary.navPointsUpserted += points.length;
+      }
+      await db.update(funds).set({ navSyncedAt: new Date() }).where(eq(funds.code, code));
     } catch (error) {
       summary.errors.push(`nav ${code}: ${(error as Error).message}`);
     }
@@ -327,21 +361,130 @@ export async function recomputeExposure(
   return summary;
 }
 
+/** A fund row reduced to the watermarks that decide what still needs fetching. */
+interface Candidate {
+  code: string;
+  detailsSyncedAt: Date | null;
+  holdingsSyncedAt: Date | null;
+  navSyncedAt: Date | null;
+}
+
+/**
+ * Funds a run would touch, least-recently-synced first.
+ *
+ * Ordering by `holdingsSyncedAt` with nulls first means a capped run always
+ * spends its budget on funds that have never been cached, instead of
+ * re-walking the same alphabetical prefix every time.
+ */
+export async function selectCandidates(
+  db: Db,
+  scope: IngestScope,
+  options: { codes?: string[]; limit?: number } = {},
+): Promise<Candidate[]> {
+  const columns = {
+    code: funds.code,
+    detailsSyncedAt: funds.detailsSyncedAt,
+    holdingsSyncedAt: funds.holdingsSyncedAt,
+    navSyncedAt: funds.navSyncedAt,
+  };
+  const filters: SQL[] = [];
+  const scoped = scopeFilter(scope);
+  if (scoped) filters.push(scoped);
+  if (scope === "codes") filters.push(inArray(funds.code, options.codes ?? []));
+
+  const where = filters.length > 0 ? and(...filters) : undefined;
+  const query = db
+    .select(columns)
+    .from(funds)
+    .where(where)
+    .orderBy(sql`${funds.holdingsSyncedAt} asc nulls first`, asc(funds.code));
+
+  return options.limit === undefined ? query : query.limit(options.limit);
+}
+
+/** Counts behind the dashboard's "you are about to fetch N funds" confirmation. */
+export interface SyncPreview {
+  scope: IngestScope;
+  /** Funds matching the scope, before the freshness filter. */
+  matched: number;
+  /** Of those, funds with nothing left to fetch. */
+  fresh: number;
+  /** Funds the run would actually fetch (after `limit`). */
+  toFetch: number;
+  estimatedRequests: number;
+  estimatedMinutes: number;
+}
+
+/**
+ * What a run would do, without doing any of it.
+ *
+ * Backs the dashboard's confirmation step — the counts a user approves come
+ * from the same `selectCandidates` + freshness logic `runIngest` then applies,
+ * so the preview cannot drift from the run.
+ */
+export async function previewSync(
+  db: Db,
+  scope: IngestScope,
+  options: { codes?: string[]; limit?: number; force?: boolean; requestIntervalMs?: number } = {},
+): Promise<SyncPreview> {
+  const candidates = await selectCandidates(db, scope, {
+    codes: options.codes,
+    limit: options.limit,
+  });
+
+  const now = Date.now();
+  const force = options.force ?? false;
+  let fresh = 0;
+  let requests = 0;
+  let toFetch = 0;
+  for (const row of candidates) {
+    let steps = 0;
+    if (force || !isFresh(row.detailsSyncedAt, "details", now)) steps += 1;
+    if (force || !isFresh(row.holdingsSyncedAt, "holdings", now)) steps += 1;
+    if (force || !isFresh(row.navSyncedAt, "nav", now)) steps += 1;
+    if (steps === 0) fresh += 1;
+    else toFetch += 1;
+    requests += steps;
+  }
+
+  const intervalMs = options.requestIntervalMs ?? DEFAULT_REQUEST_INTERVAL_MS;
+  return {
+    scope,
+    matched: candidates.length,
+    fresh,
+    toFetch,
+    estimatedRequests: requests,
+    estimatedMinutes: Math.ceil((requests * intervalMs) / 60_000),
+  };
+}
+
+/** Matches `EastmoneyClient`'s default throttle; only used for the estimate. */
+const DEFAULT_REQUEST_INTERVAL_MS = 300;
+
 export interface RunIngestOptions {
   db: Db;
   yahoo: YahooFinanceClient;
   eastmoney?: EastmoneyClient;
-  /** Explicit fund codes; defaults to the QDII + index-tracking subset. */
+  /** Which slice of the universe to walk. Defaults to QDII. */
+  scope?: IngestScope;
+  /** Explicit fund codes. Implies `scope: "codes"` when no scope is given. */
   codes?: string[];
-  /** Cap on how many funds to pull holdings for in one run. */
+  /** Cap on how many funds to pull in one run. */
   limit?: number;
   skipUniverse?: boolean;
+  /** Ignore the watermarks and refetch everything in scope. */
+  force?: boolean;
+  /** Called as each fund completes, for the `ingest_jobs` progress row. */
+  onProgress?: (progress: { processed: number; total: number }) => Promise<void> | void;
+  /** Cooperative cancellation, checked between funds. */
+  signal?: AbortSignal;
 }
 
 /** Full pipeline. Each step accumulates into one summary so a partial failure
  *  still reports what landed. */
 export async function runIngest(options: RunIngestOptions): Promise<IngestSummary> {
-  const { db, yahoo, limit = 200, skipUniverse = false } = options;
+  const { db, yahoo, limit = 200, skipUniverse = false, force = false } = options;
+  const scope: IngestScope = options.scope ?? (options.codes ? "codes" : "qdii");
   const client = options.eastmoney ?? new EastmoneyClient();
   const summary = emptySummary();
 
@@ -349,42 +492,98 @@ export async function runIngest(options: RunIngestOptions): Promise<IngestSummar
     await ingestFundUniverse(db, client, summary);
   }
 
-  let codes = options.codes;
-  if (codes === undefined) {
-    const rows = await db
-      .select({ code: funds.code })
-      .from(funds)
-      .where(eq(funds.isQdii, true))
-      .limit(limit);
-    codes = rows.map((row) => row.code);
-  } else if (skipUniverse) {
+  if (scope === "codes") {
     // `fund_holdings.fund_code` is a foreign key into `funds`, so an explicit
     // code that was never seeded fails every insert with a bare constraint
     // violation. Drop it here with an actionable message instead.
+    const requested = options.codes ?? [];
     const known = await db
       .select({ code: funds.code })
       .from(funds)
-      .where(inArray(funds.code, codes));
+      .where(inArray(funds.code, requested));
     const knownCodes = new Set(known.map((row) => row.code));
-    const missing = codes.filter((code) => !knownCodes.has(code));
-    for (const code of missing) {
+    for (const code of requested.filter((code) => !knownCodes.has(code))) {
       summary.errors.push(
         `${code}: not in the local fund index — run once without --skip-universe to seed it.`,
       );
     }
-    codes = codes.filter((code) => knownCodes.has(code));
   }
 
-  await ingestFundDetails(db, client, codes, summary);
-  await ingestHoldings(db, client, codes, summary);
-  await ingestNav(db, client, codes, summary);
+  const candidates = await selectCandidates(db, scope, { codes: options.codes, limit });
 
-  const symbolRows = await db
-    .selectDistinct({ symbol: fundHoldings.symbol })
-    .from(fundHoldings)
-    .where(inArray(fundHoldings.fundCode, codes));
-  await ingestSectors(db, yahoo, symbolRows.map((row) => row.symbol), summary);
+  // Each step has its own freshness window, so a daily run refreshes NAV
+  // without refetching quarterly holdings that have not moved.
+  const now = Date.now();
+  const needsDetails: string[] = [];
+  const needsHoldings: string[] = [];
+  const needsNav: string[] = [];
+  for (const row of candidates) {
+    const details = force || !isFresh(row.detailsSyncedAt, "details", now);
+    const holdings = force || !isFresh(row.holdingsSyncedAt, "holdings", now);
+    const nav = force || !isFresh(row.navSyncedAt, "nav", now);
+    if (details) needsDetails.push(row.code);
+    if (holdings) needsHoldings.push(row.code);
+    if (nav) needsNav.push(row.code);
+    if (!details && !holdings && !nav) summary.skippedFresh += 1;
+  }
 
-  await recomputeExposure(db, codes, summary);
+  const codes = candidates.map((row) => row.code);
+  const total = needsDetails.length + needsHoldings.length + needsNav.length;
+  let processed = 0;
+  const tick = async () => {
+    processed += 1;
+    await options.onProgress?.({ processed, total });
+  };
+
+  // Stepping one fund at a time keeps the progress row and the cancellation
+  // check at fund granularity rather than "somewhere inside step 3 of 6".
+  for (const code of needsDetails) {
+    if (options.signal?.aborted) return summary;
+    await ingestFundDetails(db, client, [code], summary);
+    await tick();
+  }
+  for (const code of needsHoldings) {
+    if (options.signal?.aborted) return summary;
+    await ingestHoldings(db, client, [code], summary);
+    await tick();
+  }
+  for (const code of needsNav) {
+    if (options.signal?.aborted) return summary;
+    await ingestNav(db, client, [code], summary);
+    await tick();
+  }
+
+  if (codes.length > 0) {
+    const symbolRows = await db
+      .selectDistinct({ symbol: fundHoldings.symbol })
+      .from(fundHoldings)
+      .where(inArray(fundHoldings.fundCode, codes));
+    await ingestSectors(db, yahoo, symbolRows.map((row) => row.symbol), summary);
+    await recomputeExposure(db, codes, summary);
+    await recordFundErrors(db, codes, summary);
+  }
+
   return summary;
+}
+
+/**
+ * Mirrors this run's per-fund failures onto the fund rows, and clears stale
+ * ones, so the dashboard can show which funds are failing without parsing the
+ * job's error list.
+ */
+async function recordFundErrors(db: Db, codes: string[], summary: IngestSummary): Promise<void> {
+  const failed = new Map<string, string>();
+  for (const message of summary.errors) {
+    // Step errors are formatted `"<step> <code>: <reason>"`.
+    const match = /^\w+ (\d{6}): (.+)$/.exec(message);
+    if (match?.[1] && match[2]) failed.set(match[1], match[2].slice(0, 300));
+  }
+
+  const cleared = codes.filter((code) => !failed.has(code));
+  if (cleared.length > 0) {
+    await db.update(funds).set({ lastSyncError: null }).where(inArray(funds.code, cleared));
+  }
+  for (const [code, message] of failed) {
+    await db.update(funds).set({ lastSyncError: message }).where(eq(funds.code, code));
+  }
 }

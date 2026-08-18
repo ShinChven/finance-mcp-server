@@ -4,6 +4,7 @@ import {
   Activity,
   Bot,
   BookOpen,
+  Database,
   History,
   KeyRound,
   LayoutDashboard,
@@ -87,6 +88,9 @@ export default function Shell() {
           </NavLink>
           <NavLink to="/tools" className={navItemClass}>
             <Wrench className="size-4" /> Tools
+          </NavLink>
+          <NavLink to="/funds" className={navItemClass}>
+            <Database className="size-4" /> Fund Cache
           </NavLink>
           <NavLink to="/tokens" className={navItemClass}>
             <KeyRound className="size-4" /> Access Tokens
