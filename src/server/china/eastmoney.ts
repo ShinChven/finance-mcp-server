@@ -133,3 +133,19 @@ export class EastmoneyClient {
     return parseNavHistory(body);
   }
 }
+
+/**
+ * One client for the whole process, so every caller shares the same throttle.
+ *
+ * This matters more than it looks: the 300ms floor is per instance, so a
+ * background category sync holding its own client while on-demand fetches held
+ * another would quietly double the request rate against a host that throttles
+ * aggressively. Everything that fetches from Eastmoney should use this.
+ */
+let shared: EastmoneyClient | null = null;
+
+export function getEastmoneyClient(): EastmoneyClient {
+  shared ??= new EastmoneyClient();
+  return shared;
+}
+

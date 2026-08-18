@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { createLazyFundCache, type FundCache } from "../china/ondemand.js";
 import { createLazyFundRepo, type FundRepo } from "../china/repo.js";
 import type { McpAuth } from "../lib/http.js";
 import { getEdgarClient, type EdgarClient } from "../sec/edgar.js";
@@ -38,6 +39,8 @@ import { registerWhoamiTool } from "./tools/whoami.js";
 export interface McpDeps {
   client?: YahooFinanceClient;
   funds?: FundRepo;
+  /** Fetches a fund on first touch; see `china/ondemand.ts`. */
+  fundCache?: FundCache;
   edgar?: EdgarClient;
   watchlists?: WatchlistRepo;
 }
@@ -50,6 +53,7 @@ export interface McpDeps {
 export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpServer {
   const client = deps.client ?? yahooFinanceClient;
   const repo = deps.funds ?? createLazyFundRepo();
+  const fundCache = deps.fundCache ?? createLazyFundCache();
   const edgar = deps.edgar ?? getEdgarClient();
   const watchlists = deps.watchlists ?? createLazyWatchlistRepo();
 
@@ -96,13 +100,13 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
   registerWatchlistAddTool(server, watchlists, auth);
   registerWatchlistRemoveTool(server, watchlists, auth);
 
-  registerFundExposureTool(server, repo);
+  registerFundExposureTool(server, repo, fundCache);
   registerFundsByStockTool(server, repo);
   registerFundsBySectorTool(server, repo);
-  registerSimilarFundsTool(server, repo);
+  registerSimilarFundsTool(server, repo, fundCache);
   registerThemeToFundsTool(server, repo);
   registerCompareFundsTool(server, repo);
-  registerFundPerformanceTool(server, repo);
+  registerFundPerformanceTool(server, repo, fundCache);
 
   return server;
 }

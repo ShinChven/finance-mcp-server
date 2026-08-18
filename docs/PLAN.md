@@ -212,6 +212,11 @@ see the README for why the deduplication loses more than it saves.
   control. `watchlist/live.ts` attaches values at read time (Yahoo for symbols,
   the cached NAV for funds) and degrades to `available: false` with a reason
   rather than failing the call. List deletion is deliberately dashboard-only.
+- On-demand caching (`china/ondemand.ts`): the dashboard drill-down and the
+  fund tools fetch an uncached fund on first touch rather than failing. Shared
+  Eastmoney client (the throttle is per instance), in-flight de-duplication,
+  watermark-based skip, and a pending-queue ceiling. Tools depend on the
+  `FundCache` interface, not on the database, so they stay unit-testable.
 - SEC EDGAR tools: `secFilings` and `secFinancials` read data.sec.gov directly
   for US registrants — the filing index with document URLs, and as-reported XBRL
   financials carrying the accession number behind each value. `sec/edgar.ts`

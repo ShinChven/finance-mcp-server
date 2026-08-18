@@ -1,7 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { holdingStability } from "../../china/exposure.js";
+import type { FundCache } from "../../china/ondemand.js";
 import type { FundRepo } from "../../china/repo.js";
+import { cacheNote, ensureHoldings } from "./ensure-cached.js";
 import { fundCodeSchema, readOnlyToolAnnotations, runTool } from "./runtime.js";
 
 /**
@@ -11,7 +13,11 @@ import { fundCodeSchema, readOnlyToolAnnotations, runTool } from "./runtime.js";
  * almost every question: it returns sector and market exposure plus the
  * stability of the holdings the exposure was derived from.
  */
-export function registerFundExposureTool(server: McpServer, repo: FundRepo): void {
+export function registerFundExposureTool(
+  server: McpServer,
+  repo: FundRepo,
+  cache: FundCache,
+): void {
   server.registerTool(
     "fundExposure",
     {
@@ -29,6 +35,10 @@ export function registerFundExposureTool(server: McpServer, repo: FundRepo): voi
     },
     async ({ code, includeHoldings }) =>
       runTool(async () => {
+        // Nothing cached for this fund yet? Fetch it now — the caller named it,
+        // which is request enough — instead of returning an empty breakdown.
+        const ensured = await ensureHoldings(cache, repo, code);
+
         const fund = await repo.getFund(code);
         if (fund === null) {
           throw new Error(`Fund ${code} is not in the local index. Run the ingest job first.`);
@@ -77,6 +87,9 @@ export function registerFundExposureTool(server: McpServer, repo: FundRepo): voi
             added: stability.added,
           },
           ...(includeHoldings === true ? { holdings: current } : {}),
+          // Present only when this call did the fetching, so the model can say
+          // why it was slow and that coverage may still be settling.
+          ...(cacheNote(ensured) === undefined ? {} : { cacheNote: cacheNote(ensured) }),
         };
       }),
   );

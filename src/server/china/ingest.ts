@@ -19,7 +19,7 @@ import {
   instruments,
 } from "../db/schema.js";
 import type { YahooFinanceClient } from "../mcp/client.js";
-import { EastmoneyClient } from "./eastmoney.js";
+import { EastmoneyClient, getEastmoneyClient } from "./eastmoney.js";
 import { computeExposure, type SectorTag } from "./exposure.js";
 import { totalDrops } from "./parse.js";
 import { isFresh, scopeFilter, type IngestScope } from "./scope.js";
@@ -42,7 +42,7 @@ export interface IngestSummary {
   errors: string[];
 }
 
-function emptySummary(): IngestSummary {
+export function emptySummary(): IngestSummary {
   return {
     fundsUpserted: 0,
     fundDetailsUpserted: 0,
@@ -485,7 +485,7 @@ export interface RunIngestOptions {
 export async function runIngest(options: RunIngestOptions): Promise<IngestSummary> {
   const { db, yahoo, limit = 200, skipUniverse = false, force = false } = options;
   const scope: IngestScope = options.scope ?? (options.codes ? "codes" : "qdii");
-  const client = options.eastmoney ?? new EastmoneyClient();
+  const client = options.eastmoney ?? getEastmoneyClient();
   const summary = emptySummary();
 
   if (!skipUniverse) {

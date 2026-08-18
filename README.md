@@ -199,6 +199,30 @@ value are not the same measurement. Anything that could not be priced comes
 back with `available: false` and a reason, so one bad symbol never costs you the
 rest of the list. The summary weights every item equally; a watchlist records no
 position sizes, so it cannot express a portfolio return.
+#### Fetching a fund on demand
+
+Naming a fund is request enough for its data. Opening an uncached fund in the
+dashboard, or calling `fundExposure`, `fundPerformance` or `similarFunds` on
+one, fetches it there and then — three requests, a couple of seconds — instead
+of returning an empty result and telling you to go run a batch job.
+
+Four things keep that safe on a request path:
+
+- **One shared Eastmoney client.** The 300ms throttle is per client instance, so
+  an on-demand fetch holding its own while a category sync held another would
+  quietly double the request rate. Everything now fetches through one.
+- **In-flight de-duplication.** Ten agents asking about the same fund at once
+  cause one fetch.
+- **The existing watermarks.** A fund synced before is never refetched here —
+  the test is "has this ever synced", not "does the data look useful", so a fund
+  with one NAV point or a thin portfolio does not re-fetch on every call.
+- **A queue ceiling.** Past 8 pending fetches, callers are refused with a clear
+  message rather than silently enqueuing an hour of scraping.
+
+Sector classification runs against a deadline rather than to completion, so a
+first touch does not wait through a serial walk of every holding. Whatever it
+misses shows up as lower `coverage` on the exposure rows, and the tool response
+says so.
 
 ### Fund data ingest
 
