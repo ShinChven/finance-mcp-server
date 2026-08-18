@@ -11,6 +11,7 @@ import { and, count, desc, eq, ilike, isNotNull, or, sql, type SQL } from "drizz
 import { Hono } from "hono";
 import { z } from "zod";
 import { previewSync } from "../china/ingest.js";
+import { createLazyFundCache } from "../china/ondemand.js";
 import {
   activeJobId,
   cancelJob,
@@ -40,6 +41,8 @@ const holdingsCount = db
   .from(fundHoldings)
   .groupBy(fundHoldings.fundCode)
   .as("holdings_count");
+
+const fundCache = createLazyFundCache();
 
 export const fundRoutes = new Hono<AppEnv>()
   .use(requireAuth)
@@ -161,6 +164,25 @@ export const fundRoutes = new Hono<AppEnv>()
       .offset((query.page - 1) * query.per_page);
 
     return c.json(listResponse(rows, totalRow?.n ?? 0, query));
+  })
+
+  /**
+   * Cache one fund now.
+   *
+   * Separate from the drill-down GET rather than folded into it: a GET that
+   * quietly starts outbound fetches is not safe to retry, prefetch or reload,
+   * and only a POST goes through CSRF protection. The page calls this when it
+   * opens a fund that has never been synced.
+   *
+   * Any signed-in user may trigger it — unlike a category sync, this is three
+   * requests for a fund they are already looking at, and it is de-duplicated
+   * and throttled in `china/ondemand.ts`.
+   */
+  .post("/:code/cache", async (c) => {
+    const result = await fundCache.ensure(c.req.param("code"));
+    // "unknown" is the caller's mistake; "busy" is ours, temporarily.
+    const status = result.status === "unknown" ? 404 : result.status === "busy" ? 429 : 200;
+    return c.json(result, status);
   })
 
   /** The cached portfolio for one fund — the drill-down behind a list row. */

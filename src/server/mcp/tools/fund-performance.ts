@@ -1,7 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { computePerformance } from "../../china/performance.js";
+import type { FundCache } from "../../china/ondemand.js";
 import type { FundRepo } from "../../china/repo.js";
+import { ensureNav } from "./ensure-cached.js";
 import { fundCodeSchema, readOnlyToolAnnotations, runTool } from "./runtime.js";
 
 const isoDate = z
@@ -16,7 +18,11 @@ const isoDate = z
  * not read as losses — the difference compounds badly over the multi-year
  * horizons this tool exists to serve.
  */
-export function registerFundPerformanceTool(server: McpServer, repo: FundRepo): void {
+export function registerFundPerformanceTool(
+  server: McpServer,
+  repo: FundRepo,
+  cache: FundCache,
+): void {
   server.registerTool(
     "fundPerformance",
     {
@@ -34,6 +40,9 @@ export function registerFundPerformanceTool(server: McpServer, repo: FundRepo): 
     },
     async ({ code, from, to, includeSeries }) =>
       runTool(async () => {
+        // NAV is what this tool measures, so that is what gets fetched.
+        await ensureNav(cache, repo, code);
+
         const fund = await repo.getFund(code);
         if (fund === null) {
           throw new Error(`Fund ${code} is not in the local index. Run the ingest job first.`);

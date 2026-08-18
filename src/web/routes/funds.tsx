@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Database, Download, Layers, RefreshCw, X } from "lucide-react";
 import { Modal } from "../components/modal.js";
@@ -401,11 +401,38 @@ function Row({ label, value, emphasis }: { label: string; value: string; emphasi
   );
 }
 
+/**
+ * Opening a fund that has never been synced fetches it there and then.
+ *
+ * Asking someone to go run a category sync for the one fund they just clicked
+ * is busywork the server can do in a couple of seconds. The fetch is a POST
+ * (it has side effects and outbound cost), fired once per open, and the
+ * holdings query is invalidated when it lands.
+ */
 function HoldingsDialog({ code, onClose }: { code: string; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const [triggered, setTriggered] = useState(false);
+
   const query = useQuery({
     queryKey: ["fund-holdings", code],
     queryFn: () => api<FundHoldingsResult>(`/api/funds/${code}/holdings`),
   });
+
+  const cacheNow = useMutation({
+    mutationFn: () => api<{ status: string; message: string }>(`/api/funds/${code}/cache`, { method: "POST" }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["fund-holdings", code] });
+      void queryClient.invalidateQueries({ queryKey: ["funds"] });
+      void queryClient.invalidateQueries({ queryKey: ["fund-stats"] });
+    },
+  });
+
+  const uncached = query.data?.fund.holdingsSyncedAt === null;
+  useEffect(() => {
+    if (!uncached || triggered) return;
+    setTriggered(true);
+    cacheNow.mutate();
+  }, [uncached, triggered]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Modal title={query.data?.fund.name ?? code} onClose={onClose} size="xl">
@@ -413,6 +440,18 @@ function HoldingsDialog({ code, onClose }: { code: string; onClose: () => void }
         <Spinner />
       ) : query.isError ? (
         <p className="text-sm text-red-600 dark:text-red-400">{(query.error as Error).message}</p>
+      ) : cacheNow.isPending ? (
+        <div className="py-16 text-center">
+          <Spinner />
+          <p className="mt-2 text-sm text-zinc-500">
+            Not cached yet — fetching this fund's holdings and NAV now.
+          </p>
+          <p className="mt-1 text-xs text-zinc-400">Requests are throttled, so this takes a few seconds.</p>
+        </div>
+      ) : cacheNow.isError ? (
+        <p className="text-sm text-red-600 dark:text-red-400">
+          {(cacheNow.error as Error).message}
+        </p>
       ) : query.data ? (
         <FundHoldings result={query.data} />
       ) : null}

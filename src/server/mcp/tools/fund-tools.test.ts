@@ -2,6 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { describe, expect, it, vi } from "vitest";
+import type { EnsureResult, FundCache } from "../../china/ondemand.js";
 import type { ExposureRow, FundMatch, FundRepo, HoldingRow } from "../../china/repo.js";
 import type { Fund } from "../../db/schema.js";
 import type { McpAuth } from "../../lib/http.js";
@@ -142,9 +143,33 @@ function mockRepo(overrides: Partial<FundRepo> = {}) {
   return repo;
 }
 
-async function connect(repo: FundRepo) {
+/**
+ * Records on-demand fetches without performing any. The fund tools now reach
+ * for this whenever a fund has never been synced, so a test that did not inject
+ * one would fall through to the real lazy cache and try to open a database.
+ */
+function stubCache(result: Partial<EnsureResult> = {}) {
+  const calls: { code: string; steps?: string[] }[] = [];
+  const cache: FundCache = {
+    ensure: async (code, options) => {
+      calls.push({ code, ...(options?.steps ? { steps: options.steps } : {}) });
+      return {
+        code,
+        status: "cached",
+        fetched: options?.steps ?? ["details", "holdings", "nav"],
+        symbolsClassified: 0,
+        unclassified: 0,
+        message: `Cached fund ${code} on demand.`,
+        ...result,
+      } as EnsureResult;
+    },
+  };
+  return { cache, calls };
+}
+
+async function connect(repo: FundRepo, cache: FundCache = stubCache().cache) {
   const yahoo = {} as YahooFinanceClient;
-  const server = buildMcpServer(auth, { client: yahoo, funds: repo });
+  const server = buildMcpServer(auth, { client: yahoo, funds: repo, fundCache: cache });
   const mcpClient = new Client({ name: "fund-tools-test", version: "0.1.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -152,8 +177,13 @@ async function connect(repo: FundRepo) {
   return { server, mcpClient };
 }
 
-async function call(repo: FundRepo, name: string, args: Record<string, unknown>) {
-  const { server, mcpClient } = await connect(repo);
+async function call(
+  repo: FundRepo,
+  name: string,
+  args: Record<string, unknown>,
+  cache?: FundCache,
+) {
+  const { server, mcpClient } = await connect(repo, cache);
   try {
     return CallToolResultSchema.parse(await mcpClient.callTool({ name, arguments: args }));
   } finally {
@@ -362,5 +392,62 @@ describe("fundPerformance", () => {
     const result = await call(repo, "fundPerformance", { code: "162411", from: "2026/01/01" });
     expect(result.isError).toBe(true);
     expect(repo.getNavSeries).not.toHaveBeenCalled();
+  });
+});
+
+describe("on-demand caching", () => {
+  it("fetches a fund the first time a tool touches it", async () => {
+    const { cache, calls } = stubCache();
+    // holdingsSyncedAt null is the definition of "never cached".
+    const repo = mockRepo({ getFund: async () => fund("161125", { holdingsSyncedAt: null }) });
+
+    await call(repo, "fundExposure", { code: "161125" }, cache);
+
+    expect(calls).toEqual([{ code: "161125", steps: ["details", "holdings"] }]);
+  });
+
+  it("does not refetch a fund that has been synced before", async () => {
+    const { cache, calls } = stubCache();
+    const repo = mockRepo({
+      getFund: async () => fund("161125", { holdingsSyncedAt: new Date("2026-08-01T00:00:00Z") }),
+    });
+
+    await call(repo, "fundExposure", { code: "161125" }, cache);
+
+    expect(calls).toEqual([]);
+  });
+
+  it("asks only for NAV when the tool only measures NAV", async () => {
+    const { cache, calls } = stubCache();
+    const repo = mockRepo({ getFund: async () => fund("161125", { navSyncedAt: null }) });
+
+    await call(repo, "fundPerformance", { code: "161125" }, cache);
+
+    expect(calls).toEqual([{ code: "161125", steps: ["details", "nav"] }]);
+  });
+
+  it("surfaces an on-demand failure instead of returning an empty breakdown", async () => {
+    const { cache } = stubCache({
+      status: "unknown",
+      message: "Fund 999999 is not in the fund universe index.",
+    });
+    const repo = mockRepo({ getFund: async () => null });
+
+    const result = await call(repo, "fundExposure", { code: "999999" }, cache);
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]).toMatchObject({
+      text: expect.stringContaining("not in the fund universe index"),
+    });
+  });
+
+  it("refuses rather than queueing when too many fetches are pending", async () => {
+    const { cache } = stubCache({ status: "busy", message: "Too many funds are being cached right now (8)." });
+    const repo = mockRepo({ getFund: async () => fund("161125", { holdingsSyncedAt: null }) });
+
+    const result = await call(repo, "fundExposure", { code: "161125" }, cache);
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]).toMatchObject({ text: expect.stringContaining("Too many funds") });
   });
 });

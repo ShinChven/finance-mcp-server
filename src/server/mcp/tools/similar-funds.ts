@@ -1,7 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { cosineSimilarity } from "../../china/exposure.js";
+import type { FundCache } from "../../china/ondemand.js";
 import type { FundRepo } from "../../china/repo.js";
+import { ensureHoldings } from "./ensure-cached.js";
 import { fundCodeSchema, readOnlyToolAnnotations, runTool } from "./runtime.js";
 
 /**
@@ -11,7 +13,11 @@ import { fundCodeSchema, readOnlyToolAnnotations, runTool } from "./runtime.js";
  * closed to subscription — common for QDII, which runs against foreign-exchange
  * quota.
  */
-export function registerSimilarFundsTool(server: McpServer, repo: FundRepo): void {
+export function registerSimilarFundsTool(
+  server: McpServer,
+  repo: FundRepo,
+  cache: FundCache,
+): void {
   server.registerTool(
     "similarFunds",
     {
@@ -29,6 +35,8 @@ export function registerSimilarFundsTool(server: McpServer, repo: FundRepo): voi
     },
     async ({ code, limit, minSimilarity }) =>
       runTool(async () => {
+        await ensureHoldings(cache, repo, code);
+
         const fund = await repo.getFund(code);
         if (fund === null) {
           throw new Error(`Fund ${code} is not in the local index. Run the ingest job first.`);
