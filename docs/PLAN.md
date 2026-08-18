@@ -203,8 +203,15 @@ Share classes are ingested per fund code rather than deduplicated by portfolio â
 see the README for why the deduplication loses more than it saves.
 - System tool: `whoami` returns the authenticated user and auth method.
 - Yahoo Finance tools: `search`, `quote`, `quoteSummary`, `chart`, `screener`,
-  `trendingSymbols`, `options`, `insights`, `recommendationsBySymbol`, and
-  `fundamentalsTimeSeries`.
+  `trendingSymbols`, `options`, `insights`, `recommendationsBySymbol`,
+  `fundamentalsTimeSeries`, and `earningsAnalysis`.
+- SEC EDGAR tools: `secFilings` and `secFinancials` read data.sec.gov directly
+  for US registrants â€” the filing index with document URLs, and as-reported XBRL
+  financials carrying the accession number behind each value. `sec/edgar.ts`
+  does HTTP, throttling (EDGAR caps clients at 10 req/s) and caching; all shape
+  knowledge lives in `sec/parse.ts`. Multi-megabyte `companyfacts` payloads are
+  reduced to a curated metric slice before caching, and the client is
+  constructed lazily so the MCP tool import path stays free of `config`.
 - The process reuses one Yahoo Finance client for cookies and queueing. Each call
   has a timeout and result-size limit; inputs constrain symbol counts, date
   ranges, module names, screeners, and result counts.

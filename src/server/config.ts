@@ -13,6 +13,9 @@ const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
+  // SEC EDGAR requires a descriptive User-Agent with a contact email on every
+  // request, or it starts rejecting them: https://www.sec.gov/os/webmaster-faq#developers
+  SEC_EDGAR_CONTACT_EMAIL: z.string().min(1).default("shinchven@gmail.com"),
 });
 
 function load() {
