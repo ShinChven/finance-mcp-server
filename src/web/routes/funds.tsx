@@ -147,7 +147,7 @@ export default function FundsPage() {
   return (
     <>
       <PageHeader
-        title="Fund Cache"
+        title="China Fund"
         description="Holdings are downloaded here so the stock- and sector-level tools can answer. Eastmoney only serves fund → holdings, so the reverse lookups exist only for funds cached below."
       />
 

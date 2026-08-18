@@ -227,7 +227,7 @@ says so.
 ### Fund data ingest
 
 The relationship tools read local tables only — no tool call ever hits an
-upstream data source. Populate them from the **Fund Cache** page in the
+upstream data source. Populate them from the **China Fund** page in the
 dashboard, or from the CLI:
 
 ```sh
@@ -271,7 +271,7 @@ summary reports rows the parser could not read. A non-zero value means an
 upstream format drift — the failure mode that once made Tokyo-coded positions
 (`285A`) vanish from QDII portfolios with no error at all.
 
-### Fund Cache dashboard page
+### China Fund dashboard page
 
 `/funds` shows what is actually cached — fund count, holdings rows, distinct
 stocks, latest report date — and lists every fund with its holdings count and
