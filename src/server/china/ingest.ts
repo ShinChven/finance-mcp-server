@@ -379,7 +379,7 @@ interface Candidate {
 export async function selectCandidates(
   db: Db,
   scope: IngestScope,
-  options: { codes?: string[]; limit?: number } = {},
+  options: { codes?: string[]; limit?: number | null } = {},
 ): Promise<Candidate[]> {
   const columns = {
     code: funds.code,
@@ -399,7 +399,9 @@ export async function selectCandidates(
     .where(where)
     .orderBy(sql`${funds.holdingsSyncedAt} asc nulls first`, asc(funds.code));
 
-  return options.limit === undefined ? query : query.limit(options.limit);
+  // `null` and `undefined` both mean "no SQL limit" here; the caller decides
+  // whether an omitted limit should become a default before it reaches this.
+  return options.limit == null ? query : query.limit(options.limit);
 }
 
 /** Counts behind the dashboard's "you are about to fetch N funds" confirmation. */
@@ -425,7 +427,7 @@ export interface SyncPreview {
 export async function previewSync(
   db: Db,
   scope: IngestScope,
-  options: { codes?: string[]; limit?: number; force?: boolean; requestIntervalMs?: number } = {},
+  options: { codes?: string[]; limit?: number | null; force?: boolean; requestIntervalMs?: number } = {},
 ): Promise<SyncPreview> {
   const candidates = await selectCandidates(db, scope, {
     codes: options.codes,
@@ -469,8 +471,13 @@ export interface RunIngestOptions {
   scope?: IngestScope;
   /** Explicit fund codes. Implies `scope: "codes"` when no scope is given. */
   codes?: string[];
-  /** Cap on how many funds to pull in one run. */
-  limit?: number;
+  /**
+   * Cap on how many funds to pull in one run. `null` removes the cap entirely,
+   * which is what the dashboard asks for — its confirmation dialog prices the
+   * whole scope, so capping the run behind the user's back would contradict the
+   * number they approved. Omitted keeps the CLI-friendly default below.
+   */
+  limit?: number | null;
   skipUniverse?: boolean;
   /** Ignore the watermarks and refetch everything in scope. */
   force?: boolean;

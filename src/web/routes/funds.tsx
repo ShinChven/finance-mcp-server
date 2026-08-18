@@ -319,7 +319,10 @@ function SyncConfirm({
   });
 
   const start = useMutation({
-    mutationFn: () => api<IngestJobItem>("/api/sync", { method: "POST", body: { scope, force } }),
+    // `limit: null` is explicit rather than omitted: the preview above prices
+    // the entire scope, so the run must not be capped behind the user's back.
+    mutationFn: () =>
+      api<IngestJobItem>("/api/sync", { method: "POST", body: { scope, force, limit: null } }),
     onSuccess: () => {
       toast("success", "Sync started.");
       onStarted();

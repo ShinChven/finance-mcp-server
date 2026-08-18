@@ -73,6 +73,12 @@ export const previewQuerySchema = z.object({
 
 export const syncBodySchema = z.object({
   scope: z.enum(SELECTABLE_SCOPES),
-  limit: z.coerce.number().int().min(1).max(30_000).optional(),
+  /**
+   * `null` means "no cap — every candidate in scope"; omitted falls back to the
+   * runner's default. The dashboard sends `null`, because its confirmation
+   * dialog counts the whole scope: a silent cap would make the number the user
+   * approved a lie.
+   */
+  limit: z.coerce.number().int().min(1).max(30_000).nullable().optional(),
   force: z.boolean().default(false),
 });
