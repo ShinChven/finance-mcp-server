@@ -1,3 +1,5 @@
+import type { WatchlistItemKind } from "../../shared/watchlist.js";
+
 import type { JsonSchemaNode } from "./json-schema.js";
 import type { UserPreferences } from "../../shared/preferences.js";
 
@@ -207,4 +209,66 @@ export interface Overview {
   activeGrants: number;
   lastMcpAccess: string | null;
   recentActivity: Omit<ActivityItem, "ip">[];
+}
+
+/* ---------------------------------------------------------------- *
+ * Watchlists
+ * ---------------------------------------------------------------- */
+
+export interface WatchlistSummary {
+  id: string;
+  userId: string;
+  name: string;
+  description: string | null;
+  itemCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** What an item is currently worth, and where that number came from. */
+export interface LiveValue {
+  /** `market` is an intraday quote; `nav` is a fund's last published NAV. */
+  basis: "market" | "nav";
+  price: number | null;
+  change: number | null;
+  changePercent: number | null;
+  currency: string | null;
+  marketState: string | null;
+  asOf: string | null;
+  available: boolean;
+  unavailableReason?: string;
+}
+
+export interface WatchlistItem {
+  id: string;
+  kind: WatchlistItemKind;
+  ref: string;
+  name: string | null;
+  note: string | null;
+  targetPrice: number | null;
+  targetDistancePercent: number | null;
+  addedAt: string;
+  live: LiveValue;
+}
+
+export interface WatchlistTotals {
+  items: number;
+  priced: number;
+  advancing: number;
+  declining: number;
+  averageChangePercent: number | null;
+  best: { ref: string; changePercent: number } | null;
+  worst: { ref: string; changePercent: number } | null;
+}
+
+export interface WatchlistItemsResult {
+  watchlist: WatchlistSummary;
+  total: number;
+  items: WatchlistItem[];
+  summary: WatchlistTotals | null;
+}
+
+export interface AddItemsResult {
+  added: { id: string; ref: string }[];
+  skipped: string[];
 }

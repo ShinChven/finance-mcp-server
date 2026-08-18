@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
   date,
@@ -11,6 +12,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import type { UserPreferences } from "../../shared/preferences.js";
+import { WATCHLIST_ITEM_KINDS } from "../../shared/watchlist.js";
 
 export const userRole = pgEnum("user_role", ["admin", "user"]);
 export const userStatus = pgEnum("user_status", ["active", "disabled"]);
@@ -169,6 +171,8 @@ export const oauthTokens = pgTable(
   ],
 );
 
+export const watchlistItemKind = pgEnum("watchlist_item_kind", WATCHLIST_ITEM_KINDS);
+
 export const chatRole = pgEnum("chat_role", ["user", "assistant"]);
 
 export const chatConversations = pgTable(
@@ -202,6 +206,61 @@ export const chatMessages = pgTable(
   },
   (t) => [index("chat_messages_conversation_idx").on(t.conversationId, t.createdAt)],
 );
+
+/* ------------------------------------------------------------------ *
+ * Watchlists
+ *
+ * A user's own curated lists, readable and editable from both the dashboard
+ * and the MCP tools, so an agent and a person work on the same rows. Items
+ * carry no market data — prices are fetched live and NAV comes from the fund
+ * cache, because a stored price is wrong the moment it is written.
+ * ------------------------------------------------------------------ */
+
+export const watchlists = pgTable(
+  "watchlists",
+  {
+    id: id(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // Case-insensitive, because MCP callers address lists by name: allowing
+    // both "Tech" and "tech" would make `watchlistAdd({ name: "tech" })`
+    // ambiguous.
+    uniqueIndex("watchlists_user_name_idx").on(t.userId, sql`lower(${t.name})`),
+    index("watchlists_user_updated_idx").on(t.userId, t.updatedAt),
+  ],
+);
+
+export const watchlistItems = pgTable(
+  "watchlist_items",
+  {
+    id: id(),
+    watchlistId: text("watchlist_id")
+      .notNull()
+      .references(() => watchlists.id, { onDelete: "cascade" }),
+    kind: watchlistItemKind("kind").notNull(),
+    /** Yahoo symbol (`AAPL`, `0700.HK`) or 6-digit China fund code. */
+    ref: text("ref").notNull(),
+    name: text("name"),
+    /** Why this is being tracked — the context an agent otherwise loses. */
+    note: text("note"),
+    targetPrice: doublePrecision("target_price"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("watchlist_items_unique_idx").on(t.watchlistId, t.kind, t.ref),
+    index("watchlist_items_list_idx").on(t.watchlistId, t.createdAt),
+  ],
+);
+
+export type Watchlist = typeof watchlists.$inferSelect;
+export type WatchlistItem = typeof watchlistItems.$inferSelect;
 
 export const auditLog = pgTable(
   "audit_log",

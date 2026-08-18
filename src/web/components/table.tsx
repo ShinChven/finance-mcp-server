@@ -44,7 +44,7 @@ export function FilterPills({
   options,
 }: {
   params: ListParams;
-  paramKey: "status" | "role" | "action" | "type";
+  paramKey: "status" | "role" | "action" | "type" | "kind";
   options: { value: string; label: string }[];
 }) {
   const current = params[paramKey];

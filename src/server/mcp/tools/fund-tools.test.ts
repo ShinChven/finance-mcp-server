@@ -144,7 +144,7 @@ function mockRepo(overrides: Partial<FundRepo> = {}) {
 
 async function connect(repo: FundRepo) {
   const yahoo = {} as YahooFinanceClient;
-  const server = buildMcpServer(auth, yahoo, repo);
+  const server = buildMcpServer(auth, { client: yahoo, funds: repo });
   const mcpClient = new Client({ name: "fund-tools-test", version: "0.1.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);

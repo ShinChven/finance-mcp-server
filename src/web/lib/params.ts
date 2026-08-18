@@ -22,12 +22,16 @@ export interface ListParamValues {
   tool: string;
   /** Fund whose holdings are open on the Funds page. */
   fund: string;
+  /** Selected watchlist on the Watchlists page. */
+  list: string;
+  /** Watchlist item kind (`symbol`, `fund`). */
+  kind: string;
   page: number;
   per_page: number;
   sort: string;
 }
 
-const FILTER_KEYS = ["q", "status", "role", "action", "type"] as const;
+const FILTER_KEYS = ["q", "status", "role", "action", "type", "kind"] as const;
 
 export function useListParams(defaults: Partial<ListParamValues> = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -46,6 +50,8 @@ export function useListParams(defaults: Partial<ListParamValues> = {}) {
       c: searchParams.get("c") ?? "",
       tool: searchParams.get("tool") ?? "",
       fund: searchParams.get("fund") ?? "",
+      list: searchParams.get("list") ?? "",
+      kind: searchParams.get("kind") ?? "",
       page: Math.max(1, Number(searchParams.get("page")) || 1),
       per_page: Math.min(100, Math.max(1, Number(searchParams.get("per_page")) || defaultPerPage)),
       sort: searchParams.get("sort") ?? defaultSort,
@@ -61,6 +67,7 @@ export function useListParams(defaults: Partial<ListParamValues> = {}) {
     if (values.role) params.set("role", values.role);
     if (values.action) params.set("action", values.action);
     if (values.type) params.set("type", values.type);
+    if (values.kind) params.set("kind", values.kind);
     if (values.page > 1) params.set("page", String(values.page));
     params.set("per_page", String(values.per_page));
     if (values.sort) params.set("sort", values.sort);
