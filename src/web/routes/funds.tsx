@@ -147,7 +147,7 @@ export default function FundsPage() {
   return (
     <>
       <PageHeader
-        title="Fund Cache"
+        title="China Fund"
         description="Holdings are downloaded here so the stock- and sector-level tools can answer. Eastmoney only serves fund → holdings, so the reverse lookups exist only for funds cached below."
       />
 
@@ -319,7 +319,10 @@ function SyncConfirm({
   });
 
   const start = useMutation({
-    mutationFn: () => api<IngestJobItem>("/api/sync", { method: "POST", body: { scope, force } }),
+    // `limit: null` is explicit rather than omitted: the preview above prices
+    // the entire scope, so the run must not be capped behind the user's back.
+    mutationFn: () =>
+      api<IngestJobItem>("/api/sync", { method: "POST", body: { scope, force, limit: null } }),
     onSuccess: () => {
       toast("success", "Sync started.");
       onStarted();

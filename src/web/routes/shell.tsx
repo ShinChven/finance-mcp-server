@@ -94,7 +94,7 @@ export default function Shell() {
             <Star className="size-4" /> Watchlists
           </NavLink>
           <NavLink to="/funds" className={navItemClass}>
-            <Database className="size-4" /> Fund Cache
+            <Database className="size-4" /> China Fund
           </NavLink>
           <NavLink to="/tokens" className={navItemClass}>
             <KeyRound className="size-4" /> Access Tokens

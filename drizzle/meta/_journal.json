@@ -50,6 +50,13 @@
       "when": 1787042910152,
       "tag": "0006_young_dexter_bennett",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787054058760,
+      "tag": "0007_brief_tyrannus",
+      "breakpoints": true
     }
   ]
 }

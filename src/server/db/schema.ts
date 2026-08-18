@@ -434,8 +434,12 @@ export const ingestJobs = pgTable(
     requestedBy: text("requested_by").references(() => users.id, { onDelete: "set null" }),
     /** Explicit fund codes, when `scope` is `codes`. */
     codes: jsonb("codes").$type<string[]>(),
-    /** Cap on funds fetched in this run. */
+    /** Cap on funds fetched in this run. Null means the run was uncapped. */
     fundLimit: doublePrecision("fund_limit"),
+    /** Recorded so a run orphaned by a restart can be resumed as it was asked
+     *  for: resuming a force run without this would re-apply the freshness
+     *  windows the user explicitly chose to ignore. */
+    force: boolean("force").notNull().default(false),
     /** Funds skipped because their watermark was still inside the window. */
     skippedFresh: doublePrecision("skipped_fresh").notNull().default(0),
     totalFunds: doublePrecision("total_funds").notNull().default(0),

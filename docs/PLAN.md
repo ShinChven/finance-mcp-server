@@ -185,7 +185,7 @@ via Yahoo `assetProfile` (one taxonomy across CN/HK/US), then recomputes
 `fund_exposure`. Upstream response shapes are isolated in pure parsers with
 fixture tests — see the README note on their unverified status.
 
-The same pipeline is drivable from the dashboard's Fund Cache page. Three pieces
+The same pipeline is drivable from the dashboard's China Fund page. Three pieces
 make that safe:
 
 - **Per-step watermarks** (`funds.details_synced_at`, `holdings_synced_at`,

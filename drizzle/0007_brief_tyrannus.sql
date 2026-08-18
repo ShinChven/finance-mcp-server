@@ -1,0 +1,1 @@
+ALTER TABLE "ingest_jobs" ADD COLUMN "force" boolean DEFAULT false NOT NULL;

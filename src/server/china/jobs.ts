@@ -9,8 +9,9 @@
  * Deliberately single-flight and in-memory: the container runs one server
  * process, and two concurrent runs would double the request rate against hosts
  * that already throttle aggressively. A process restart therefore orphans a
- * running job, which `reconcileOrphanedJobs` marks as failed at boot instead of
- * leaving it "running" forever.
+ * running job, which `resumeOrphanedJobs` closes at boot and then continues, so
+ * an uncapped run survives a deploy without anyone having to press the button
+ * again.
  */
 
 import { and, desc, eq, inArray } from "drizzle-orm";
@@ -23,7 +24,8 @@ import type { IngestScope } from "./scope.js";
 export interface StartJobOptions {
   scope: IngestScope;
   codes?: string[];
-  limit?: number;
+  /** `null` runs the whole scope uncapped; omitted uses the runner's default. */
+  limit?: number | null;
   force?: boolean;
   requestedBy?: string | null;
 }
@@ -60,6 +62,7 @@ export async function startJob(options: StartJobOptions): Promise<IngestJob> {
       requestedBy: options.requestedBy ?? null,
       codes: options.codes ?? null,
       fundLimit: options.limit ?? null,
+      force: options.force ?? false,
       startedAt: new Date(),
     })
     .returning();
@@ -143,13 +146,26 @@ export async function latestJob(): Promise<IngestJob | undefined> {
 }
 
 /**
- * Fails jobs left "running" by a process that died mid-sync.
+ * Closes jobs left "running" by a process that died mid-sync, then continues
+ * the newest one.
  *
- * Without this the dashboard would show a permanently stuck run and
- * `startJob` would be blocked by a job with no runner behind it.
+ * Resuming is cheap and safe rather than clever: every fund carries its own
+ * watermark, and `selectCandidates` orders by `holdings_synced_at ASC NULLS
+ * FIRST`, so a fresh run over the same scope naturally starts with whatever the
+ * dead run never reached. There is no checkpoint to store and nothing to
+ * reconcile — the work is idempotent, so "resume" is just "run it again".
+ *
+ * The old row is still closed as failed instead of being reopened: it records
+ * what that attempt actually did, and a run that silently spans two processes
+ * would make the progress numbers meaningless.
+ *
+ * Caveat worth knowing: if a sync ever manages to kill the process, this turns
+ * a crash into a restart loop that keeps hitting Eastmoney. The runner catches
+ * per-fund failures and never throws out of the loop, so that path is not
+ * reachable today, but it is the thing to look at first if it ever happens.
  */
-export async function reconcileOrphanedJobs(): Promise<number> {
-  const rows = await db
+export async function resumeOrphanedJobs(): Promise<{ closed: number; resumed: IngestJob | null }> {
+  const orphaned = await db
     .update(ingestJobs)
     .set({
       status: "failed",
@@ -157,6 +173,21 @@ export async function reconcileOrphanedJobs(): Promise<number> {
       finishedAt: new Date(),
     })
     .where(and(inArray(ingestJobs.status, ["queued", "running"])))
-    .returning({ id: ingestJobs.id });
-  return rows.length;
+    .returning();
+
+  if (orphaned.length === 0) return { closed: 0, resumed: null };
+
+  // Single-flight means at most one was genuinely running; if older rows leaked
+  // through an earlier crash, only the newest is worth continuing.
+  const newest = orphaned.reduce((a, b) => (a.createdAt >= b.createdAt ? a : b));
+
+  const resumed = await startJob({
+    scope: newest.scope,
+    ...(newest.codes ? { codes: newest.codes } : {}),
+    limit: newest.fundLimit,
+    force: newest.force,
+    requestedBy: newest.requestedBy,
+  });
+
+  return { closed: orphaned.length, resumed };
 }

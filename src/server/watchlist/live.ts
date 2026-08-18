@@ -161,7 +161,7 @@ async function quoteFunds(
     if (snapshot === undefined) {
       values.set(
         code,
-        UNAVAILABLE("This fund is not in the local index yet — cache it from the Fund Cache page.", "nav"),
+        UNAVAILABLE("This fund is not in the local index yet — cache it from the China Fund page.", "nav"),
       );
       continue;
     }

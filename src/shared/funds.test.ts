@@ -44,4 +44,25 @@ describe("syncBodySchema", () => {
     expect(syncBodySchema.safeParse({ scope: "qdii", limit: 0 }).success).toBe(false);
     expect(syncBodySchema.safeParse({ scope: "qdii", limit: -5 }).success).toBe(false);
   });
+
+  it("accepts a null limit as the uncapped signal", () => {
+    // Regression: the dashboard used to send no limit at all, so `runIngest`
+    // fell back to its CLI-oriented default of 200 while the confirmation
+    // dialog had already priced the whole scope. The user approved "3,000
+    // funds, ~45 min" and got 200. `null` is how the dashboard now says
+    // "no cap" out loud.
+    expect(syncBodySchema.parse({ scope: "all", limit: null })).toEqual({
+      scope: "all",
+      limit: null,
+      force: false,
+    });
+  });
+
+  it("keeps an omitted limit distinct from an explicit null", () => {
+    // The two mean different things downstream — omitted defers to the
+    // runner's default, null removes the cap — so the schema must not
+    // collapse one into the other.
+    expect(syncBodySchema.parse({ scope: "qdii" }).limit).toBeUndefined();
+    expect(syncBodySchema.parse({ scope: "qdii", limit: null }).limit).toBeNull();
+  });
 });
