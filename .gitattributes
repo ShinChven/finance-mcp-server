@@ -1,0 +1,12 @@
+# drizzle-kit rewrites the whole snapshot on every schema change, so a one-line
+# column addition lands as a ~2,400-line diff that buries the actual review.
+#
+# They stay in the repository on purpose: `drizzle-kit generate` diffs schema.ts
+# against the newest snapshot to work out the next migration, so dropping them
+# would make it re-emit the entire schema as if nothing existed. Only the
+# runtime path can ignore them — the migrator reads _journal.json and the .sql
+# files, never these.
+#
+# linguist-generated collapses them in GitHub diffs; -diff suppresses the body
+# locally too. `git diff --text` still shows the content when it is needed.
+drizzle/meta/*_snapshot.json linguist-generated=true -diff
