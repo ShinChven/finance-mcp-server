@@ -26,6 +26,7 @@ import {
 import { db } from "../db/index.js";
 import { fundHoldings, funds, ingestJobs, instruments } from "../db/schema.js";
 import { previewSync } from "../funds/ingest.js";
+import { refreshAllFundIndexes } from "../funds/universe.js";
 import { activeJobId, cancelJob, JobInProgressError, startJob } from "../funds/jobs.js";
 import { createLazyFundCache } from "../funds/ondemand.js";
 import { getProvider } from "../funds/providers/index.js";
@@ -337,6 +338,29 @@ export const syncRoutes = new Hono<AppEnv>()
       }
       throw error;
     }
+  })
+
+  /**
+   * Reload every provider's fund index now.
+   *
+   * The boot refresh covers the normal case; this is the escape hatch for when
+   * a source was down at boot, or a new listing should show up without waiting
+   * out the freshness window. Cheap — one listing call per provider — but it
+   * writes, so it is admin-only and audited like any other sync action.
+   */
+  .post("/index", requireAdmin, async (c) => {
+    const user = c.get("user");
+    const results = await refreshAllFundIndexes(db, { force: true });
+
+    await audit({
+      actorUserId: user.id,
+      action: "fund.index_refresh",
+      targetType: "fund_index",
+      meta: { results },
+      ip: clientIp(c),
+    });
+
+    return c.json({ results });
   })
 
   .post("/:id/cancel", requireAdmin, async (c) => {

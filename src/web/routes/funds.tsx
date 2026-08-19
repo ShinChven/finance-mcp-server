@@ -466,11 +466,20 @@ function SyncConfirm({
             </span>
           </label>
 
-          {data.toFetch === 0 && !force && (
+          {/* `toFetch === 0` has two causes and only one of them means "done".
+              An empty fund index matches no candidates either, and the run is
+              what seeds it, so the counts above are unknowable until it has. */}
+          {data.matched === 0 ? (
+            <p className="mt-3 rounded-lg bg-amber-50 p-2 text-xs text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
+              The fund index for {PROVIDERS[provider].label} has not been downloaded yet, so there is
+              nothing here to count. This run fetches the index first — one request — and then caches
+              what falls in this category. The figures above will be meaningful next time.
+            </p>
+          ) : data.toFetch === 0 && !force ? (
             <p className="mt-3 rounded-lg bg-emerald-50 p-2 text-xs text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">
               Everything in this category is already cached and fresh. There is nothing to fetch.
             </p>
-          )}
+          ) : null}
 
           <div className="mt-5 flex justify-end gap-2">
             <Button variant="secondary" onClick={onClose}>

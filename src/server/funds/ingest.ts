@@ -28,6 +28,7 @@ import type { db as Database } from "../db/index.js";
 import {
   fundExposure,
   fundHoldings,
+  fundIndexState,
   fundNav,
   funds,
   instrumentSectors,
@@ -122,6 +123,22 @@ export async function ingestFundUniverse(
       });
     summary.fundsUpserted += batch.length;
   });
+
+  // Recorded here rather than by the caller, so that a category sync and a
+  // standalone index refresh leave the same watermark: both just downloaded
+  // the same list, and neither should make the other repeat the work.
+  await db
+    .insert(fundIndexState)
+    .values({ provider: provider.id, fundCount: list.length, syncedAt: new Date(), lastError: null })
+    .onConflictDoUpdate({
+      target: fundIndexState.provider,
+      set: {
+        fundCount: sql`excluded.fund_count`,
+        syncedAt: sql`excluded.synced_at`,
+        lastError: sql`excluded.last_error`,
+      },
+    });
+
   return summary;
 }
 
