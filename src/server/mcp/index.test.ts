@@ -79,6 +79,7 @@ describe("finance MCP server", () => {
         "fundExposure",
         "fundsByStock",
         "fundsBySector",
+        "fundsByHoldings",
         "similarFunds",
         "themeToFunds",
         "compareFunds",

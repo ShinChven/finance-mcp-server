@@ -24,7 +24,7 @@ import {
   syncBodySchema,
 } from "../../shared/funds.js";
 import { db } from "../db/index.js";
-import { fundHoldings, funds, ingestJobs } from "../db/schema.js";
+import { fundHoldings, funds, ingestJobs, instruments } from "../db/schema.js";
 import { previewSync } from "../funds/ingest.js";
 import { activeJobId, cancelJob, JobInProgressError, startJob } from "../funds/jobs.js";
 import { createLazyFundCache } from "../funds/ondemand.js";
@@ -222,14 +222,22 @@ export const fundRoutes = new Hono<AppEnv>()
     const [fund] = await db.select().from(funds).where(eq(funds.code, code)).limit(1);
     if (!fund) return c.json({ error: "fund not found" }, 404);
 
+    // Joined rather than looked up per row: the enriched instrument columns are
+    // what turn a list of tickers into something a reader can judge, and they
+    // are the visible proof that the Yahoo enrichment actually landed.
     const rows = await db
       .select({
         symbol: fundHoldings.symbol,
         name: fundHoldings.name,
         weight: fundHoldings.weight,
         reportDate: fundHoldings.reportDate,
+        isin: instruments.isin,
+        country: instruments.country,
+        marketCapUsd: instruments.marketCapUsd,
+        profileSyncedAt: instruments.profileSyncedAt,
       })
       .from(fundHoldings)
+      .leftJoin(instruments, eq(instruments.symbol, fundHoldings.symbol))
       .where(eq(fundHoldings.fundCode, code))
       .orderBy(desc(fundHoldings.reportDate), desc(fundHoldings.weight));
 
@@ -258,6 +266,10 @@ export const fundRoutes = new Hono<AppEnv>()
       // well under 100 is expected from a top-holdings discloser and a red flag
       // from a provider that publishes the whole book.
       disclosedWeight,
+      // How much of this portfolio the Yahoo join actually reached. A low
+      // figure explains a thin exposure breakdown far better than the
+      // breakdown itself can.
+      enrichedPositions: current.filter((row) => row.profileSyncedAt !== null).length,
       items: current,
       reportDates: [...new Set(rows.map((row) => row.reportDate))],
     });

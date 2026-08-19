@@ -8,6 +8,13 @@
       "when": 1787099969834,
       "tag": "0000_baseline",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1787107718202,
+      "tag": "0001_instrument_enrichment",
+      "breakpoints": true
     }
   ]
 }

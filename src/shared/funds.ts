@@ -67,6 +67,17 @@ export type SyncStep = keyof FreshnessWindows;
 export const SYNC_STEPS: readonly SyncStep[] = ["details", "holdings", "nav"];
 
 /**
+ * How long an instrument's Yahoo profile stays usable.
+ *
+ * Deliberately not a day. Most of what is stored — ISIN, country, exchange,
+ * sector — barely moves, and the one figure that does, market capitalization,
+ * is a weekly snapshot by design: refreshing thousands of instruments daily
+ * would cost more Yahoo requests than the whole fund ingest. Tool responses say
+ * so rather than letting a week-old market cap read as a live one.
+ */
+export const INSTRUMENT_PROFILE_FRESHNESS_MS = 7 * DAY;
+
+/**
  * What the SPA needs to know about a provider. The server-side half — the
  * fetching and the scope SQL — is the `FundProvider` interface.
  */

@@ -160,6 +160,11 @@ export interface HoldingRow {
   name: string | null;
   weight: number;
   reportDate: string;
+  /** From the enriched instrument row; null until the Yahoo join reaches it. */
+  isin: string | null;
+  country: string | null;
+  marketCapUsd: number | null;
+  profileSyncedAt: string | null;
 }
 
 export interface FundHoldingsResult {
@@ -178,6 +183,8 @@ export interface FundHoldingsResult {
   };
   latestReport: string | null;
   disclosedWeight: number;
+  /** Positions the Yahoo enrichment has reached, of `items.length`. */
+  enrichedPositions: number;
   items: HoldingRow[];
   reportDates: string[];
 }

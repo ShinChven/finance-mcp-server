@@ -145,7 +145,7 @@ export function createIsharesProvider(options: IsharesProviderOptions): FundProv
           ? {
               dropReason:
                 `no ticker ${stats.noTicker}, unmapped exchange ${stats.unmappedExchange}, ` +
-                `no weight ${stats.noWeight}`,
+                `ambiguous exchange ${stats.ambiguousExchange}, no weight ${stats.noWeight}`,
             }
           : {}),
       };

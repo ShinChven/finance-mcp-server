@@ -572,6 +572,7 @@ function FundHoldings({ result }: { result: FundHoldingsResult }) {
   }
 
   const full = result.fund.holdingsCompleteness === "full";
+  const enriched = result.enrichedPositions;
 
   return (
     <>
@@ -601,12 +602,22 @@ function FundHoldings({ result }: { result: FundHoldingsResult }) {
         )}
       </p>
 
+      {enriched < result.items.length && (
+        <p className="mb-3 text-xs text-zinc-400">
+          {enriched} of {result.items.length} positions have been matched against Yahoo. The rest
+          show no country or size yet and are excluded from any market-cap filter — enrichment
+          catches up on the next sync.
+        </p>
+      )}
+
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-zinc-200 text-left text-xs text-zinc-500 uppercase dark:border-zinc-800">
               <th className="px-3 py-2 font-medium">Symbol</th>
               <th className="px-3 py-2 font-medium">Name</th>
+              <th className="px-3 py-2 font-medium">Country</th>
+              <th className="px-3 py-2 text-right font-medium">Market cap</th>
               <th className="px-3 py-2 text-right font-medium">Weight</th>
             </tr>
           </thead>
@@ -616,8 +627,14 @@ function FundHoldings({ result }: { result: FundHoldingsResult }) {
                 key={holding.symbol}
                 className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60"
               >
-                <td className="px-3 py-2 font-mono text-xs">{holding.symbol}</td>
+                <td className="px-3 py-2 font-mono text-xs" title={holding.isin ?? undefined}>
+                  {holding.symbol}
+                </td>
                 <td className="px-3 py-2">{holding.name ?? "—"}</td>
+                <td className="px-3 py-2 text-xs text-zinc-500">{holding.country ?? "—"}</td>
+                <td className="px-3 py-2 text-right text-xs tabular-nums text-zinc-500">
+                  {formatUsdCompact(holding.marketCapUsd)}
+                </td>
                 <td className="px-3 py-2 text-right tabular-nums">{holding.weight.toFixed(2)}%</td>
               </tr>
             ))}
@@ -626,6 +643,24 @@ function FundHoldings({ result }: { result: FundHoldingsResult }) {
       </div>
     </>
   );
+}
+
+/**
+ * Market caps are USD-converted so they can be read down a column that mixes
+ * markets, and abbreviated because the exact figure is a weekly snapshot —
+ * printing it to the dollar would imply a precision it does not have.
+ */
+function formatUsdCompact(value: number | null): string {
+  if (value === null) return "—";
+  const units: [number, string][] = [
+    [1e12, "T"],
+    [1e9, "B"],
+    [1e6, "M"],
+  ];
+  for (const [size, suffix] of units) {
+    if (value >= size) return `$${(value / size).toFixed(value / size >= 100 ? 0 : 1)}${suffix}`;
+  }
+  return `$${Math.round(value).toLocaleString()}`;
 }
 
 function JobHistory({ jobs }: { jobs: IngestJobItem[] }) {

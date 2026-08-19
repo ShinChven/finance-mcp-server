@@ -32,6 +32,7 @@ describe("mcp tool catalog", () => {
       "fundExposure",
       "fundsByStock",
       "fundsBySector",
+      "fundsByHoldings",
       "similarFunds",
       "themeToFunds",
       "compareFunds",

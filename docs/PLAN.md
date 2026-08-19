@@ -180,9 +180,16 @@ Three routes connect a stock/sector/theme to a fund, in descending confidence:
    market exposure. Accurate but a snapshot; paired with a stability score.
 3. **Market exposure** — for country/region themes where sector is irrelevant.
 
-Tools: `fundExposure`, `fundsByStock`, `fundsBySector`, `similarFunds`,
-`themeToFunds`, `compareFunds`, `fundPerformance`. All read-only, all local — no
-tool call reaches an upstream provider.
+Tools: `fundExposure`, `fundsByStock`, `fundsBySector`, `fundsByHoldings`,
+`similarFunds`, `themeToFunds`, `compareFunds`, `fundPerformance`. All
+read-only, all local — no tool call reaches an upstream provider.
+
+A fourth route exists once instruments are enriched: `fundsByHoldings` joins
+`fund_holdings` against `instruments` and `instrument_sectors`, so criteria that
+were never precomputed into `fund_exposure` — market-cap band, country of
+domicile, an explicit basket — combine in a single statement. The instrument
+attributes come from Yahoo and the weights from each fund's provider; both being
+cached locally is what makes it a query rather than a fan-out.
 
 Ingest (`npm run ingest`, bundled to `dist/server/funds/ingest-cli.js`) pulls
 the fund universe, per-fund profile detail (the tracked index — without this
@@ -220,6 +227,13 @@ make that safe:
 
 Share classes are ingested per fund code rather than deduplicated by portfolio —
 see the README for why the deduplication loses more than it saves.
+
+`instruments` is an attribute table, not just a symbol list: ISIN, country,
+exchange, market cap (native and USD-converted) and a `profile_synced_at`
+watermark sit alongside the canonical symbol. Storing the USD figure separately
+is not redundancy — a size filter over the native column ranks by currency
+rather than by company, and the FX conversion has to happen somewhere it can be
+indexed.
 
 `funds.holdings_completeness` carries the disclosure convention a fund's weights
 are denominated in. It is not a quality score but a unit: a China quarterly

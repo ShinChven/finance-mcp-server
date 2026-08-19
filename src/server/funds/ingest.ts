@@ -18,7 +18,12 @@
  */
 
 import { and, asc, eq, inArray, sql, type SQL } from "drizzle-orm";
-import { isFresh, SYNC_STEPS, type SyncStep } from "../../shared/funds.js";
+import {
+  INSTRUMENT_PROFILE_FRESHNESS_MS,
+  isFresh,
+  SYNC_STEPS,
+  type SyncStep,
+} from "../../shared/funds.js";
 import type { db as Database } from "../db/index.js";
 import {
   fundExposure,
@@ -30,6 +35,7 @@ import {
 } from "../db/schema.js";
 import type { YahooFinanceClient } from "../mcp/client.js";
 import { computeExposure, type SectorTag } from "./exposure.js";
+import { createFxConverter } from "./fx.js";
 import type { FundProvider } from "./provider.js";
 import { currencyOf, marketOf } from "./symbols.js";
 
@@ -41,6 +47,8 @@ export interface IngestSummary {
   holdingsUpserted: number;
   navPointsUpserted: number;
   symbolsClassified: number;
+  /** Instruments whose Yahoo profile was refreshed this run. */
+  instrumentsEnriched: number;
   exposuresComputed: number;
   /** Funds skipped because every step was still inside its freshness window. */
   skippedFresh: number;
@@ -58,6 +66,7 @@ export function emptySummary(): IngestSummary {
     holdingsUpserted: 0,
     navPointsUpserted: 0,
     symbolsClassified: 0,
+    instrumentsEnriched: 0,
     exposuresComputed: 0,
     skippedFresh: 0,
     holdingsDropped: 0,
@@ -200,15 +209,16 @@ export async function ingestHoldings(
         continue;
       }
 
-      const symbols = [...new Set(holdings.map((holding) => holding.symbol))];
+      const bySymbol = new Map(holdings.map((holding) => [holding.symbol, holding]));
       await db
         .insert(instruments)
         .values(
-          symbols.map((symbol) => {
-            const market = marketOf(symbol);
+          [...bySymbol.values()].map((holding) => {
+            const market = marketOf(holding.symbol);
             return {
-              symbol,
-              name: holdings.find((holding) => holding.symbol === symbol)?.name ?? null,
+              symbol: holding.symbol,
+              isin: holding.isin ?? null,
+              name: holding.name,
               market,
               type: "stock",
               currency: currencyOf(market),
@@ -216,7 +226,18 @@ export async function ingestHoldings(
             };
           }),
         )
-        .onConflictDoNothing({ target: instruments.symbol });
+        // The row may already exist from another fund's holdings, in which case
+        // only the identifiers this source adds are worth writing: `market` and
+        // `currency` here are derived from the symbol, and the enrichment step's
+        // values are better than both.
+        .onConflictDoUpdate({
+          target: instruments.symbol,
+          set: {
+            isin: sql`coalesce(${instruments.isin}, excluded.isin)`,
+            name: sql`coalesce(${instruments.name}, excluded.name)`,
+            updatedAt: new Date(),
+          },
+        });
 
       await db
         .insert(fundHoldings)
@@ -283,52 +304,157 @@ export async function ingestNav(
 }
 
 /**
- * Step 5 — sector tags from Yahoo `assetProfile`.
+ * Step 5 — instrument enrichment from Yahoo.
  *
- * Only symbols missing a tag are fetched, so re-running the ingest costs one
- * request per genuinely new holding rather than per position. Shared across
- * providers on purpose: classifying NVDA once serves the QDII that holds it and
- * the US ETF that holds it alike.
+ * This is the join between the fund index and everything else the server can
+ * see. One `quoteSummary` call per instrument yields the sector taxonomy that
+ * makes exposure comparable across markets, *and* the attributes that make a
+ * cross-source question answerable in SQL — ISIN, country, exchange, market
+ * capitalization. The call was always being made; before, everything but the
+ * sector was thrown away.
+ *
+ * Watermark-driven, so a re-run costs one request per genuinely new or stale
+ * instrument rather than one per position. The watermark is set even when the
+ * call fails: a symbol Yahoo does not cover would otherwise be retried on every
+ * single run forever, and the next weekly pass picks it up anyway.
  */
-export async function ingestSectors(
+export interface EnrichOptions {
+  /** Stop once this timestamp passes; whatever was not reached stays stale and
+   *  shows up as lower `coverage` rather than as a hung request. */
+  deadline?: number;
+  /** Refresh even instruments still inside the freshness window. */
+  force?: boolean;
+}
+
+interface YahooInstrumentProfile {
+  assetProfile?: { sector?: string; industry?: string; country?: string };
+  price?: {
+    marketCap?: number | null;
+    currency?: string | null;
+    quoteType?: string | null;
+    exchangeName?: string | null;
+    longName?: string | null;
+    shortName?: string | null;
+  };
+}
+
+export async function ingestInstrumentProfiles(
   db: Db,
   yahoo: YahooFinanceClient,
   symbols: string[],
   summary: IngestSummary = emptySummary(),
+  options: EnrichOptions = {},
 ): Promise<IngestSummary> {
   if (symbols.length === 0) return summary;
 
-  const existing = await db
-    .select({ symbol: instrumentSectors.symbol })
-    .from(instrumentSectors)
-    .where(inArray(instrumentSectors.symbol, symbols));
-  const known = new Set(existing.map((row) => row.symbol));
-  const missing = symbols.filter((symbol) => !known.has(symbol));
+  const known = await db
+    .select({ symbol: instruments.symbol, profileSyncedAt: instruments.profileSyncedAt })
+    .from(instruments)
+    .where(inArray(instruments.symbol, symbols));
 
-  for (const symbol of missing) {
+  const now = Date.now();
+  const watermarks = new Map(known.map((row) => [row.symbol, row.profileSyncedAt]));
+  const stale = symbols.filter((symbol) => {
+    if (options.force === true) return true;
+    const syncedAt = watermarks.get(symbol);
+    if (syncedAt === undefined || syncedAt === null) return true;
+    return now - syncedAt.getTime() >= INSTRUMENT_PROFILE_FRESHNESS_MS;
+  });
+  if (stale.length === 0) return summary;
+
+  // One converter for the whole call: a run touching thousands of instruments
+  // needs about twenty FX quotes, not thousands.
+  const fx = createFxConverter(yahoo);
+
+  for (const symbol of stale) {
+    if (options.deadline !== undefined && Date.now() > options.deadline) break;
+
+    let profile: YahooInstrumentProfile = {};
     try {
-      const profile = (await yahoo.quoteSummary(symbol, { modules: ["assetProfile"] })) as {
-        assetProfile?: { sector?: string; industry?: string };
-      };
-      const sector = profile.assetProfile?.sector;
-      if (sector === undefined || sector === "") continue;
-
-      await db
-        .insert(instrumentSectors)
-        .values({
-          symbol,
-          taxonomy: "gics",
-          sectorCode: sector,
-          sectorName: profile.assetProfile?.industry ?? sector,
-          updatedAt: new Date(),
-        })
-        .onConflictDoNothing({ target: [instrumentSectors.symbol, instrumentSectors.taxonomy] });
-      summary.symbolsClassified += 1;
+      profile = (await yahoo.quoteSummary(symbol, {
+        modules: ["assetProfile", "price"],
+      })) as YahooInstrumentProfile;
     } catch (error) {
-      summary.errors.push(`sector ${symbol}: ${(error as Error).message}`);
+      summary.errors.push(`profile ${symbol}: ${(error as Error).message}`);
     }
+
+    const price = profile.price;
+    const marketCap = typeof price?.marketCap === "number" ? price.marketCap : null;
+    const currency = price?.currency ?? null;
+
+    await db
+      .update(instruments)
+      .set({
+        ...(price?.quoteType ? { type: price.quoteType.toLowerCase() } : {}),
+        ...(price?.exchangeName ? { exchange: price.exchangeName } : {}),
+        ...(profile.assetProfile?.country ? { country: profile.assetProfile.country } : {}),
+        ...(currency ? { currency } : {}),
+        // A name from Yahoo beats the one the holdings file carried, which is
+        // abbreviated to fit a CSV column.
+        ...(price?.longName || price?.shortName
+          ? { name: price.longName ?? price.shortName ?? null }
+          : {}),
+        marketCap,
+        marketCapUsd: await fx.toUsd(marketCap, currency),
+        profileSyncedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(instruments.symbol, symbol));
+    summary.instrumentsEnriched += 1;
+
+    const sector = profile.assetProfile?.sector;
+    if (sector === undefined || sector === "") continue;
+
+    await db
+      .insert(instrumentSectors)
+      .values({
+        symbol,
+        taxonomy: "gics",
+        sectorCode: sector,
+        sectorName: profile.assetProfile?.industry ?? sector,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: [instrumentSectors.symbol, instrumentSectors.taxonomy],
+        set: {
+          sectorCode: sql`excluded.sector_code`,
+          sectorName: sql`excluded.sector_name`,
+          updatedAt: new Date(),
+        },
+      });
+    summary.symbolsClassified += 1;
   }
   return summary;
+}
+
+/**
+ * Instruments among `symbols` whose profile is still missing or stale.
+ *
+ * The honest answer to "what did the deadline cut short", which subtracting an
+ * enriched count from the input would get wrong: symbols already inside the
+ * freshness window are skipped on purpose, not left behind.
+ */
+export async function countStaleInstrumentProfiles(
+  db: Db,
+  symbols: string[],
+  now = Date.now(),
+): Promise<number> {
+  if (symbols.length === 0) return 0;
+  const rows = await db
+    .select({ symbol: instruments.symbol, profileSyncedAt: instruments.profileSyncedAt })
+    .from(instruments)
+    .where(inArray(instruments.symbol, symbols));
+
+  const fresh = new Set(
+    rows
+      .filter(
+        (row) =>
+          row.profileSyncedAt !== null &&
+          now - row.profileSyncedAt.getTime() < INSTRUMENT_PROFILE_FRESHNESS_MS,
+      )
+      .map((row) => row.symbol),
+  );
+  return symbols.filter((symbol) => !fresh.has(symbol)).length;
 }
 
 /** Step 6 — recompute derived exposure for the given funds. */
@@ -613,7 +739,7 @@ export async function runIngest(options: RunIngestOptions): Promise<IngestSummar
       .selectDistinct({ symbol: fundHoldings.symbol })
       .from(fundHoldings)
       .where(inArray(fundHoldings.fundCode, codes));
-    await ingestSectors(db, yahoo, symbolRows.map((row) => row.symbol), summary);
+    await ingestInstrumentProfiles(db, yahoo, symbolRows.map((row) => row.symbol), summary);
     await recomputeExposure(db, codes, summary);
     await recordFundErrors(db, codes, summary);
   }

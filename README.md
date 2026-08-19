@@ -141,10 +141,27 @@ than returning an empty result. EDGAR requires a contact address in the
 | `fundExposure` | Break a fund into sector/market exposure, with coverage and holdings stability |
 | `fundsByStock` | Reverse index — which funds hold a given stock, ranked by weight |
 | `fundsBySector` | Funds ranked by measured exposure to a sector or theme |
+| `fundsByHoldings` | Funds ranked by weight in positions matching symbol / sector / country / market-cap criteria |
 | `similarFunds` | Substitutes for a fund, by cosine similarity of exposure vectors |
 | `themeToFunds` | Theme → tracking index / sector exposure / market exposure, in one call |
 | `compareFunds` | Fees, size, top sectors and pairwise portfolio overlap for 2-10 funds |
 | `fundPerformance` | Cumulative/annualized return, max drawdown and volatility from NAV history |
+
+> **Query-shape tests.** The repo's SQL typechecks whatever it emits, and the
+> tool tests mock the repo away, so a statement Postgres rejects at parse time
+> can pass the whole suite — one did, and `fundsByStock` failed on every call in
+> production while CI was green. `repo-sql.test.ts` pins the shape offline;
+> `npm run test:db` (with `DATABASE_URL` set) executes every repo query with
+> every filter combination against a real database, inside a transaction that is
+> always rolled back. It is skipped when `DATABASE_URL` is unset.
+
+`fundsByHoldings` is the tool that federated data makes possible: it goes back
+to the raw positions and joins them against the enriched instrument table, so
+criteria that were never precomputed — company size, country, an explicit basket
+of symbols — can be combined in one query. Rank its results by
+`shareOfDisclosedPercent` rather than `matchedWeightPercent`; the latter is a
+share of net assets and is structurally smaller for a fund that discloses only
+its largest positions.
 
 Two numbers accompany every holdings-derived answer, and both matter:
 
@@ -245,10 +262,22 @@ npm run ingest -- --provider=eastmoney --scope=qdii --force     # ignore freshne
 ```
 
 The job runs six steps: fund universe → per-fund profile detail → holdings →
-NAV history → sector classification via Yahoo `assetProfile` (which covers CN,
-HK and US listings under one taxonomy) → recomputed exposure. The first four are
-the provider's; the last two are shared, which is what makes exposure vectors
-from different markets directly comparable.
+NAV history → instrument enrichment from Yahoo → recomputed exposure. The first
+four are the provider's; the last two are shared, which is what makes exposure
+vectors from different markets directly comparable.
+
+**Instrument enrichment is the join to everything else.** One `quoteSummary`
+call per instrument yields the GICS sector (which covers CN, HK and US listings
+under one taxonomy) *and* the attributes that make a cross-source question
+answerable in SQL — ISIN, country of domicile, exchange, market capitalization.
+The step is watermark-driven on `instruments.profile_synced_at` with a 7-day
+window, and the watermark is set even when Yahoo returns nothing, so an
+uncovered symbol costs one request a week rather than one per run.
+
+Market caps are stored twice: as reported, and converted to USD. The native
+column cannot be compared across markets — filtering "above 10 billion" over a
+mixed JPY/USD/CNY column ranks by currency, not by size — so every size filter
+uses the USD one. Rates come from Yahoo, fetched once per currency per run.
 
 **Providers.** A provider is one upstream source, declared in
 `src/shared/funds.ts` and implemented in `src/server/funds/providers/`:

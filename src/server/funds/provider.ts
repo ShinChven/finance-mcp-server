@@ -28,6 +28,15 @@ export interface HoldingEntry {
   weight: number;
   /** ISO date of the report this position was disclosed in. */
   reportDate: string;
+  /**
+   * The position's ISIN, when the source publishes one.
+   *
+   * Stored on the instrument rather than the position: it is the identifier
+   * that survives a venue change, a ticker reassignment and a dual listing, so
+   * it is the reliable key for reconciling this holding against another source.
+   * Optional because most sources — Eastmoney among them — do not carry it.
+   */
+  isin?: string | null;
 }
 
 export interface NavPoint {

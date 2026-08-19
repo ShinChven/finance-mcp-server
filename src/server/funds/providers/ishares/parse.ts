@@ -109,8 +109,15 @@ export function parseProductScreener(payload: string | unknown): IsharesProduct[
 export interface IsharesHoldingStats {
   /** Row had a weight but no usable ticker. */
   noTicker: number;
-  /** Ticker present but no market could be assigned — a new exchange string. */
+  /** A venue the table has never seen. Remedy: add a rule. */
   unmappedExchange: number;
+  /**
+   * A venue family that maps to more than one Yahoo suffix, named without
+   * saying which board. Counted apart from `unmappedExchange` because the
+   * remedy differs: the source changed how it labels a board, and guessing
+   * would attach the fund to the wrong company.
+   */
+  ambiguousExchange: number;
   /** Ticker present but the weight cell was unreadable. */
   noWeight: number;
   /** Cash, derivative and FX rows, skipped on purpose. */
@@ -125,7 +132,7 @@ export interface IsharesHoldingsResult {
 }
 
 export function totalDrops(stats: IsharesHoldingStats): number {
-  return stats.noTicker + stats.unmappedExchange + stats.noWeight;
+  return stats.noTicker + stats.unmappedExchange + stats.ambiguousExchange + stats.noWeight;
 }
 
 /** Asset-class values that are not positions in a listed instrument. */
@@ -144,48 +151,148 @@ const NON_EQUITY_CLASSES = new Set([
 ]);
 
 /**
- * Exchange strings to Yahoo suffixes.
+ * Exchange names to Yahoo symbol suffixes.
  *
- * Matched by substring, lowercased, because iShares writes the same venue
- * several ways ("Nasdaq", "NASDAQ/NGS (Global Select Market)"). US venues map
- * to the empty suffix, which is what a Yahoo US symbol looks like.
+ * Matched on a normalized, lowercased venue string, **most specific rule
+ * first**. That ordering is load-bearing: several venue families map to more
+ * than one Yahoo suffix, and a loose match on the family name would produce a
+ * symbol that looks valid and points at the wrong instrument — or at nothing.
+ * The two that bite:
+ *
+ * - Korea Exchange operates both KOSPI (`.KS`) and KOSDAQ (`.KQ`).
+ * - The London Stock Exchange runs the domestic book (`.L`) and the
+ *   International Order Book of depositary receipts (`.IL`).
+ *
+ * A venue that names such a family without saying which board is reported as
+ * ambiguous and dropped, never guessed. Silently wrong is the one outcome this
+ * parser must not produce: a wrong symbol joins a fund to somebody else's
+ * company, which no downstream coverage figure would reveal.
  */
-const EXCHANGE_SUFFIXES: ReadonlyArray<readonly [string, string]> = [
-  ["new york stock exchange", ""],
-  ["nyse", ""],
-  ["nasdaq", ""],
-  ["cboe", ""],
-  ["bats", ""],
-  ["hong kong", ".HK"],
-  ["tokyo stock exchange", ".T"],
-  ["shanghai stock exchange", ".SS"],
-  ["shenzhen stock exchange", ".SZ"],
-  ["xetra", ".DE"],
-  ["deutsche boerse", ".DE"],
-  ["london stock exchange", ".L"],
-  ["euronext paris", ".PA"],
-  ["euronext amsterdam", ".AS"],
-  ["six swiss", ".SW"],
-  ["toronto stock exchange", ".TO"],
-  ["australian securities exchange", ".AX"],
-  ["asx", ".AX"],
-  ["korea exchange", ".KS"],
-  ["taiwan stock exchange", ".TW"],
-  ["national stock exchange of india", ".NS"],
-  ["bolsa mexicana", ".MX"],
-  ["b3 s.a.", ".SA"],
-  ["singapore exchange", ".SI"],
-  ["bursa malaysia", ".KL"],
-  ["stock exchange of thailand", ".BK"],
+interface VenueRule {
+  /** Lowercased fragments; any one of them identifies this venue. */
+  match: readonly string[];
+  /** Yahoo suffix, empty for US listings. */
+  suffix: string;
+}
+
+const VENUE_RULES: readonly VenueRule[] = [
+  // --- 1. Venue families with more than one board. These must precede the
+  //        general rule for the same family or the general one wins.
+  { match: ["kosdaq"], suffix: ".KQ" },
+  { match: ["kospi", "korea exchange (stock market)"], suffix: ".KS" },
+  { match: ["international order book", "(iob)"], suffix: ".IL" },
+  { match: ["tsx venture", "tsx-v"], suffix: ".V" },
+
+  // --- 2. Nasdaq's Nordic venues, before the bare "nasdaq" rule below. The
+  //        operator brand is shared with the US market; the listings are not.
+  { match: ["nasdaq stockholm", "stockholm stock exchange"], suffix: ".ST" },
+  { match: ["nasdaq copenhagen", "copenhagen stock exchange"], suffix: ".CO" },
+  { match: ["nasdaq helsinki", "helsinki stock exchange"], suffix: ".HE" },
+  { match: ["nasdaq iceland"], suffix: ".IC" },
+  { match: ["nasdaq riga"], suffix: ".RG" },
+  { match: ["nasdaq tallinn"], suffix: ".TL" },
+  { match: ["nasdaq vilnius"], suffix: ".VS" },
+
+  // --- 3. Everything else outside the US, one board per family. Fragments are
+  //        long enough to be unambiguous on their own.
+  { match: ["hong kong"], suffix: ".HK" },
+  { match: ["tokyo stock exchange"], suffix: ".T" },
+  { match: ["shanghai stock exchange"], suffix: ".SS" },
+  { match: ["shenzhen stock exchange"], suffix: ".SZ" },
+  { match: ["xetra", "deutsche boerse", "deutsche börse"], suffix: ".DE" },
+  { match: ["london stock exchange"], suffix: ".L" },
+  { match: ["euronext paris"], suffix: ".PA" },
+  { match: ["euronext amsterdam"], suffix: ".AS" },
+  { match: ["euronext brussels"], suffix: ".BR" },
+  { match: ["euronext lisbon"], suffix: ".LS" },
+  { match: ["euronext dublin", "irish stock exchange"], suffix: ".IR" },
+  { match: ["borsa italiana", "euronext milan"], suffix: ".MI" },
+  { match: ["bolsa de madrid", "bme spanish", "sociedad de bolsas"], suffix: ".MC" },
+  { match: ["six swiss", "swiss exchange"], suffix: ".SW" },
+  { match: ["oslo bors", "oslo børs"], suffix: ".OL" },
+  { match: ["vienna stock exchange", "wiener boerse", "wiener börse"], suffix: ".VI" },
+  { match: ["toronto stock exchange"], suffix: ".TO" },
+  { match: ["australian securities exchange", "asx"], suffix: ".AX" },
+  { match: ["new zealand exchange", "nzx"], suffix: ".NZ" },
+  { match: ["taiwan stock exchange"], suffix: ".TW" },
+  { match: ["national stock exchange of india"], suffix: ".NS" },
+  { match: ["bombay stock exchange", "bse limited"], suffix: ".BO" },
+  { match: ["bolsa mexicana"], suffix: ".MX" },
+  { match: ["b3 s.a.", "bm&fbovespa", "bovespa"], suffix: ".SA" },
+  { match: ["santiago stock exchange", "bolsa de comercio de santiago"], suffix: ".SN" },
+  { match: ["bolsa de valores de colombia"], suffix: ".CL" },
+  { match: ["singapore exchange"], suffix: ".SI" },
+  { match: ["bursa malaysia"], suffix: ".KL" },
+  { match: ["stock exchange of thailand"], suffix: ".BK" },
+  { match: ["indonesia stock exchange"], suffix: ".JK" },
+  { match: ["philippine stock exchange"], suffix: ".PS" },
+  { match: ["ho chi minh stock exchange"], suffix: ".VN" },
+  { match: ["johannesburg stock exchange"], suffix: ".JO" },
+  { match: ["tel aviv stock exchange"], suffix: ".TA" },
+  { match: ["tadawul", "saudi exchange"], suffix: ".SR" },
+  { match: ["borsa istanbul"], suffix: ".IS" },
+  { match: ["warsaw stock exchange"], suffix: ".WA" },
+  { match: ["prague stock exchange"], suffix: ".PR" },
+  { match: ["budapest stock exchange"], suffix: ".BD" },
+  { match: ["athens stock exchange"], suffix: ".AT" },
+  { match: ["qatar exchange", "qatar stock exchange"], suffix: ".QA" },
+  { match: ["abu dhabi securities"], suffix: ".AD" },
+  { match: ["dubai financial market"], suffix: ".DU" },
+
+  // --- 4. US venues last. Their fragments are the shortest and most generic
+  //        in the table, so anything they could wrongly swallow has already
+  //        been claimed above.
+  { match: ["new york stock exchange", "nyse"], suffix: "" },
+  { match: ["nasdaq"], suffix: "" },
+  { match: ["cboe", "bats"], suffix: "" },
 ];
 
-function suffixFor(exchange: string | undefined): string | null {
-  if (exchange === undefined || exchange.trim() === "") return null;
-  const needle = exchange.toLowerCase();
-  for (const [fragment, suffix] of EXCHANGE_SUFFIXES) {
-    if (needle.includes(fragment)) return suffix;
+/**
+ * Venue families that carry more than one Yahoo suffix. Reaching one of these
+ * without a specific rule having matched means the source named the family but
+ * not the board, so there is no answer — only a guess.
+ */
+const AMBIGUOUS_VENUES: readonly string[] = ["korea exchange"];
+
+export type VenueLookup =
+  | { kind: "known"; suffix: string }
+  /** The family is recognized but the board is not identified. */
+  | { kind: "ambiguous" }
+  /** No rule matched — a venue the table has never seen. */
+  | { kind: "unknown" };
+
+export function lookupVenue(exchange: string | undefined): VenueLookup {
+  if (exchange === undefined) return { kind: "unknown" };
+  const needle = exchange.toLowerCase().replace(/\s+/g, " ").trim();
+  if (needle === "" || needle === "-") return { kind: "unknown" };
+
+  for (const rule of VENUE_RULES) {
+    if (rule.match.some((fragment) => needle.includes(fragment))) {
+      return { kind: "known", suffix: rule.suffix };
+    }
   }
-  return null;
+  if (AMBIGUOUS_VENUES.some((family) => needle.includes(family))) return { kind: "ambiguous" };
+  return { kind: "unknown" };
+}
+
+/**
+ * A US share-class ticker in Yahoo's spelling.
+ *
+ * Yahoo separates the class with a hyphen (`BRK-B`); holdings files use a dot
+ * or a slash (`BRK.B`, `BRK/B`). Left alone, the symbol is not wrong so much as
+ * absent — it would create an instrument row nothing can classify.
+ */
+function usTicker(raw: string): string {
+  return raw.replace(/[./]/g, "-");
+}
+
+const ISIN_RE = /^[A-Z]{2}[A-Z0-9]{9}\d$/;
+
+/** ISIN if the file carries a well-formed one, else null. */
+export function readIsin(raw: string | undefined): string | null {
+  if (raw === undefined) return null;
+  const value = raw.trim().toUpperCase();
+  return ISIN_RE.test(value) ? value : null;
 }
 
 /** One CSV line into cells, honouring quoted fields and doubled quotes. */
@@ -241,6 +348,7 @@ export function parseHoldingsCsv(source: string, fallbackDate: string): IsharesH
   const stats: IsharesHoldingStats = {
     noTicker: 0,
     unmappedExchange: 0,
+    ambiguousExchange: 0,
     noWeight: 0,
     excluded: 0,
   };
@@ -282,6 +390,9 @@ export function parseHoldingsCsv(source: string, fallbackDate: string): IsharesH
   const weightAt = indexOf("weight (%)", "weight");
   const classAt = indexOf("asset class");
   const exchangeAt = indexOf("exchange");
+  // Present in some products' files and absent from others, so it is read when
+  // offered and never required.
+  const isinAt = indexOf("isin");
   const reportDate = asOf ?? fallbackDate;
 
   const entries: HoldingEntry[] = [];
@@ -317,13 +428,18 @@ export function parseHoldingsCsv(source: string, fallbackDate: string): IsharesH
       continue;
     }
 
-    const suffix = suffixFor(exchangeAt === -1 ? undefined : cells[exchangeAt]);
-    if (suffix === null) {
+    const venue = lookupVenue(exchangeAt === -1 ? undefined : cells[exchangeAt]);
+    if (venue.kind === "ambiguous") {
+      stats.ambiguousExchange += 1;
+      continue;
+    }
+    if (venue.kind === "unknown") {
       stats.unmappedExchange += 1;
       continue;
     }
 
-    const symbol = toCanonicalSymbol(suffix === "" ? rawTicker : `${rawTicker}${suffix}`);
+    const local = venue.suffix === "" ? usTicker(rawTicker) : rawTicker;
+    const symbol = toCanonicalSymbol(`${local}${venue.suffix}`);
     if (symbol === undefined) {
       stats.unmappedExchange += 1;
       continue;
@@ -337,11 +453,13 @@ export function parseHoldingsCsv(source: string, fallbackDate: string): IsharesH
     }
     seen.add(symbol);
 
+    const isin = readIsin(isinAt === -1 ? undefined : cells[isinAt]);
     entries.push({
       symbol,
       name: nameAt === -1 ? null : ((cells[nameAt] ?? "") || null),
       weight,
       reportDate,
+      ...(isin === null ? {} : { isin }),
     });
   }
 

@@ -16,7 +16,7 @@
  * - **A queue ceiling**, so an agent looping over a hundred codes is refused
  *   rather than silently enqueuing an hour of scraping.
  *
- * Sector classification is bounded by a deadline instead of being run to
+ * Instrument enrichment is bounded by a deadline instead of being run to
  * completion. What it misses shows up as lower `coverage` on the exposure rows,
  * which is exactly the signal coverage exists to carry — better than making the
  * caller wait through a serial Yahoo walk of every holding.
@@ -32,7 +32,8 @@ import {
   ingestFundDetails,
   ingestHoldings,
   ingestNav,
-  ingestSectors,
+  countStaleInstrumentProfiles,
+  ingestInstrumentProfiles,
   recomputeExposure,
 } from "./ingest.js";
 import { getProvider } from "./providers/index.js";
@@ -158,18 +159,17 @@ export function createFundCache(db: Db, yahoo: YahooFinanceClient): FundCache {
         .where(eq(fundHoldings.fundCode, code));
 
       // Deadline rather than completion: exposure is computed either way, and
-      // whatever went unclassified is reported through `coverage`.
-      const deadline = Date.now() + CLASSIFY_BUDGET_MS;
+      // whatever the deadline cut short is reported through `coverage` and the
+      // `unclassified` count instead of making the caller wait.
       const pending = symbols.map((row) => row.symbol);
-      const reached: string[] = [];
-      for (const symbol of pending) {
-        if (Date.now() > deadline) break;
-        reached.push(symbol);
-      }
-      await ingestSectors(db, yahoo, reached, summary);
+      await ingestInstrumentProfiles(db, yahoo, pending, summary, {
+        deadline: Date.now() + CLASSIFY_BUDGET_MS,
+      });
       await recomputeExposure(db, [code], summary);
       result.symbolsClassified = summary.symbolsClassified;
-      result.unclassified = pending.length - reached.length;
+      // Counted from the watermarks rather than from what this call processed:
+      // an instrument another fund already enriched is not left behind.
+      result.unclassified = await countStaleInstrumentProfiles(db, pending);
     }
 
     // Whatever the steps did or did not manage, the fund's own error column is

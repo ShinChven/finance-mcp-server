@@ -8,6 +8,7 @@ import { yahooFinanceClient, type YahooFinanceClient } from "./client.js";
 import { registerCompareFundsTool } from "./tools/compare-funds.js";
 import { registerFundExposureTool } from "./tools/fund-exposure.js";
 import { registerFundPerformanceTool } from "./tools/fund-performance.js";
+import { registerFundsByHoldingsTool } from "./tools/funds-by-holdings.js";
 import { registerFundsBySectorTool } from "./tools/funds-by-sector.js";
 import { registerFundsByStockTool } from "./tools/funds-by-stock.js";
 import { registerSimilarFundsTool } from "./tools/similar-funds.js";
@@ -64,8 +65,10 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
         "Four tool families. Yahoo Finance tools return global market data for stocks, ETFs, and indices " +
         "(CN and HK listings included, via suffixes like 600519.SS and 0700.HK); search for a symbol first " +
         "when it is uncertain, and expect delayed or missing data for delisted symbols. " +
-        "Fund relationship tools (fundExposure, fundsByStock, fundsBySector, similarFunds, themeToFunds, " +
-        "compareFunds, fundPerformance) answer which fund gives exposure to a stock, sector, or theme. They " +
+        "Fund relationship tools (fundExposure, fundsByStock, fundsBySector, fundsByHoldings, similarFunds, " +
+        "themeToFunds, compareFunds, fundPerformance) answer which fund gives exposure to a stock, sector, " +
+        "or theme. fundsByHoldings is the one that combines criteria — company size, country, an explicit " +
+        "basket — because instrument attributes from Yahoo are cached next to the holdings. They " +
         "read a locally ingested index of disclosed holdings that spans markets — China public funds and US " +
         "ETFs are in one index, so fundsByStock('NVDA') returns both, and every result says which market the " +
         "fund trades in. Prefer them over keyword search, because fund names do not describe their " +
@@ -107,6 +110,7 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
   registerFundExposureTool(server, repo, fundCache);
   registerFundsByStockTool(server, repo);
   registerFundsBySectorTool(server, repo);
+  registerFundsByHoldingsTool(server, repo);
   registerSimilarFundsTool(server, repo, fundCache);
   registerThemeToFundsTool(server, repo);
   registerCompareFundsTool(server, repo);

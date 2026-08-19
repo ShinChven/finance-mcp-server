@@ -295,19 +295,68 @@ export const auditLog = pgTable(
  * by both a QDII fund and a US ETF, and the interesting answer contains both.
  * ------------------------------------------------------------------ */
 
-/** Canonical symbol format is Yahoo-style so US and CN legs share one key space
- *  (`600519.SS`, `0700.HK`, `AAPL`). */
+/**
+ * Every security any cached fund holds, and what is known about it.
+ *
+ * The primary key is the Yahoo-style canonical symbol (`600519.SS`, `0700.HK`,
+ * `AAPL`) — one key space shared by every provider and by the Yahoo tools, which
+ * is what lets a China quarterly report and a US ETF's holdings file land on the
+ * same row for the same company.
+ *
+ * The attribute columns are what make a cross-source question answerable in
+ * SQL. Sector classification alone could not answer "which funds hold large-cap
+ * US names": that needs Yahoo's own view of the instrument sitting next to the
+ * holdings, so the enrichment step lands it here rather than throwing away
+ * everything but the sector.
+ */
 export const instruments = pgTable(
   "instruments",
   {
     symbol: text("symbol").primaryKey(),
+    /**
+     * The identifier that survives what a ticker does not: a venue change, a
+     * ticker reassignment, a dual listing. Stored when a source publishes one,
+     * and the reliable key for reconciling this instrument against a source
+     * that does not speak Yahoo symbols.
+     */
+    isin: text("isin"),
     name: text("name"),
     market: text("market").notNull(),
+    /** Yahoo's `quoteType`, lowercased (`equity`, `etf`, …). */
     type: text("type").notNull().default("stock"),
     currency: text("currency"),
+    /** Yahoo's full exchange name, for provenance rather than for joining. */
+    exchange: text("exchange"),
+    /** Country of domicile per Yahoo `assetProfile` — an ADR's home country,
+     *  which is not always what the listing suffix implies. */
+    country: text("country"),
+    /** Market capitalization in `currency`, as reported. */
+    marketCap: doublePrecision("market_cap"),
+    /**
+     * The same figure converted to USD at enrichment time.
+     *
+     * Carried explicitly because the native column cannot be compared across
+     * markets — filtering "above 10 billion" over a mixed JPY/USD/CNY column
+     * silently ranks by currency, not by size.
+     */
+    marketCapUsd: doublePrecision("market_cap_usd"),
+    /** Watermark for the enrichment step. Set even when Yahoo returned nothing
+     *  usable, so an uncovered symbol is not refetched on every single run. */
+    profileSyncedAt: timestamp("profile_synced_at", { withTimezone: true }),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [index("instruments_market_idx").on(t.market)],
+  (t) => [
+    index("instruments_market_idx").on(t.market),
+    // Partial: most instruments have no ISIN, and many nulls in a unique index
+    // are allowed but pointless to store.
+    uniqueIndex("instruments_isin_idx")
+      .on(t.isin)
+      .where(sql`${t.isin} is not null`),
+    // Range filters on size are the point of the column.
+    index("instruments_market_cap_idx").on(t.marketCapUsd),
+    // Drives the "what still needs enriching" scan.
+    index("instruments_profile_synced_idx").on(t.profileSyncedAt),
+  ],
 );
 
 /** One row per (symbol, taxonomy): `sw` for Shenwan/Eastmoney boards on the CN
