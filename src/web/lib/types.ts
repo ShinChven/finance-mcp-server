@@ -1,3 +1,4 @@
+import type { HoldingsCompleteness, ProviderId } from "../../shared/funds.js";
 import type { WatchlistItemKind } from "../../shared/watchlist.js";
 
 import type { JsonSchemaNode } from "./json-schema.js";
@@ -112,18 +113,22 @@ export interface ToolCatalog {
   total: number;
 }
 
-export type IngestScope = "qdii" | "index" | "equity" | "all" | "codes";
-
 export interface FundItem {
   code: string;
+  provider: ProviderId;
+  /** Where the fund trades, not where it invests. */
+  market: string;
+  currency: string;
   name: string;
   fundType: string | null;
-  isQdii: boolean;
+  investsOffshore: boolean;
   isIndexFund: boolean;
   trackingIndex: string | null;
   company: string | null;
+  /** Net assets in millions of `currency`. */
   fundSize: number | null;
   feeRate: number | null;
+  holdingsCompleteness: HoldingsCompleteness;
   detailsSyncedAt: string | null;
   holdingsSyncedAt: string | null;
   navSyncedAt: string | null;
@@ -131,10 +136,22 @@ export interface FundItem {
   holdingsCount: number;
 }
 
+/** Coverage for one provider, with a breakdown by its own scopes. */
+export interface ProviderStats {
+  id: ProviderId;
+  label: string;
+  domicile: string;
+  completeness: HoldingsCompleteness;
+  total: number;
+  cached: number;
+  failing: number;
+  byScope: Record<string, { total: number; cached: number }>;
+}
+
 export interface FundCacheStats {
   funds: { total: number; cached: number; failing: number };
   holdings: { rows: number; symbols: number; latestReport: string | null };
-  byScope: Record<string, { total: number; cached: number }>;
+  providers: ProviderStats[];
   activeJobId: string | null;
 }
 
@@ -143,27 +160,39 @@ export interface HoldingRow {
   name: string | null;
   weight: number;
   reportDate: string;
+  /** From the enriched instrument row; null until the Yahoo join reaches it. */
+  isin: string | null;
+  country: string | null;
+  marketCapUsd: number | null;
+  profileSyncedAt: string | null;
 }
 
 export interface FundHoldingsResult {
   fund: {
     code: string;
+    provider: ProviderId;
+    market: string;
+    currency: string;
     name: string;
     fundType: string | null;
     company: string | null;
     trackingIndex: string | null;
+    holdingsCompleteness: HoldingsCompleteness;
     holdingsSyncedAt: string | null;
     lastSyncError: string | null;
   };
   latestReport: string | null;
   disclosedWeight: number;
+  /** Positions the Yahoo enrichment has reached, of `items.length`. */
+  enrichedPositions: number;
   items: HoldingRow[];
   reportDates: string[];
 }
 
 /** The counts shown before a sync is confirmed. */
 export interface SyncPreview {
-  scope: IngestScope;
+  provider: ProviderId;
+  scope: string;
   matched: number;
   fresh: number;
   toFetch: number;
@@ -173,7 +202,8 @@ export interface SyncPreview {
 
 export interface IngestJobItem {
   id: string;
-  scope: IngestScope;
+  provider: ProviderId;
+  scope: string;
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
   requestedBy: string | null;
   codes: string[] | null;

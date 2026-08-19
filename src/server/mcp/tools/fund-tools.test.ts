@@ -2,8 +2,14 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { describe, expect, it, vi } from "vitest";
-import type { EnsureResult, FundCache } from "../../china/ondemand.js";
-import type { ExposureRow, FundMatch, FundRepo, HoldingRow } from "../../china/repo.js";
+import type { EnsureResult, FundCache } from "../../funds/ondemand.js";
+import type {
+  ExposureRow,
+  FundMatch,
+  FundRepo,
+  HoldingCriteriaMatch,
+  HoldingRow,
+} from "../../funds/repo.js";
 import type { Fund } from "../../db/schema.js";
 import type { McpAuth } from "../../lib/http.js";
 import type { YahooFinanceClient } from "../client.js";
@@ -31,20 +37,21 @@ const auth = {
 function fund(code: string, overrides: Partial<Fund> = {}): Fund {
   return {
     code,
+    provider: "eastmoney",
+    market: "CN",
     name: `Fund ${code}`,
     fundType: "QDII",
-    isQdii: true,
+    investsOffshore: true,
     isIndexFund: true,
     trackingIndex: "纳斯达克100",
-    trackingIndexCode: null,
     company: null,
     manager: null,
     feeRate: 0.6,
     fundSize: 1200,
     currency: "CNY",
     listedSymbol: null,
-    purchaseStatus: "限购",
-    purchaseLimit: 1000,
+    holdingsCompleteness: "top_holdings",
+    providerMeta: { purchaseStatus: "限购" },
     updatedAt: new Date("2026-07-01T00:00:00Z"),
     detailsSyncedAt: null,
     holdingsSyncedAt: null,
@@ -102,6 +109,18 @@ function mockRepo(overrides: Partial<FundRepo> = {}) {
     findFundsByStock: vi.fn(
       async (): Promise<FundMatch[]> => [
         { fund: fund("270042"), weight: 9.4, reportDate: "2026-03-31" },
+      ],
+    ),
+    findFundsByHoldingCriteria: vi.fn(
+      async (): Promise<HoldingCriteriaMatch[]> => [
+        {
+          fund: fund("270042"),
+          matchedWeight: 24.5,
+          positions: 3,
+          // A top-holdings book: 24.5 of a disclosed 61.2, not of 100.
+          disclosedWeight: 61.2,
+          reportDate: "2026-03-31",
+        },
       ],
     ),
     findFundsBySector: vi.fn(
@@ -228,11 +247,22 @@ describe("fundExposure", () => {
     expect(result.content[0]).toMatchObject({ text: expect.stringContaining("not in the local index") });
   });
 
-  it("rejects a non-fund code before touching the repo", async () => {
+  it("rejects a listed stock symbol before touching the repo", async () => {
+    // A suffixed exchange code is a stock, never a fund code — China's listed
+    // ETFs are addressed by their bare 6 digits. Catching it in the schema
+    // keeps a mistyped holding from being looked up as a fund.
     const repo = mockRepo();
-    const result = await call(repo, "fundExposure", { code: "NVDA" });
+    const result = await call(repo, "fundExposure", { code: "600519.SS" });
     expect(result.isError).toBe(true);
     expect(repo.getFund).not.toHaveBeenCalled();
+  });
+
+  it("accepts a ticker as a fund code and uppercases it", async () => {
+    // The key space is shared across providers: 6 digits for China, the listing
+    // ticker everywhere else. `ivv` and `IVV` must reach the same fund.
+    const repo = mockRepo();
+    await call(repo, "fundExposure", { code: "ivv" });
+    expect(repo.getFund).toHaveBeenCalledWith("IVV");
   });
 });
 
@@ -449,5 +479,79 @@ describe("on-demand caching", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content[0]).toMatchObject({ text: expect.stringContaining("Too many funds") });
+  });
+});
+
+describe("fundsByHoldings", () => {
+  it("normalizes symbols and passes the criteria through", async () => {
+    const repo = mockRepo();
+    await call(repo, "fundsByHoldings", {
+      symbols: ["600519", "nvda"],
+      holdingMarket: ["us"],
+      minMarketCapUsd: 1e10,
+      domicile: ["CN"],
+    });
+
+    expect(repo.findFundsByHoldingCriteria).toHaveBeenCalledWith(
+      expect.objectContaining({
+        symbols: ["600519.SS", "NVDA"],
+        holdingMarkets: ["US"],
+        minMarketCapUsd: 1e10,
+        domiciles: ["CN"],
+      }),
+    );
+  });
+
+  it("reports matched weight as a share of what the fund discloses", async () => {
+    // The whole point of the column: 24.5% of net assets out of a 61.2%
+    // disclosed book is 40% of the portfolio we can actually see. Ranking on
+    // the raw 24.5 would put every full-book ETF above every China fund.
+    const body = structured(
+      await call(mockRepo(), "fundsByHoldings", { sector: "semiconductors" }),
+    );
+    const first = (body.funds as Record<string, unknown>[])[0];
+
+    expect(first).toMatchObject({
+      matchedWeightPercent: 24.5,
+      disclosedWeightPercent: 61.2,
+      shareOfDisclosedPercent: 40.03,
+      positions: 3,
+    });
+  });
+
+  it("resolves a theme into sectors and industries", async () => {
+    const repo = mockRepo();
+    await call(repo, "fundsByHoldings", { sector: "半导体" });
+
+    const criteria = (repo.findFundsByHoldingCriteria as ReturnType<typeof vi.fn>).mock
+      .calls[0]?.[0] as { sectors?: string[]; industries?: string[] };
+    expect(criteria.sectors).toContain("Technology");
+    expect(criteria.industries).toContain("半导体");
+  });
+
+  it("refuses a call with no criterion at all", async () => {
+    // Without a predicate this ranks funds by how much they disclose, which is
+    // a property of their regulator rather than of their portfolio.
+    const repo = mockRepo();
+    const result = await call(repo, "fundsByHoldings", { limit: 10 });
+
+    expect(result.isError).toBe(true);
+    expect(repo.findFundsByHoldingCriteria).not.toHaveBeenCalled();
+  });
+
+  it("reports symbols it could not resolve rather than dropping them silently", async () => {
+    const repo = mockRepo({ resolveSymbol: vi.fn(async () => null) });
+    const body = structured(
+      await call(repo, "fundsByHoldings", { symbols: ["NVDA", "not a company"] }),
+    );
+
+    expect((body.criteria as Record<string, unknown>).unresolvedSymbols).toEqual(["not a company"]);
+  });
+
+  it("warns that a market-cap bound is a snapshot, not a live figure", async () => {
+    const body = structured(
+      await call(mockRepo(), "fundsByHoldings", { minMarketCapUsd: 1e11 }),
+    );
+    expect(body.note).toContain("weekly snapshot");
   });
 });

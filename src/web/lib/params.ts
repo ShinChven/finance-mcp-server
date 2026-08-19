@@ -13,8 +13,10 @@ export interface ListParamValues {
   status: string;
   role: string;
   action: string;
-  /** Fund category on the Funds page (`qdii`, `index`, `equity`). */
-  type: string;
+  /** Fund provider on the Funds page (`eastmoney`, `ishares`). */
+  provider: string;
+  /** Category within the selected provider (`qdii`, `equity`, `international`). */
+  scope: string;
   tab: string;
   /** Selected entity (e.g. active conversation) — part of the URL so views are shareable. */
   c: string;
@@ -31,7 +33,7 @@ export interface ListParamValues {
   sort: string;
 }
 
-const FILTER_KEYS = ["q", "status", "role", "action", "type", "kind"] as const;
+const FILTER_KEYS = ["q", "status", "role", "action", "provider", "scope", "kind"] as const;
 
 export function useListParams(defaults: Partial<ListParamValues> = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -45,7 +47,8 @@ export function useListParams(defaults: Partial<ListParamValues> = {}) {
       status: searchParams.get("status") ?? "",
       role: searchParams.get("role") ?? "",
       action: searchParams.get("action") ?? "",
-      type: searchParams.get("type") ?? "",
+      provider: searchParams.get("provider") ?? "",
+      scope: searchParams.get("scope") ?? "",
       tab: searchParams.get("tab") ?? defaultTab,
       c: searchParams.get("c") ?? "",
       tool: searchParams.get("tool") ?? "",
@@ -66,7 +69,10 @@ export function useListParams(defaults: Partial<ListParamValues> = {}) {
     if (values.status) params.set("status", values.status);
     if (values.role) params.set("role", values.role);
     if (values.action) params.set("action", values.action);
-    if (values.type) params.set("type", values.type);
+    if (values.provider) params.set("provider", values.provider);
+    // A scope only means something alongside its provider — both providers have
+    // an `equity` scope, so sending it alone would be ambiguous.
+    if (values.provider && values.scope) params.set("scope", values.scope);
     if (values.kind) params.set("kind", values.kind);
     if (values.page > 1) params.set("page", String(values.page));
     params.set("per_page", String(values.per_page));

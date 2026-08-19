@@ -42,10 +42,18 @@ export function FilterPills({
   params,
   paramKey,
   options,
+  clears,
 }: {
   params: ListParams;
-  paramKey: "status" | "role" | "action" | "type" | "kind";
+  paramKey: "status" | "role" | "action" | "provider" | "scope" | "kind";
   options: { value: string; label: string }[];
+  /**
+   * Params cleared alongside this one, for filters that scope another filter.
+   * Picking a different fund provider has to drop the scope chosen under the
+   * previous one — otherwise the URL keeps a category that provider does not
+   * have, and the pills show a selection the results do not reflect.
+   */
+  clears?: ("status" | "role" | "action" | "provider" | "scope" | "kind")[];
 }) {
   const current = params[paramKey];
   return (
@@ -53,7 +61,12 @@ export function FilterPills({
       {[{ value: "", label: "All" }, ...options].map((option) => (
         <button
           key={option.value}
-          onClick={() => params.update({ [paramKey]: option.value })}
+          onClick={() =>
+            params.update({
+              [paramKey]: option.value,
+              ...Object.fromEntries((clears ?? []).map((key) => [key, ""])),
+            })
+          }
           className={
             current === option.value
               ? "cursor-pointer rounded-md bg-white px-2.5 py-1 text-xs font-medium shadow-sm dark:bg-zinc-700"

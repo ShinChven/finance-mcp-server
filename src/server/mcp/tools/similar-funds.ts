@@ -1,8 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { cosineSimilarity } from "../../china/exposure.js";
-import type { FundCache } from "../../china/ondemand.js";
-import type { FundRepo } from "../../china/repo.js";
+import { cosineSimilarity } from "../../funds/exposure.js";
+import type { FundCache } from "../../funds/ondemand.js";
+import { describeFund, describeFundBrief, disclosureNote } from "../../funds/present.js";
+import type { FundRepo } from "../../funds/repo.js";
 import { ensureHoldings } from "./ensure-cached.js";
 import { fundCodeSchema, readOnlyToolAnnotations, runTool } from "./runtime.js";
 
@@ -62,25 +63,21 @@ export function registerSimilarFundsTool(
         const details = await Promise.all(scored.map((entry) => repo.getFund(entry.code)));
 
         return {
-          reference: { code: fund.code, name: fund.name, isQdii: fund.isQdii },
+          reference: describeFundBrief(fund),
           matchCount: scored.length,
           funds: scored.map((entry, index) => {
             const detail = details[index];
             return {
               code: entry.code,
-              name: detail?.name ?? null,
               similarity: entry.similarity,
-              isQdii: detail?.isQdii ?? null,
-              isIndexFund: detail?.isIndexFund ?? null,
-              trackingIndex: detail?.trackingIndex ?? null,
-              feeRate: detail?.feeRate ?? null,
-              listedSymbol: detail?.listedSymbol ?? null,
-              purchaseStatus: detail?.purchaseStatus ?? null,
+              ...(detail === null || detail === undefined ? { name: null } : describeFund(detail)),
             };
           }),
           note:
             "Similarity compares sector composition only — it does not account for currency hedging, " +
-            "fees, or tracking error. Compare listedSymbol and feeRate before substituting.",
+            "fees, or tracking error. Compare listedSymbol and feeRate before substituting. " +
+            "A substitute in a different domicile may not be buyable from the same account. " +
+            disclosureNote([fund, ...details.filter((detail) => detail !== null)]),
         };
       }),
   );

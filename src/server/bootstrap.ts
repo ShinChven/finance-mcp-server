@@ -1,5 +1,5 @@
 import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { resumeOrphanedJobs } from "./china/jobs.js";
+import { resumeOrphanedJobs } from "./funds/jobs.js";
 import { scheduleCleanup } from "./db/cleanup.js";
 import { db, waitForDb } from "./db/index.js";
 import { seedAdmins } from "./db/seed.js";

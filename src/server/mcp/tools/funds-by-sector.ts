@@ -1,8 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { findTheme, listThemeIds } from "../../china/crosswalk.js";
-import type { FundRepo } from "../../china/repo.js";
-import { readOnlyToolAnnotations, runTool } from "./runtime.js";
+import { findTheme, listThemeIds } from "../../funds/crosswalk.js";
+import { describeFundBrief, disclosureNote } from "../../funds/present.js";
+import type { FundRepo } from "../../funds/repo.js";
+import { domicileSchema, readOnlyToolAnnotations, runTool } from "./runtime.js";
 
 /**
  * Sector → funds, ranked by how much of the portfolio is actually in that
@@ -14,19 +15,21 @@ export function registerFundsBySectorTool(server: McpServer, repo: FundRepo): vo
     {
       title: "Funds by Sector Exposure",
       description:
-        "Find China public funds ranked by measured exposure to a sector or theme (\"半导体\", \"semiconductors\", " +
-        '"healthcare"). Theme names resolve through a CN↔GICS crosswalk, so one query returns both onshore ' +
-        "sector funds and QDII funds holding the same sector offshore.",
+        "Find funds ranked by measured exposure to a sector or theme (\"半导体\", \"semiconductors\", " +
+        '"healthcare"), across every cached market. Theme names resolve through a CN↔GICS crosswalk, so ' +
+        "one query returns onshore sector funds, QDII funds holding the same sector offshore, and US ETFs " +
+        "alike. `markets` filters where the holdings are; `domicile` filters where the fund trades.",
       inputSchema: {
         sector: z.string().trim().min(1).max(64),
         markets: z.array(z.string().trim().min(1).max(8)).max(10).optional(),
-        qdiiOnly: z.boolean().optional(),
+        domicile: domicileSchema.optional(),
+        offshoreOnly: z.boolean().optional(),
         minCoverage: z.number().min(0).max(1).optional(),
         limit: z.number().int().min(1).max(50).optional(),
       },
       annotations: readOnlyToolAnnotations,
     },
-    async ({ sector, markets, qdiiOnly, minCoverage, limit }) =>
+    async ({ sector, markets, domicile, offshoreOnly, minCoverage, limit }) =>
       runTool(async () => {
         const theme = findTheme(sector);
         const keys = theme ? [...theme.gicsSectors, ...(theme.gicsIndustries ?? [])] : [sector];
@@ -38,7 +41,8 @@ export function registerFundsBySectorTool(server: McpServer, repo: FundRepo): vo
           labels,
           limit: limit ?? 20,
           ...(requestedMarkets !== undefined ? { markets: requestedMarkets } : {}),
-          ...(qdiiOnly !== undefined ? { qdiiOnly } : {}),
+          ...(domicile !== undefined ? { domiciles: domicile } : {}),
+          ...(offshoreOnly !== undefined ? { offshoreOnly } : {}),
         });
 
         const floor = minCoverage ?? 0;
@@ -53,11 +57,7 @@ export function registerFundsBySectorTool(server: McpServer, repo: FundRepo): vo
           ...(theme?.note !== undefined ? { themeNote: theme.note } : {}),
           matchCount: filtered.length,
           funds: filtered.map((match) => ({
-            code: match.fund.code,
-            name: match.fund.name,
-            isQdii: match.fund.isQdii,
-            isIndexFund: match.fund.isIndexFund,
-            trackingIndex: match.fund.trackingIndex,
+            ...describeFundBrief(match.fund),
             sector: match.label ?? match.key,
             weightPercent: match.weight,
             coverage: match.coverage,
@@ -65,7 +65,8 @@ export function registerFundsBySectorTool(server: McpServer, repo: FundRepo): vo
           })),
           note:
             "coverage is the share of the fund's disclosed weight that could be classified. " +
-            "A high sector weight at low coverage is a weak signal — prefer funds with coverage above 0.8.",
+            "A high sector weight at low coverage is a weak signal — prefer funds with coverage above 0.8. " +
+            disclosureNote(filtered.map((match) => match.fund)),
         };
       }),
   );

@@ -1,14 +1,18 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import type { FundRepo } from "../../china/repo.js";
-import { toCanonicalSymbol } from "../../china/symbols.js";
-import { readOnlyToolAnnotations, runTool } from "./runtime.js";
+import { describeFundBrief, disclosureNote } from "../../funds/present.js";
+import type { FundRepo } from "../../funds/repo.js";
+import { toCanonicalSymbol } from "../../funds/symbols.js";
+import { domicileSchema, readOnlyToolAnnotations, runTool } from "./runtime.js";
 
 /**
  * Reverse holdings index: stock → funds.
  *
  * This is the query keyword search cannot answer — no fund name mentions the
- * positions it holds.
+ * positions it holds. It spans every cached provider in one scan, which is the
+ * whole reason holdings live in one table: NVDA is held by both a China QDII
+ * and a US ETF, and "which of those can I buy" is the follow-up question, not
+ * the query itself.
  */
 export function registerFundsByStockTool(server: McpServer, repo: FundRepo): void {
   server.registerTool(
@@ -16,17 +20,19 @@ export function registerFundsByStockTool(server: McpServer, repo: FundRepo): voi
     {
       title: "Funds Holding a Stock",
       description:
-        "Find China public funds that hold a given stock, ranked by position weight. Accepts a canonical " +
-        'symbol ("NVDA", "600519.SS", "0700.HK"), a raw exchange code, or a company name. Uses each fund\'s ' +
-        "most recent disclosed report only.",
+        "Find funds that hold a given stock, ranked by position weight, across every cached market. " +
+        'Accepts a canonical symbol ("NVDA", "600519.SS", "0700.HK"), a raw exchange code, or a company ' +
+        'name. Filter with domicile ("CN", "US") to get only funds tradable in one market. Uses each ' +
+        "fund's most recent disclosed report only.",
       inputSchema: {
         symbol: z.string().trim().min(1).max(64),
-        qdiiOnly: z.boolean().optional(),
+        domicile: domicileSchema.optional(),
+        offshoreOnly: z.boolean().optional(),
         limit: z.number().int().min(1).max(50).optional(),
       },
       annotations: readOnlyToolAnnotations,
     },
-    async ({ symbol, qdiiOnly, limit }) =>
+    async ({ symbol, domicile, offshoreOnly, limit }) =>
       runTool(async () => {
         // A canonical or raw exchange code normalizes directly; anything else
         // (a company name) goes through the instruments table.
@@ -40,24 +46,19 @@ export function registerFundsByStockTool(server: McpServer, repo: FundRepo): voi
 
         const matches = await repo.findFundsByStock(target, {
           limit: limit ?? 20,
-          ...(qdiiOnly !== undefined ? { qdiiOnly } : {}),
+          ...(domicile !== undefined ? { domiciles: domicile } : {}),
+          ...(offshoreOnly !== undefined ? { offshoreOnly } : {}),
         });
 
         return {
           symbol: target,
           matchCount: matches.length,
           funds: matches.map((match) => ({
-            code: match.fund.code,
-            name: match.fund.name,
-            isQdii: match.fund.isQdii,
-            isIndexFund: match.fund.isIndexFund,
-            trackingIndex: match.fund.trackingIndex,
+            ...describeFundBrief(match.fund),
             weightPercent: match.weight,
             reportDate: match.reportDate,
           })),
-          note:
-            "Weights are percent of net asset value as of each fund's latest disclosed report; " +
-            "quarterly reports only cover the top holdings, so a small position may be missing rather than absent.",
+          note: disclosureNote(matches.map((match) => match.fund)),
         };
       }),
   );

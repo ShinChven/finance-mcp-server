@@ -1,8 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { computePerformance } from "../../china/performance.js";
-import type { FundCache } from "../../china/ondemand.js";
-import type { FundRepo } from "../../china/repo.js";
+import { computePerformance } from "../../funds/performance.js";
+import type { FundCache } from "../../funds/ondemand.js";
+import { describeFundBrief } from "../../funds/present.js";
+import type { FundRepo } from "../../funds/repo.js";
 import { ensureNav } from "./ensure-cached.js";
 import { fundCodeSchema, readOnlyToolAnnotations, runTool } from "./runtime.js";
 
@@ -61,13 +62,7 @@ export function registerFundPerformanceTool(
         }
 
         return {
-          fund: {
-            code: fund.code,
-            name: fund.name,
-            isQdii: fund.isQdii,
-            trackingIndex: fund.trackingIndex,
-            currency: fund.currency,
-          },
+          fund: { ...describeFundBrief(fund), currency: fund.currency },
           performance,
           ...(includeSeries === true ? { series } : {}),
           note:

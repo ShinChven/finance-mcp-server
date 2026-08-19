@@ -9,8 +9,9 @@
     "start": "node dist/server/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:db": "vitest run src/server/funds/repo-live.test.ts",
     "lint": "oxlint src",
-    "ingest:cn": "node dist/server/china/ingest-cli.js",
+    "ingest": "node dist/server/funds/ingest-cli.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"
   },
