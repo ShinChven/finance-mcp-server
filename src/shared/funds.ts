@@ -78,6 +78,19 @@ export const SYNC_STEPS: readonly SyncStep[] = ["details", "holdings", "nav"];
 export const INSTRUMENT_PROFILE_FRESHNESS_MS = 7 * DAY;
 
 /**
+ * How long a provider's fund index stays usable.
+ *
+ * The index is the list itself — every fund the source publishes, with no
+ * holdings attached — and it is what every count in the dashboard is a count
+ * *of*. One listing call fills it, which is why it is refreshed on its own
+ * schedule rather than only as the first step of a category sync: without it
+ * the page cannot say how big a category is, and a run cannot be priced.
+ *
+ * A day, because the universe changes at the rate funds are launched.
+ */
+export const FUND_INDEX_FRESHNESS_MS = 1 * DAY;
+
+/**
  * What the SPA needs to know about a provider. The server-side half — the
  * fetching and the scope SQL — is the `FundProvider` interface.
  */

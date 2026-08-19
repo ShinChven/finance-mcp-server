@@ -4,6 +4,7 @@ import {
   date,
   doublePrecision,
   index,
+  integer,
   jsonb,
   pgEnum,
   pgTable,
@@ -450,6 +451,23 @@ export const funds = pgTable(
   ],
 );
 
+/**
+ * When each provider's fund index was last downloaded.
+ *
+ * The index is refreshed on its own schedule, independently of any category
+ * sync, so this watermark cannot live on `funds` — it has to survive being
+ * asked before a single fund row exists, which is precisely the state it
+ * exists to get the server out of.
+ */
+export const fundIndexState = pgTable("fund_index_state", {
+  provider: text("provider").$type<ProviderId>().primaryKey(),
+  /** Funds the provider published at that moment. */
+  fundCount: integer("fund_count").notNull().default(0),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).defaultNow().notNull(),
+  /** Last listing failure, cleared on the next success. */
+  lastError: text("last_error"),
+});
+
 export const fundHoldings = pgTable(
   "fund_holdings",
   {
@@ -556,6 +574,7 @@ export type IngestJob = typeof ingestJobs.$inferSelect;
 export type Instrument = typeof instruments.$inferSelect;
 export type InstrumentSector = typeof instrumentSectors.$inferSelect;
 export type Fund = typeof funds.$inferSelect;
+export type FundIndexState = typeof fundIndexState.$inferSelect;
 export type FundHolding = typeof fundHoldings.$inferSelect;
 export type FundNavRow = typeof fundNav.$inferSelect;
 export type FundExposureRow = typeof fundExposure.$inferSelect;

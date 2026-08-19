@@ -1,5 +1,6 @@
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { resumeOrphanedJobs } from "./funds/jobs.js";
+import { describeIndexRefresh, refreshAllFundIndexes } from "./funds/universe.js";
 import { scheduleCleanup } from "./db/cleanup.js";
 import { db, waitForDb } from "./db/index.js";
 import { seedAdmins } from "./db/seed.js";
@@ -30,4 +31,12 @@ export async function bootstrap(): Promise<void> {
     );
   }
   console.log("Database ready (migrations applied, admins seeded).");
+
+  // Not awaited: the fund index is what the dashboard counts against, but a
+  // slow or unreachable source must not hold the server off its port. Each
+  // provider is skipped if its stored list is still inside the freshness
+  // window, so a restart loop costs nothing upstream.
+  void refreshAllFundIndexes(db)
+    .then((results) => console.log(`Fund index — ${describeIndexRefresh(results)}.`))
+    .catch((error) => console.warn("Fund index refresh failed:", error));
 }

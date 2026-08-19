@@ -15,6 +15,13 @@
       "when": 1787107718202,
       "tag": "0001_instrument_enrichment",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787129907496,
+      "tag": "0002_fund_index_state",
+      "breakpoints": true
     }
   ]
 }
