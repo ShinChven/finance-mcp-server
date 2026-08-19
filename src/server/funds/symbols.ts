@@ -1,9 +1,10 @@
 /**
- * Symbol normalization.
+ * Symbol normalization — the one key space every provider writes into.
  *
  * Everything in the relationship tables is keyed by the Yahoo-style symbol the
- * existing Yahoo tools already speak, so a CN holding and a US holding can be
- * joined without a translation step at query time.
+ * existing Yahoo tools already speak, so a China quarterly report and a US
+ * ETF's daily holdings file land on the same row for the same company and a
+ * reverse lookup joins them without a translation step at query time.
  */
 
 export type Market = "CN" | "HK" | "US" | "JP" | "DE" | "OTHER";
@@ -70,12 +71,4 @@ export function currencyOf(market: Market): string {
     default:
       return "USD";
   }
-}
-
-/** QDII detection: the fund type string is the reliable signal, the name is a
- *  fallback for share classes that omit it. */
-export function looksLikeQdii(fundType: string | null, name: string): boolean {
-  const haystack = `${fundType ?? ""} ${name}`.toUpperCase();
-  if (haystack.includes("QDII")) return true;
-  return /(纳斯达克|标普|美国|海外|全球|日经|德国|越南|印度|恒生|香港|亚太)/.test(haystack);
 }

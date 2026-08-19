@@ -9,27 +9,14 @@
  * fixture, without touching the fetch or ingest layers.
  */
 
-import { toCanonicalSymbol } from "./symbols.js";
+import type { HoldingEntry, NavPoint } from "../../provider.js";
+import { toCanonicalSymbol } from "../../symbols.js";
 
 export interface FundListEntry {
   code: string;
   name: string;
   fundType: string;
   pinyin?: string;
-}
-
-export interface NavPoint {
-  navDate: string;
-  nav: number | null;
-  accNav: number | null;
-  dailyReturn: number | null;
-}
-
-export interface HoldingEntry {
-  symbol: string;
-  name: string | null;
-  weight: number;
-  reportDate: string;
 }
 
 /**

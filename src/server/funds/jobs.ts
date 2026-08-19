@@ -6,9 +6,12 @@
  * run off on the event loop and returns immediately; the dashboard then polls
  * the row for progress.
  *
- * Deliberately single-flight and in-memory: the container runs one server
- * process, and two concurrent runs would double the request rate against hosts
- * that already throttle aggressively. A process restart therefore orphans a
+ * Deliberately single-flight across every provider, and in-memory: the
+ * container runs one server process, and two concurrent runs would double the
+ * request rate against hosts that already throttle aggressively. Two providers
+ * do not share an upstream, so this is stricter than it strictly has to be —
+ * but a sync is a background chore, and one queue is far easier to reason about
+ * than a lock per provider. A process restart therefore orphans a
  * running job, which `resumeOrphanedJobs` closes at boot and then continues, so
  * an uncapped run survives a deploy without anyone having to press the button
  * again.
@@ -18,11 +21,14 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { ingestJobs, type IngestJob } from "../db/schema.js";
 import { yahooFinanceClient } from "../mcp/client.js";
+import type { ProviderId } from "../../shared/funds.js";
 import { runIngest, type IngestSummary } from "./ingest.js";
-import type { IngestScope } from "./scope.js";
+import { getProvider } from "./providers/index.js";
 
 export interface StartJobOptions {
-  scope: IngestScope;
+  provider: ProviderId;
+  /** One of the provider's own scope ids. */
+  scope: string;
   codes?: string[];
   /** `null` runs the whole scope uncapped; omitted uses the runner's default. */
   limit?: number | null;
@@ -57,6 +63,7 @@ export async function startJob(options: StartJobOptions): Promise<IngestJob> {
   const [job] = await db
     .insert(ingestJobs)
     .values({
+      provider: options.provider,
       scope: options.scope,
       status: "running",
       requestedBy: options.requestedBy ?? null,
@@ -89,6 +96,7 @@ async function execute(
     const summary: IngestSummary = await runIngest({
       db,
       yahoo: yahooFinanceClient,
+      provider: getProvider(options.provider),
       scope: options.scope,
       ...(options.codes ? { codes: options.codes } : {}),
       ...(options.limit === undefined ? {} : { limit: options.limit }),
@@ -182,6 +190,7 @@ export async function resumeOrphanedJobs(): Promise<{ closed: number; resumed: I
   const newest = orphaned.reduce((a, b) => (a.createdAt >= b.createdAt ? a : b));
 
   const resumed = await startJob({
+    provider: newest.provider,
     scope: newest.scope,
     ...(newest.codes ? { codes: newest.codes } : {}),
     limit: newest.fundLimit,

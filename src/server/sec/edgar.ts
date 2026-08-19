@@ -27,7 +27,7 @@ const REQUEST_TIMEOUT_MS = 30_000;
 /**
  * Mirrors the default in `config.ts`. This module deliberately does not import
  * `config`: everything on the MCP tool import path stays free of it (see the
- * type-only db import in `china/repo.ts`), so tools remain unit-testable
+ * type-only db import in `funds/repo.ts`), so tools remain unit-testable
  * without a full environment. `config` still declares and validates the same
  * variable at server boot.
  */

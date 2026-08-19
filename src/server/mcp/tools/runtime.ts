@@ -64,13 +64,37 @@ export function yahooRequestOptions() {
   };
 }
 
+/**
+ * A fund code in any cached market.
+ *
+ * Two shapes, one key space: China's 6-digit codes and everyone else's listing
+ * ticker. They cannot collide, which is why `funds.code` needs no namespace and
+ * a caller never has to say which provider it means. Uppercased on the way in
+ * so `ivv` and `IVV` are the same fund.
+ */
 export const fundCodeSchema = z
   .string()
   .trim()
-  .regex(/^\d{6}$/, "must be a 6-digit China fund code")
-  .describe('China public fund code, for example "162411" or "270042".');
+  .regex(
+    /^(\d{6}|[A-Za-z][A-Za-z0-9.-]{0,11})$/,
+    "must be a 6-digit China fund code or a listing ticker",
+  )
+  .transform((code) => code.toUpperCase())
+  .describe('Fund code: a 6-digit China fund code ("162411") or a listing ticker ("IVV").');
 
 export const fundCodesSchema = z.array(fundCodeSchema).min(2).max(10);
+
+/**
+ * Markets a fund itself trades in — not where its holdings are.
+ *
+ * The distinction is the one users actually care about: "a fund I can buy in
+ * China that holds NVDA" is a domicile filter, not a market-exposure one.
+ */
+export const domicileSchema = z
+  .array(z.string().trim().min(2).max(8).transform((market) => market.toUpperCase()))
+  .min(1)
+  .max(10)
+  .describe('Fund domiciles to include, for example ["CN"] or ["US"].');
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {

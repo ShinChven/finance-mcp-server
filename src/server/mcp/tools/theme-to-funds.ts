@@ -1,8 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { findTheme, listThemeIds } from "../../china/crosswalk.js";
-import type { FundMatch, FundRepo } from "../../china/repo.js";
-import { readOnlyToolAnnotations, runTool } from "./runtime.js";
+import { findTheme, listThemeIds } from "../../funds/crosswalk.js";
+import { describeFundBrief, disclosureNote } from "../../funds/present.js";
+import type { FundMatch, FundRepo } from "../../funds/repo.js";
+import { domicileSchema, readOnlyToolAnnotations, runTool } from "./runtime.js";
 
 /**
  * The full chain in one call: theme → sectors / indices / markets → funds.
@@ -23,12 +24,13 @@ export function registerThemeToFundsTool(server: McpServer, repo: FundRepo): voi
         "exposure to the theme's markets. Returns the resolution chain so the reasoning is auditable.",
       inputSchema: {
         theme: z.string().trim().min(1).max(64),
-        qdiiOnly: z.boolean().optional(),
+        domicile: domicileSchema.optional(),
+        offshoreOnly: z.boolean().optional(),
         limit: z.number().int().min(1).max(30).optional(),
       },
       annotations: readOnlyToolAnnotations,
     },
-    async ({ theme, qdiiOnly, limit }) =>
+    async ({ theme, domicile, offshoreOnly, limit }) =>
       runTool(async () => {
         const definition = findTheme(theme);
         if (definition === undefined) {
@@ -41,21 +43,24 @@ export function registerThemeToFundsTool(server: McpServer, repo: FundRepo): voi
         }
 
         const cap = limit ?? 15;
-        const qdii = qdiiOnly !== undefined ? { qdiiOnly } : {};
+        const filter = {
+          ...(domicile !== undefined ? { domiciles: domicile } : {}),
+          ...(offshoreOnly !== undefined ? { offshoreOnly } : {}),
+        };
 
         const [byIndex, bySector, byMarket] = await Promise.all([
-          repo.findFundsByTrackingIndex(definition.indices, cap),
+          repo.findFundsByTrackingIndex(definition.indices, { limit: cap, ...filter }),
           definition.gicsSectors.length > 0 || definition.cnSectorNames.length > 0
             ? repo.findFundsBySector({
                 keys: [...definition.gicsSectors, ...(definition.gicsIndustries ?? [])],
                 labels: [...definition.cnSectorNames, ...(definition.gicsIndustries ?? [])],
                 limit: cap,
                 ...(definition.markets !== undefined ? { markets: definition.markets } : {}),
-                ...qdii,
+                ...filter,
               })
             : Promise.resolve([] as FundMatch[]),
           definition.markets !== undefined
-            ? repo.findFundsByMarketExposure(definition.markets, { limit: cap, ...qdii })
+            ? repo.findFundsByMarketExposure(definition.markets, { limit: cap, ...filter })
             : Promise.resolve([] as FundMatch[]),
         ]);
 
@@ -71,31 +76,25 @@ export function registerThemeToFundsTool(server: McpServer, repo: FundRepo): voi
           },
           ...(definition.note !== undefined ? { themeNote: definition.note } : {}),
           trackingIndexFunds: byIndex.map((fund) => ({
-            code: fund.code,
-            name: fund.name,
-            trackingIndex: fund.trackingIndex,
-            isQdii: fund.isQdii,
+            ...describeFundBrief(fund),
             feeRate: fund.feeRate,
             listedSymbol: fund.listedSymbol,
           })),
           sectorExposureFunds: bySector.map((match) => ({
-            code: match.fund.code,
-            name: match.fund.name,
-            isQdii: match.fund.isQdii,
+            ...describeFundBrief(match.fund),
             sector: match.label ?? match.key,
             weightPercent: match.weight,
             coverage: match.coverage,
           })),
           marketExposureFunds: byMarket.map((match) => ({
-            code: match.fund.code,
-            name: match.fund.name,
-            isQdii: match.fund.isQdii,
+            ...describeFundBrief(match.fund),
             market: match.key,
             weightPercent: match.weight,
           })),
           note:
             "trackingIndexFunds is the highest-confidence route — a declared mandate does not drift. " +
-            "sectorExposureFunds is inferred from the latest disclosed holdings; check fundExposure for its stability.",
+            "sectorExposureFunds is inferred from the latest disclosed holdings; check fundExposure for its stability. " +
+            disclosureNote([...byIndex, ...bySector.map((m) => m.fund), ...byMarket.map((m) => m.fund)]),
         };
       }),
   );

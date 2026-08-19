@@ -43,6 +43,13 @@ Requirements:
 - `src/web/` — React SPA (routes, components, lib)
 - `src/shared/` — types and zod schemas used by both
 - MCP tools live in `src/server/mcp/tools/`, one file per tool.
+- `src/server/funds/` — the market-agnostic fund pipeline (ingest, repo,
+  exposure, on-demand cache). Nothing here may know about a specific market.
+- `src/server/funds/providers/<id>/` — one upstream source each, behind the
+  `FundProvider` interface. Everything market-specific belongs here: code
+  shapes, weight and size units, scope vocabulary, response parsing. Adding a
+  market means adding a provider plus a descriptor in `src/shared/funds.ts`,
+  never a branch in the pipeline.
 
 ## Workflow
 - TypeScript strict mode; `npm run typecheck && npm run test` must pass before

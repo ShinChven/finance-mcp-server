@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { createLazyFundCache, type FundCache } from "../china/ondemand.js";
-import { createLazyFundRepo, type FundRepo } from "../china/repo.js";
+import { createLazyFundCache, type FundCache } from "../funds/ondemand.js";
+import { createLazyFundRepo, type FundRepo } from "../funds/repo.js";
 import type { McpAuth } from "../lib/http.js";
 import { getEdgarClient, type EdgarClient } from "../sec/edgar.js";
 import { createLazyWatchlistRepo, type WatchlistRepo } from "../watchlist/repo.js";
@@ -39,7 +39,7 @@ import { registerWhoamiTool } from "./tools/whoami.js";
 export interface McpDeps {
   client?: YahooFinanceClient;
   funds?: FundRepo;
-  /** Fetches a fund on first touch; see `china/ondemand.ts`. */
+  /** Fetches a fund on first touch; see `funds/ondemand.ts`. */
   fundCache?: FundCache;
   edgar?: EdgarClient;
   watchlists?: WatchlistRepo;
@@ -65,15 +65,19 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
         "(CN and HK listings included, via suffixes like 600519.SS and 0700.HK); search for a symbol first " +
         "when it is uncertain, and expect delayed or missing data for delisted symbols. " +
         "Fund relationship tools (fundExposure, fundsByStock, fundsBySector, similarFunds, themeToFunds, " +
-        "compareFunds, fundPerformance) answer which China public fund gives exposure to a stock, sector, or theme. They read " +
-        "a locally ingested index of disclosed holdings — prefer them over keyword search, because fund names " +
-        "do not describe their portfolios. " +
+        "compareFunds, fundPerformance) answer which fund gives exposure to a stock, sector, or theme. They " +
+        "read a locally ingested index of disclosed holdings that spans markets — China public funds and US " +
+        "ETFs are in one index, so fundsByStock('NVDA') returns both, and every result says which market the " +
+        "fund trades in. Prefer them over keyword search, because fund names do not describe their " +
+        "portfolios. Funds are addressed by code: 6 digits for China (162411), the ticker elsewhere (IVV). " +
+        "Mind the `holdingsCompleteness` field before comparing weights across funds — a top_holdings fund " +
+        "discloses only its largest positions, a full one publishes its whole book. " +
         "Earnings tools cover company reporting: earningsAnalysis works for any Yahoo-covered symbol and is " +
         "the fastest way to see surprises, estimate revisions, and the next report date; secFilings and " +
         "secFinancials read SEC EDGAR directly and are the right choice for US issuers when you need " +
         "as-reported figures, restatement-accurate history, or a citable filing URL. " +
         "Watchlist tools (watchlists, watchlist, watchlistAdd, watchlistRemove) read and edit the " +
-        "signed-in user's own saved lists, which span both families — Yahoo symbols and China fund " +
+        "signed-in user's own saved lists, which span both families — Yahoo symbols and fund " +
         "codes in one list — and are shared with the web dashboard. Read a watchlist before answering " +
         "questions about what this user is tracking, rather than assuming from the conversation.",
     },

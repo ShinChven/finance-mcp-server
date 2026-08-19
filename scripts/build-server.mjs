@@ -1,7 +1,7 @@
 import { build } from "esbuild";
 
 await build({
-  entryPoints: ["src/server/index.ts", "src/server/china/ingest-cli.ts"],
+  entryPoints: ["src/server/index.ts", "src/server/funds/ingest-cli.ts"],
   outdir: "dist/server",
   outbase: "src/server",
   bundle: true,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currencyOf, looksLikeQdii, marketOf, toCanonicalSymbol } from "./symbols.js";
+import { currencyOf, marketOf, toCanonicalSymbol } from "./symbols.js";
 
 describe("toCanonicalSymbol", () => {
   it("suffixes CN exchange codes by prefix", () => {
@@ -47,13 +47,5 @@ describe("marketOf / currencyOf", () => {
     expect(currencyOf("CN")).toBe("CNY");
     expect(currencyOf("HK")).toBe("HKD");
     expect(currencyOf("JP")).toBe("JPY");
-  });
-});
-
-describe("looksLikeQdii", () => {
-  it("detects the explicit type and offshore mandates in the name", () => {
-    expect(looksLikeQdii("QDII", "华宝油气")).toBe(true);
-    expect(looksLikeQdii("指数型", "国泰纳斯达克100ETF")).toBe(true);
-    expect(looksLikeQdii("股票型", "易方达消费行业")).toBe(false);
   });
 });

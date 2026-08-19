@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { PROVIDERS } from "../../shared/funds.js";
 import type { db as Database } from "../db/index.js";
-import type { EastmoneyClient } from "./eastmoney.js";
 import { ingestFundDetails } from "./ingest.js";
-import type { FundBasics } from "./parse.js";
+import type { FundDetails, FundProvider } from "./provider.js";
 
 /**
  * Regression cover for the gap that shipped in the first version: every tool
@@ -12,16 +12,18 @@ import type { FundBasics } from "./parse.js";
  * what the ingest writes can.
  */
 
-function basics(overrides: Partial<FundBasics> = {}): FundBasics {
+function details(overrides: Partial<FundDetails> = {}): FundDetails {
   return {
-    code: "513100",
     name: "国泰纳斯达克100ETF",
     fundType: "国际(QDII)",
     trackingIndex: "纳斯达克100指数",
     company: "国泰基金",
     manager: "某某某",
     feeRate: 0.8,
-    fundSize: 123.45,
+    fundSize: 12345,
+    listedSymbol: null,
+    isIndexFund: true,
+    investsOffshore: null,
     ...overrides,
   };
 }
@@ -41,19 +43,27 @@ function fakeDb() {
   return { db, writes };
 }
 
-function fakeClient(result: FundBasics | Error) {
+function fakeProvider(result: FundDetails | Error): FundProvider {
   return {
-    fetchFundBasics: vi.fn(async () => {
+    id: "eastmoney",
+    descriptor: PROVIDERS.eastmoney,
+    requestIntervalMs: 0,
+    requestsPerFund: 3,
+    listUniverse: vi.fn(async () => []),
+    fetchDetails: vi.fn(async () => {
       if (result instanceof Error) throw result;
       return result;
     }),
-  } as unknown as EastmoneyClient;
+    fetchHoldings: vi.fn(async () => ({ entries: [], dropped: 0 })),
+    fetchNav: vi.fn(async () => []),
+    scopeFilter: () => undefined,
+  };
 }
 
 describe("ingestFundDetails", () => {
   it("writes the tracking index onto the fund row", async () => {
     const { db, writes } = fakeDb();
-    const summary = await ingestFundDetails(db, fakeClient(basics()), ["513100"]);
+    const summary = await ingestFundDetails(db, fakeProvider(details()), ["513100"]);
 
     expect(summary.fundDetailsUpserted).toBe(1);
     expect(writes).toHaveLength(1);
@@ -62,20 +72,22 @@ describe("ingestFundDetails", () => {
       isIndexFund: true,
       company: "国泰基金",
       feeRate: 0.8,
-      fundSize: 123.45,
+      fundSize: 12345,
     });
   });
 
-  it("marks a fund without a mandate as not index-tracking", async () => {
+  it("leaves the index flag alone when the provider cannot tell", async () => {
+    // `null` means "this source does not know", which must not be written as
+    // `false` over what the universe step already worked out.
     const { db, writes } = fakeDb();
-    await ingestFundDetails(db, fakeClient(basics({ trackingIndex: null })), ["005827"]);
+    await ingestFundDetails(db, fakeProvider(details({ isIndexFund: null })), ["005827"]);
 
-    expect(writes[0]).toMatchObject({ trackingIndex: null, isIndexFund: false });
+    expect(writes[0]).not.toHaveProperty("isIndexFund");
   });
 
   it("keeps the existing name when the profile page has none", async () => {
     const { db, writes } = fakeDb();
-    await ingestFundDetails(db, fakeClient(basics({ name: null, fundType: null })), ["513100"]);
+    await ingestFundDetails(db, fakeProvider(details({ name: null, fundType: null })), ["513100"]);
 
     // Overwriting a good name from the universe list with null would be a regression.
     expect(writes[0]).not.toHaveProperty("name");
@@ -84,10 +96,10 @@ describe("ingestFundDetails", () => {
 
   it("records a per-fund failure without aborting the run", async () => {
     const { db, writes } = fakeDb();
-    const summary = await ingestFundDetails(db, fakeClient(new Error("503")), ["513100"]);
+    const summary = await ingestFundDetails(db, fakeProvider(new Error("503")), ["513100"]);
 
     expect(writes).toHaveLength(0);
     expect(summary.fundDetailsUpserted).toBe(0);
-    expect(summary.errors).toEqual(["basics 513100: 503"]);
+    expect(summary.errors).toEqual(["details 513100: 503"]);
   });
 });

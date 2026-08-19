@@ -4,32 +4,41 @@
  * Read routes are open to any signed-in user; anything that starts a sync is
  * admin-only — a run costs hours of outbound requests against hosts that rate
  * limit, so it is not something an ordinary account should be able to trigger.
+ *
+ * Coverage is reported per provider rather than pooled. A single
+ * "3,412 of 27,000 cached" spanning markets would be meaningless: the two
+ * universes differ by an order of magnitude in size and by a factor of seven in
+ * how often they need refetching.
  */
 
 import { zValidator } from "@hono/zod-validator";
 import { and, count, desc, eq, ilike, isNotNull, or, sql, type SQL } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
-import { previewSync } from "../china/ingest.js";
-import { createLazyFundCache } from "../china/ondemand.js";
 import {
-  activeJobId,
-  cancelJob,
-  JobInProgressError,
-  startJob,
-} from "../china/jobs.js";
-import { INGEST_SCOPES, scopeFilter, SELECTABLE_SCOPES, type IngestScope } from "../china/scope.js";
-import { previewQuerySchema, syncBodySchema } from "../../shared/funds.js";
+  isProviderScope,
+  previewQuerySchema,
+  PROVIDER_IDS,
+  PROVIDERS,
+  selectableScopes,
+  syncBodySchema,
+} from "../../shared/funds.js";
 import { db } from "../db/index.js";
 import { fundHoldings, funds, ingestJobs } from "../db/schema.js";
+import { previewSync } from "../funds/ingest.js";
+import { activeJobId, cancelJob, JobInProgressError, startJob } from "../funds/jobs.js";
+import { createLazyFundCache } from "../funds/ondemand.js";
+import { getProvider } from "../funds/providers/index.js";
 import { audit } from "../lib/audit.js";
 import { clientIp, type AppEnv } from "../lib/http.js";
 import { escapeLike, listQuerySchema, listResponse, parseSort } from "../lib/listing.js";
 import { requireAdmin, requireAuth } from "../middleware/session.js";
 
-/** `status` on the funds list doubles as the cached/uncached filter. */
 const fundListQuerySchema = listQuerySchema.extend({
-  type: z.enum(INGEST_SCOPES).optional(),
+  provider: z.enum(PROVIDER_IDS).optional(),
+  /** A scope of `provider`; ignored without one, because a scope id alone does
+   *  not identify a provider — both of them have `equity`. */
+  scope: z.string().min(1).optional(),
 });
 
 /** Holdings count per fund, joined into the list so the page can show coverage. */
@@ -44,21 +53,20 @@ const holdingsCount = db
 
 const fundCache = createLazyFundCache();
 
+const cachedExpr = sql<number>`count(*) filter (where ${funds.holdingsSyncedAt} is not null)`.mapWith(
+  Number,
+);
+const failingExpr = sql<number>`count(*) filter (where ${funds.lastSyncError} is not null)`.mapWith(
+  Number,
+);
+
 export const fundRoutes = new Hono<AppEnv>()
   .use(requireAuth)
 
-  /** Cache-wide totals for the page header. */
+  /** Cache-wide totals for the page header, plus one block per provider. */
   .get("/stats", async (c) => {
     const [totals] = await db
-      .select({
-        total: count(),
-        cached: sql<number>`count(*) filter (where ${funds.holdingsSyncedAt} is not null)`.mapWith(
-          Number,
-        ),
-        failing: sql<number>`count(*) filter (where ${funds.lastSyncError} is not null)`.mapWith(
-          Number,
-        ),
-      })
+      .select({ total: count(), cached: cachedExpr, failing: failingExpr })
       .from(funds);
 
     const [holdings] = await db
@@ -69,20 +77,35 @@ export const fundRoutes = new Hono<AppEnv>()
       })
       .from(fundHoldings);
 
-    // Per-scope coverage drives the category buttons' "x of y cached" labels.
-    const byScope: Record<string, { total: number; cached: number }> = {};
-    for (const scope of SELECTABLE_SCOPES) {
-      const where = scopeFilter(scope);
+    const providers = [];
+    for (const id of PROVIDER_IDS) {
+      const provider = getProvider(id);
       const [row] = await db
-        .select({
-          total: count(),
-          cached: sql<number>`count(*) filter (where ${funds.holdingsSyncedAt} is not null)`.mapWith(
-            Number,
-          ),
-        })
+        .select({ total: count(), cached: cachedExpr, failing: failingExpr })
         .from(funds)
-        .where(where);
-      byScope[scope] = { total: row?.total ?? 0, cached: row?.cached ?? 0 };
+        .where(eq(funds.provider, id));
+
+      // Per-scope coverage drives the category buttons' "x of y cached" labels.
+      const byScope: Record<string, { total: number; cached: number }> = {};
+      for (const scope of selectableScopes(id)) {
+        const scoped = provider.scopeFilter(scope.id);
+        const [scopeRow] = await db
+          .select({ total: count(), cached: cachedExpr })
+          .from(funds)
+          .where(scoped ? and(eq(funds.provider, id), scoped) : eq(funds.provider, id));
+        byScope[scope.id] = { total: scopeRow?.total ?? 0, cached: scopeRow?.cached ?? 0 };
+      }
+
+      providers.push({
+        id,
+        label: PROVIDERS[id].label,
+        domicile: PROVIDERS[id].domicile,
+        completeness: PROVIDERS[id].completeness,
+        total: row?.total ?? 0,
+        cached: row?.cached ?? 0,
+        failing: row?.failing ?? 0,
+        byScope,
+      });
     }
 
     return c.json({
@@ -96,7 +119,7 @@ export const fundRoutes = new Hono<AppEnv>()
         symbols: holdings?.symbols ?? 0,
         latestReport: holdings?.latestReport ?? null,
       },
-      byScope,
+      providers,
       activeJobId: activeJobId(),
     });
   })
@@ -116,9 +139,12 @@ export const fundRoutes = new Hono<AppEnv>()
         )!,
       );
     }
-    if (query.type) {
-      const scoped = scopeFilter(query.type);
-      if (scoped) filters.push(scoped);
+    if (query.provider) {
+      filters.push(eq(funds.provider, query.provider));
+      if (query.scope !== undefined && isProviderScope(query.provider, query.scope)) {
+        const scoped = getProvider(query.provider).scopeFilter(query.scope);
+        if (scoped) filters.push(scoped);
+      }
     }
     // `cached` / `uncached` / `failing` — the states the page filters on.
     if (query.status === "cached") filters.push(isNotNull(funds.holdingsSyncedAt));
@@ -142,14 +168,18 @@ export const fundRoutes = new Hono<AppEnv>()
     const rows = await db
       .select({
         code: funds.code,
+        provider: funds.provider,
+        market: funds.market,
+        currency: funds.currency,
         name: funds.name,
         fundType: funds.fundType,
-        isQdii: funds.isQdii,
+        investsOffshore: funds.investsOffshore,
         isIndexFund: funds.isIndexFund,
         trackingIndex: funds.trackingIndex,
         company: funds.company,
         fundSize: funds.fundSize,
         feeRate: funds.feeRate,
+        holdingsCompleteness: funds.holdingsCompleteness,
         detailsSyncedAt: funds.detailsSyncedAt,
         holdingsSyncedAt: funds.holdingsSyncedAt,
         navSyncedAt: funds.navSyncedAt,
@@ -174,9 +204,10 @@ export const fundRoutes = new Hono<AppEnv>()
    * and only a POST goes through CSRF protection. The page calls this when it
    * opens a fund that has never been synced.
    *
-   * Any signed-in user may trigger it — unlike a category sync, this is three
-   * requests for a fund they are already looking at, and it is de-duplicated
-   * and throttled in `china/ondemand.ts`.
+   * Any signed-in user may trigger it — unlike a category sync, this is a
+   * handful of requests for a fund they are already looking at, and it is
+   * de-duplicated and throttled in `funds/ondemand.ts`. Which upstream it hits
+   * follows from the fund row, so this route stays provider-agnostic.
    */
   .post("/:code/cache", async (c) => {
     const result = await fundCache.ensure(c.req.param("code"));
@@ -203,7 +234,7 @@ export const fundRoutes = new Hono<AppEnv>()
       .orderBy(desc(fundHoldings.reportDate), desc(fundHoldings.weight));
 
     // Only the latest disclosed report is the fund's current portfolio; older
-    // quarters stay in the table but would double-count if mixed in.
+    // ones stay in the table but would double-count if mixed in.
     const latestReport = rows[0]?.reportDate ?? null;
     const current = rows.filter((row) => row.reportDate === latestReport);
     const disclosedWeight = current.reduce((sum, row) => sum + row.weight, 0);
@@ -211,16 +242,21 @@ export const fundRoutes = new Hono<AppEnv>()
     return c.json({
       fund: {
         code: fund.code,
+        provider: fund.provider,
+        market: fund.market,
+        currency: fund.currency,
         name: fund.name,
         fundType: fund.fundType,
         company: fund.company,
         trackingIndex: fund.trackingIndex,
+        holdingsCompleteness: fund.holdingsCompleteness,
         holdingsSyncedAt: fund.holdingsSyncedAt,
         lastSyncError: fund.lastSyncError,
       },
       latestReport,
-      // Top-20 disclosure means this is well under 100 for most funds; saying so
-      // beats letting the page imply the fund holds nothing else.
+      // Read against `holdingsCompleteness`, this is the honest coverage signal:
+      // well under 100 is expected from a top-holdings discloser and a red flag
+      // from a provider that publishes the whole book.
       disclosedWeight,
       items: current,
       reportDates: [...new Set(rows.map((row) => row.reportDate))],
@@ -243,12 +279,12 @@ export const syncRoutes = new Hono<AppEnv>()
   /**
    * The numbers shown before a sync starts.
    *
-   * Read-only and cheap — it touches only the local watermarks, never
-   * Eastmoney — so the confirmation dialog can be opened freely.
+   * Read-only and cheap — it touches only the local watermarks, never an
+   * upstream — so the confirmation dialog can be opened freely.
    */
   .get("/preview", zValidator("query", previewQuerySchema), async (c) => {
     const query = c.req.valid("query");
-    const preview = await previewSync(db, query.scope as IngestScope, {
+    const preview = await previewSync(db, getProvider(query.provider), query.scope, {
       ...(query.limit === undefined ? {} : { limit: query.limit }),
       force: query.force,
     });
@@ -261,6 +297,7 @@ export const syncRoutes = new Hono<AppEnv>()
 
     try {
       const job = await startJob({
+        provider: body.provider,
         scope: body.scope,
         ...(body.limit === undefined ? {} : { limit: body.limit }),
         force: body.force,
@@ -272,7 +309,12 @@ export const syncRoutes = new Hono<AppEnv>()
         action: "fund.sync_start",
         targetType: "ingest_job",
         targetId: job.id,
-        meta: { scope: body.scope, limit: body.limit ?? null, force: body.force },
+        meta: {
+          provider: body.provider,
+          scope: body.scope,
+          limit: body.limit ?? null,
+          force: body.force,
+        },
         ip: clientIp(c),
       });
 

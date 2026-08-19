@@ -7,6 +7,7 @@
  */
 
 import { and, asc, desc, eq, gte, inArray, lte, or, sql, type SQL } from "drizzle-orm";
+import type { ProviderId } from "../../shared/funds.js";
 import type { db as Database } from "../db/index.js";
 import {
   fundExposure,
@@ -44,14 +45,31 @@ export interface FundMatch {
   reportDate: string | null;
 }
 
-export interface SectorQuery {
+/**
+ * Which funds may answer, independent of what is being asked.
+ *
+ * Note the two different senses of "market" in this file, because conflating
+ * them is the easy mistake: `FundFilter.domiciles` is where the *fund* lives —
+ * the market a user can actually buy it in — while `SectorQuery.markets` is
+ * where its *holdings* are. A China QDII tracking the Nasdaq has domicile CN
+ * and market exposure US, and both filters are useful for opposite questions.
+ */
+export interface FundFilter {
+  providers?: ProviderId[];
+  /** `funds.market` — where the fund itself is domiciled and traded. */
+  domiciles?: string[];
+  /** Only funds whose mandate points outside their own market (QDII, ex-US). */
+  offshoreOnly?: boolean;
+}
+
+export interface SectorQuery extends FundFilter {
   taxonomy?: string;
   /** `instrument_sectors.sector_code` values. */
   keys: string[];
   /** `instrument_sectors.sector_name` values, matched when codes are unknown. */
   labels: string[];
+  /** Markets the fund's *holdings* are listed in. */
   markets?: string[];
-  qdiiOnly?: boolean;
   limit: number;
 }
 
@@ -69,13 +87,16 @@ export interface FundRepo {
   listReportDates(code: string): Promise<string[]>;
   findFundsByStock(
     symbol: string,
-    options: { limit: number; qdiiOnly?: boolean },
+    options: FundFilter & { limit: number },
   ): Promise<FundMatch[]>;
   findFundsBySector(query: SectorQuery): Promise<FundMatch[]>;
-  findFundsByTrackingIndex(patterns: string[], limit: number): Promise<Fund[]>;
+  findFundsByTrackingIndex(
+    patterns: string[],
+    options: FundFilter & { limit: number },
+  ): Promise<Fund[]>;
   findFundsByMarketExposure(
     markets: string[],
-    options: { limit: number; qdiiOnly?: boolean },
+    options: FundFilter & { limit: number },
   ): Promise<FundMatch[]>;
   getExposureVectors(codes: string[]): Promise<Map<string, Map<string, number>>>;
   similarityCandidates(code: string, limit: number): Promise<string[]>;
@@ -85,8 +106,17 @@ export interface FundRepo {
 type Db = typeof Database;
 
 export function createFundRepo(db: Db): FundRepo {
-  const qdiiFilter = (enabled: boolean | undefined): SQL | undefined =>
-    enabled === true ? eq(funds.isQdii, true) : undefined;
+  const fundFilter = (filter: FundFilter): SQL | undefined => {
+    const parts: SQL[] = [];
+    if (filter.providers !== undefined && filter.providers.length > 0) {
+      parts.push(inArray(funds.provider, filter.providers));
+    }
+    if (filter.domiciles !== undefined && filter.domiciles.length > 0) {
+      parts.push(inArray(funds.market, filter.domiciles));
+    }
+    if (filter.offshoreOnly === true) parts.push(eq(funds.investsOffshore, true));
+    return parts.length === 0 ? undefined : and(...parts);
+  };
 
   return {
     async getFund(code) {
@@ -147,7 +177,7 @@ export function createFundRepo(db: Db): FundRepo {
       return rows.map((row) => row.reportDate);
     },
 
-    async findFundsByStock(symbol, { limit, qdiiOnly }) {
+    async findFundsByStock(symbol, { limit, ...filter }) {
       // Only the newest report per fund counts; older quarters would double-list
       // a fund that has held the name for a year.
       const latest = db
@@ -175,7 +205,7 @@ export function createFundRepo(db: Db): FundRepo {
           ),
         )
         .innerJoin(funds, eq(funds.code, fundHoldings.fundCode))
-        .where(and(eq(fundHoldings.symbol, symbol), qdiiFilter(qdiiOnly)))
+        .where(and(eq(fundHoldings.symbol, symbol), fundFilter(filter)))
         .orderBy(desc(fundHoldings.weight))
         .limit(limit);
 
@@ -186,7 +216,7 @@ export function createFundRepo(db: Db): FundRepo {
       }));
     },
 
-    async findFundsBySector({ taxonomy, keys, labels, markets, qdiiOnly, limit }) {
+    async findFundsBySector({ taxonomy, keys, labels, markets, limit, ...filter }) {
       const matchers: SQL[] = [];
       if (keys.length > 0) matchers.push(inArray(fundExposure.key, keys));
       if (labels.length > 0) matchers.push(inArray(fundExposure.label, labels));
@@ -195,7 +225,7 @@ export function createFundRepo(db: Db): FundRepo {
       const conditions: (SQL | undefined)[] = [
         eq(fundExposure.dimension, "sector"),
         matchers.length === 1 ? matchers[0] : or(...matchers),
-        qdiiFilter(qdiiOnly),
+        fundFilter(filter),
       ];
       if (taxonomy !== undefined) conditions.push(eq(fundExposure.taxonomy, taxonomy));
       if (markets !== undefined && markets.length > 0) {
@@ -225,7 +255,7 @@ export function createFundRepo(db: Db): FundRepo {
       return rows;
     },
 
-    async findFundsByMarketExposure(markets, { limit, qdiiOnly }) {
+    async findFundsByMarketExposure(markets, { limit, ...filter }) {
       if (markets.length === 0) return [];
       const rows = await db
         .select({
@@ -242,7 +272,7 @@ export function createFundRepo(db: Db): FundRepo {
           and(
             eq(fundExposure.dimension, "market"),
             inArray(fundExposure.key, markets),
-            qdiiFilter(qdiiOnly),
+            fundFilter(filter),
           ),
         )
         .orderBy(desc(fundExposure.weight))
@@ -250,7 +280,7 @@ export function createFundRepo(db: Db): FundRepo {
       return rows;
     },
 
-    async findFundsByTrackingIndex(patterns, limit) {
+    async findFundsByTrackingIndex(patterns, { limit, ...filter }) {
       if (patterns.length === 0) return [];
       const conditions = patterns.map(
         (pattern) => sql`${funds.trackingIndex} ilike ${`%${pattern}%`}`,
@@ -258,7 +288,7 @@ export function createFundRepo(db: Db): FundRepo {
       return db
         .select()
         .from(funds)
-        .where(or(...conditions))
+        .where(and(or(...conditions), fundFilter(filter)))
         .limit(limit);
     },
 

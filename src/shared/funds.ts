@@ -2,56 +2,182 @@
  * Fund-sync vocabulary shared by the server and the SPA.
  *
  * Everything here is pure — no drizzle, no config — so it can be imported by
- * the web bundle and by tests without booting a database. The one server-only
- * piece, the `WHERE` clause for a scope, lives in `server/china/scope.ts`.
+ * the web bundle and by tests without booting a database. The server-only
+ * pieces (the upstream clients, and the `WHERE` clause each scope maps to) live
+ * behind the `FundProvider` implementations in `server/funds/providers/`.
+ *
+ * A **provider** is one upstream source of funds: Eastmoney for the China
+ * public-fund universe, iShares for its listed ETFs. Everything that differs
+ * between markets is a property of the provider rather than a branch in the
+ * pipeline — which scopes exist, how fast each step goes stale, and whether
+ * disclosed holdings are the whole portfolio or only the largest positions.
  */
 
 import { z } from "zod";
 
-export const INGEST_SCOPES = ["qdii", "index", "equity", "all", "codes"] as const;
-export type IngestScope = (typeof INGEST_SCOPES)[number];
+export const PROVIDER_IDS = ["eastmoney", "ishares"] as const;
+export type ProviderId = (typeof PROVIDER_IDS)[number];
 
-/** Scopes a user can pick from the dashboard; `codes` is CLI/API-only. */
-export const SELECTABLE_SCOPES = [
-  "qdii",
-  "index",
-  "equity",
-  "all",
-] as const satisfies readonly IngestScope[];
-
-export const SCOPE_LABELS: Record<IngestScope, string> = {
-  qdii: "QDII (overseas)",
-  index: "Index-tracking",
-  equity: "Equity & balanced",
-  all: "Entire universe",
-  codes: "Specific funds",
-};
-
-export function isIngestScope(value: string): value is IngestScope {
-  return (INGEST_SCOPES as readonly string[]).includes(value);
+export function isProviderId(value: string): value is ProviderId {
+  return (PROVIDER_IDS as readonly string[]).includes(value);
 }
+
+/**
+ * How much of a fund's portfolio its disclosures actually cover.
+ *
+ * This is not a quality score — it is the unit the weights are denominated in,
+ * and mixing the two silently corrupts every comparison. A China quarterly
+ * report lists the top ten equity positions and stops, so its weights sum to
+ * roughly 60%; an iShares daily holdings file is the entire book and sums to
+ * 100%. Without this tag a screen for "funds over 30% semiconductors" quietly
+ * favours whichever provider discloses more.
+ */
+export type HoldingsCompleteness = "full" | "top_holdings";
+
+/** One slice of a provider's universe that a sync run can cover. */
+export interface ProviderScope {
+  id: string;
+  label: string;
+  /** Offered in the dashboard's category picker. */
+  selectable: boolean;
+}
+
+/**
+ * The universal scope: an explicit list of fund codes, supplied by the caller.
+ * Every provider has it, and no provider defines it, so it lives here.
+ */
+export const CODES_SCOPE: ProviderScope = {
+  id: "codes",
+  label: "Specific funds",
+  selectable: false,
+};
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
+/** How long each step's result stays usable, per provider. */
+export interface FreshnessWindows {
+  details: number;
+  holdings: number;
+  nav: number;
+}
+
+export type SyncStep = keyof FreshnessWindows;
+
+export const SYNC_STEPS: readonly SyncStep[] = ["details", "holdings", "nav"];
+
 /**
- * How long each step's result stays usable.
- *
- * The three age at very different rates: a fund's profile barely moves, its
- * portfolio is disclosed quarterly (re-checked weekly so a new quarter lands
- * within days of publication), and its NAV changes every trading day.
+ * What the SPA needs to know about a provider. The server-side half — the
+ * fetching and the scope SQL — is the `FundProvider` interface.
  */
-export const FRESHNESS_MS = {
-  details: 30 * DAY,
-  holdings: 7 * DAY,
-  nav: 1 * DAY,
-} as const;
+export interface ProviderDescriptor {
+  id: ProviderId;
+  label: string;
+  /** Market the provider's funds are domiciled and traded in. */
+  domicile: string;
+  /** Currency fund sizes and NAVs are denominated in. */
+  currency: string;
+  completeness: HoldingsCompleteness;
+  scopes: readonly ProviderScope[];
+  /**
+   * Scope a run walks when the caller names none. Not always `all`: Eastmoney's
+   * universe is 27,000 funds, most of which nobody asks about, so an unqualified
+   * run there should spend its budget on the offshore ones the cross-market
+   * tools actually need.
+   */
+  defaultScope: string;
+  freshness: FreshnessWindows;
+}
 
-export type SyncStep = keyof typeof FRESHNESS_MS;
+export const PROVIDERS: Record<ProviderId, ProviderDescriptor> = {
+  eastmoney: {
+    id: "eastmoney",
+    label: "China public funds",
+    domicile: "CN",
+    currency: "CNY",
+    // Quarterly reports carry the top ten equity positions only; the annual and
+    // interim reports are complete, but the quarterly cadence is what the cache
+    // is usually holding.
+    completeness: "top_holdings",
+    scopes: [
+      { id: "qdii", label: "QDII (overseas mandate)", selectable: true },
+      { id: "index", label: "Index-tracking", selectable: true },
+      { id: "equity", label: "Equity & balanced", selectable: true },
+      { id: "all", label: "Entire universe", selectable: true },
+      CODES_SCOPE,
+    ],
+    defaultScope: "qdii",
+    freshness: {
+      details: 30 * DAY,
+      // Disclosed quarterly; re-checked weekly so a new quarter lands within
+      // days of publication rather than up to a quarter late.
+      holdings: 7 * DAY,
+      nav: 1 * DAY,
+    },
+  },
+  ishares: {
+    id: "ishares",
+    label: "iShares ETFs (US)",
+    domicile: "US",
+    currency: "USD",
+    // The published holdings file is the entire book, refreshed every trading
+    // day — the reason a US ETF's exposure figures are directly comparable
+    // between funds while China's quarterly ones are not.
+    completeness: "full",
+    scopes: [
+      { id: "international", label: "International mandate", selectable: true },
+      { id: "equity", label: "Equity", selectable: true },
+      { id: "fixed_income", label: "Fixed income", selectable: true },
+      { id: "all", label: "Entire lineup", selectable: true },
+      CODES_SCOPE,
+    ],
+    // A few hundred products in total, so there is nothing to be gained by
+    // narrowing an unqualified run.
+    defaultScope: "all",
+    freshness: {
+      details: 30 * DAY,
+      holdings: 1 * DAY,
+      nav: 1 * DAY,
+    },
+  },
+};
 
-export function isFresh(syncedAt: Date | null, step: SyncStep, now = Date.now()): boolean {
+export function providerScopes(provider: ProviderId): readonly ProviderScope[] {
+  return PROVIDERS[provider].scopes;
+}
+
+export function selectableScopes(provider: ProviderId): readonly ProviderScope[] {
+  return PROVIDERS[provider].scopes.filter((scope) => scope.selectable);
+}
+
+export function isProviderScope(provider: ProviderId, scope: string): boolean {
+  return PROVIDERS[provider].scopes.some((candidate) => candidate.id === scope);
+}
+
+export function scopeLabel(provider: ProviderId, scope: string): string {
+  return PROVIDERS[provider].scopes.find((candidate) => candidate.id === scope)?.label ?? scope;
+}
+
+export function isFresh(
+  syncedAt: Date | null,
+  step: SyncStep,
+  provider: ProviderId,
+  now = Date.now(),
+): boolean {
   if (syncedAt === null) return false;
-  return now - syncedAt.getTime() < FRESHNESS_MS[step];
+  return now - syncedAt.getTime() < PROVIDERS[provider].freshness[step];
+}
+
+/**
+ * One line explaining what a fund's disclosed weights are denominated in.
+ *
+ * Tool responses carry this instead of a hard-coded sentence about quarterly
+ * reports, which is false for any provider that publishes a complete book.
+ */
+export function completenessNote(completeness: HoldingsCompleteness): string {
+  return completeness === "full"
+    ? "Weights are percent of net assets from the fund's full published portfolio, so they account for essentially all of it."
+    : "Weights are percent of net assets from the fund's latest disclosed report, which lists only its largest positions — a small position may be missing rather than absent.";
 }
 
 /**
@@ -65,20 +191,43 @@ export const booleanParam = z
   .default("false")
   .transform((value) => value === "true");
 
-export const previewQuerySchema = z.object({
-  scope: z.enum(SELECTABLE_SCOPES),
-  limit: z.coerce.number().int().min(1).max(30_000).optional(),
-  force: booleanParam,
-});
+const providerParam = z.enum(PROVIDER_IDS);
 
-export const syncBodySchema = z.object({
-  scope: z.enum(SELECTABLE_SCOPES),
-  /**
-   * `null` means "no cap — every candidate in scope"; omitted falls back to the
-   * runner's default. The dashboard sends `null`, because its confirmation
-   * dialog counts the whole scope: a silent cap would make the number the user
-   * approved a lie.
-   */
-  limit: z.coerce.number().int().min(1).max(30_000).nullable().optional(),
-  force: z.boolean().default(false),
-});
+/** Scope is validated against the provider's own list, which zod alone cannot
+ *  express — the refinement is what keeps `?provider=ishares&scope=qdii` out. */
+const scopedSyncFields = {
+  provider: providerParam,
+  scope: z.string().min(1),
+};
+
+const refineScope = <T extends { provider: ProviderId; scope: string }>(value: T, ctx: z.RefinementCtx) => {
+  if (!isProviderScope(value.provider, value.scope)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["scope"],
+      message: `"${value.scope}" is not a scope of provider "${value.provider}"`,
+    });
+  }
+};
+
+export const previewQuerySchema = z
+  .object({
+    ...scopedSyncFields,
+    limit: z.coerce.number().int().min(1).max(30_000).optional(),
+    force: booleanParam,
+  })
+  .superRefine(refineScope);
+
+export const syncBodySchema = z
+  .object({
+    ...scopedSyncFields,
+    /**
+     * `null` means "no cap — every candidate in scope"; omitted falls back to
+     * the runner's default. The dashboard sends `null`, because its
+     * confirmation dialog counts the whole scope: a silent cap would make the
+     * number the user approved a lie.
+     */
+    limit: z.coerce.number().int().min(1).max(30_000).nullable().optional(),
+    force: z.boolean().default(false),
+  })
+  .superRefine(refineScope);

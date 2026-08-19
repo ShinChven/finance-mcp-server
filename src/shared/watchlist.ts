@@ -8,17 +8,21 @@
 import { z } from "zod";
 
 /**
- * A watchlist holds two kinds of thing, because the server covers two data
- * families: Yahoo-quoted instruments (stocks, ETFs, indices, crypto) and China
- * public funds, which Yahoo does not carry. Someone tracking 天弘纳斯达克 next to
- * NVDA should not need two separate lists.
+ * A watchlist holds two kinds of thing, because two things are valued
+ * differently: Yahoo-quoted instruments (stocks, ETFs, indices, crypto), which
+ * have a live price, and funds valued from the locally cached NAV. Someone
+ * tracking 天弘纳斯达克 next to NVDA should not need two separate lists.
+ *
+ * A US ETF is genuinely both — `IVV` is a cached fund *and* a Yahoo symbol. It
+ * is stored as a symbol, because a live intraday quote is strictly better than
+ * yesterday's close; the fund tools still reach it by the same code.
  */
 export const WATCHLIST_ITEM_KINDS = ["symbol", "fund"] as const;
 export type WatchlistItemKind = (typeof WATCHLIST_ITEM_KINDS)[number];
 
 export const KIND_LABELS: Record<WatchlistItemKind, string> = {
   symbol: "Instrument",
-  fund: "China fund",
+  fund: "Fund (NAV)",
 };
 
 /** Caps exist so one account cannot grow the table without bound. */
@@ -34,7 +38,9 @@ const FUND_CODE = /^\d{6}$/;
  *
  * Unambiguous in this codebase's symbol space because Yahoo's CN listings
  * always carry an exchange suffix (`600519.SS`), so a dotless `600519` can only
- * be a fund code. Callers that know better pass `kind` explicitly.
+ * be a fund code. A listed ETF deliberately falls through to `symbol` — it is
+ * quotable, and a live price beats a cached NAV. Callers that know better pass
+ * `kind` explicitly.
  */
 export function detectItemKind(ref: string): WatchlistItemKind {
   return FUND_CODE.test(ref.trim()) ? "fund" : "symbol";

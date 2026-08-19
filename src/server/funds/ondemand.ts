@@ -6,9 +6,9 @@
  * something they have already named. Four things make that safe to do on a
  * request path:
  *
- * - **One shared Eastmoney client**, so an on-demand fetch and a running
- *   category sync share the same 300ms throttle rather than each keeping their
- *   own and doubling the rate against a host that throttles hard.
+ * - **One shared client per provider**, so an on-demand fetch and a running
+ *   category sync share the same throttle rather than each keeping their own
+ *   and doubling the rate against a host that throttles hard.
  * - **In-flight de-duplication**, so ten agents asking about the same fund at
  *   once cause one fetch, not ten.
  * - **The existing freshness watermarks**, so a fund cached an hour ago costs
@@ -27,7 +27,6 @@ import { isFresh, type SyncStep } from "../../shared/funds.js";
 import type { db as Database } from "../db/index.js";
 import { fundHoldings, funds } from "../db/schema.js";
 import type { YahooFinanceClient } from "../mcp/client.js";
-import { getEastmoneyClient } from "./eastmoney.js";
 import {
   emptySummary,
   ingestFundDetails,
@@ -36,6 +35,7 @@ import {
   ingestSectors,
   recomputeExposure,
 } from "./ingest.js";
+import { getProvider } from "./providers/index.js";
 
 type Db = typeof Database;
 
@@ -117,7 +117,9 @@ export function createFundCache(db: Db, yahoo: YahooFinanceClient): FundCache {
       if (options.force === true) return true;
       const watermark =
         step === "details" ? fund.detailsSyncedAt : step === "holdings" ? fund.holdingsSyncedAt : fund.navSyncedAt;
-      return !isFresh(watermark, step, now);
+      // Freshness windows are the provider's: a China quarterly report is worth
+      // re-checking weekly, an iShares daily file every day.
+      return !isFresh(watermark, step, fund.provider, now);
     };
 
     const wanted = ALL_STEPS.filter(stale);
@@ -129,13 +131,16 @@ export function createFundCache(db: Db, yahoo: YahooFinanceClient): FundCache {
       };
     }
 
-    const client = getEastmoneyClient();
+    // The fund row knows where it came from, so a caller holding nothing but a
+    // code — every MCP tool, and the dashboard drill-down — gets the right
+    // upstream without having to care which market the fund is from.
+    const provider = getProvider(fund.provider);
     const summary = emptySummary();
 
     try {
-      if (wanted.includes("details")) await ingestFundDetails(db, client, [code], summary);
-      if (wanted.includes("holdings")) await ingestHoldings(db, client, [code], summary);
-      if (wanted.includes("nav")) await ingestNav(db, client, [code], summary);
+      if (wanted.includes("details")) await ingestFundDetails(db, provider, [code], summary);
+      if (wanted.includes("holdings")) await ingestHoldings(db, provider, [code], summary);
+      if (wanted.includes("nav")) await ingestNav(db, provider, [code], summary);
       result.fetched = wanted;
     } catch (error) {
       return {

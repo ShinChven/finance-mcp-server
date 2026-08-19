@@ -3,7 +3,7 @@
  *
  * The MCP tools depend on the `WatchlistRepo` interface rather than on Drizzle,
  * so they stay unit-testable without a database — the same arrangement as
- * `china/repo.ts` and the injected Yahoo client.
+ * `funds/repo.ts` and the injected Yahoo client.
  *
  * Every method takes `userId` and filters on it. Ownership is enforced here,
  * not only in the route layer, because two callers reach these rows: the

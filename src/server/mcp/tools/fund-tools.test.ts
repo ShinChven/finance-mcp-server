@@ -2,8 +2,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { describe, expect, it, vi } from "vitest";
-import type { EnsureResult, FundCache } from "../../china/ondemand.js";
-import type { ExposureRow, FundMatch, FundRepo, HoldingRow } from "../../china/repo.js";
+import type { EnsureResult, FundCache } from "../../funds/ondemand.js";
+import type { ExposureRow, FundMatch, FundRepo, HoldingRow } from "../../funds/repo.js";
 import type { Fund } from "../../db/schema.js";
 import type { McpAuth } from "../../lib/http.js";
 import type { YahooFinanceClient } from "../client.js";
@@ -31,20 +31,21 @@ const auth = {
 function fund(code: string, overrides: Partial<Fund> = {}): Fund {
   return {
     code,
+    provider: "eastmoney",
+    market: "CN",
     name: `Fund ${code}`,
     fundType: "QDII",
-    isQdii: true,
+    investsOffshore: true,
     isIndexFund: true,
     trackingIndex: "纳斯达克100",
-    trackingIndexCode: null,
     company: null,
     manager: null,
     feeRate: 0.6,
     fundSize: 1200,
     currency: "CNY",
     listedSymbol: null,
-    purchaseStatus: "限购",
-    purchaseLimit: 1000,
+    holdingsCompleteness: "top_holdings",
+    providerMeta: { purchaseStatus: "限购" },
     updatedAt: new Date("2026-07-01T00:00:00Z"),
     detailsSyncedAt: null,
     holdingsSyncedAt: null,
@@ -228,11 +229,22 @@ describe("fundExposure", () => {
     expect(result.content[0]).toMatchObject({ text: expect.stringContaining("not in the local index") });
   });
 
-  it("rejects a non-fund code before touching the repo", async () => {
+  it("rejects a listed stock symbol before touching the repo", async () => {
+    // A suffixed exchange code is a stock, never a fund code — China's listed
+    // ETFs are addressed by their bare 6 digits. Catching it in the schema
+    // keeps a mistyped holding from being looked up as a fund.
     const repo = mockRepo();
-    const result = await call(repo, "fundExposure", { code: "NVDA" });
+    const result = await call(repo, "fundExposure", { code: "600519.SS" });
     expect(result.isError).toBe(true);
     expect(repo.getFund).not.toHaveBeenCalled();
+  });
+
+  it("accepts a ticker as a fund code and uppercases it", async () => {
+    // The key space is shared across providers: 6 digits for China, the listing
+    // ticker everywhere else. `ivv` and `IVV` must reach the same fund.
+    const repo = mockRepo();
+    await call(repo, "fundExposure", { code: "ivv" });
+    expect(repo.getFund).toHaveBeenCalledWith("IVV");
   });
 });
 

@@ -22,9 +22,11 @@ Hono runs inside the Vite dev server; in production, Hono serves the built SPA.
 - **Finance MCP endpoint** — Streamable HTTP at `/mcp` with 10 read-only Yahoo
   Finance tools plus `whoami`; requests use the same PAT/OAuth 2.1 authorization
   layer as the rest of the MCP service.
-- **China fund relationship layer** — 6 further tools that answer *which fund
-  gives me exposure to this stock, sector or theme*, using an offline-ingested
-  index of disclosed fund holdings rather than keyword search over fund names.
+- **Cross-market fund relationship layer** — 6 further tools that answer *which
+  fund gives me exposure to this stock, sector or theme*, using an
+  offline-ingested index of disclosed fund holdings rather than keyword search
+  over fund names. China public funds and US ETFs share one index, so asking
+  who holds NVDA returns both, tagged with the market each fund trades in.
 - **Client integration center** — in-dashboard, copy-ready setup guides for
   Claude, Claude Code, Codex, Cursor, Antigravity 2 and generic MCP clients,
   with both OAuth and personal-token instructions.
@@ -107,8 +109,10 @@ direction.
 
 Yahoo covers CN and HK listings through symbol suffixes (`600519.SS`,
 `0700.HK`), so the tools above already span the A-share, Hong Kong and US
-markets. What Yahoo does not carry is China's domestic public funds — that is
-what the tools below are for.
+markets. What Yahoo does not carry is the *inside* of a fund: it publishes a
+top-ten list for US ETFs and nothing at all for China's domestic public funds,
+and it has no way to ask the question backwards. That is what the tools below
+are for.
 
 #### SEC EDGAR tools
 
@@ -208,9 +212,9 @@ of returning an empty result and telling you to go run a batch job.
 
 Four things keep that safe on a request path:
 
-- **One shared Eastmoney client.** The 300ms throttle is per client instance, so
-  an on-demand fetch holding its own while a category sync held another would
-  quietly double the request rate. Everything now fetches through one.
+- **One shared client per provider.** The throttle is per client instance, so an
+  on-demand fetch holding its own while a category sync held another would
+  quietly double the request rate. Everything fetches through one per upstream.
 - **In-flight de-duplication.** Ten agents asking about the same fund at once
   cause one fetch.
 - **The existing watermarks.** A fund synced before is never refetched here —
@@ -227,23 +231,44 @@ says so.
 ### Fund data ingest
 
 The relationship tools read local tables only — no tool call ever hits an
-upstream data source. Populate them from the **China Fund** page in the
-dashboard, or from the CLI:
+upstream data source. Populate them from the **Funds** page in the dashboard, or
+from the CLI:
 
 ```sh
 npm run build
-npm run ingest:cn -- --limit=200            # QDII funds by default
-npm run ingest:cn -- --types=index          # qdii | index | equity | all
-npm run ingest:cn -- --types=qdii --dry-run # counts only, fetches nothing
-npm run ingest:cn -- --codes=162411,270042  # specific funds
-npm run ingest:cn -- --codes=162411 --skip-universe
-npm run ingest:cn -- --types=qdii --force   # ignore the freshness windows
+npm run ingest -- --provider=eastmoney --scope=qdii --limit=200
+npm run ingest -- --provider=ishares --scope=all
+npm run ingest -- --provider=eastmoney --scope=index --dry-run  # counts only
+npm run ingest -- --provider=eastmoney --codes=162411,270042
+npm run ingest -- --provider=ishares --codes=IVV --skip-universe
+npm run ingest -- --provider=eastmoney --scope=qdii --force     # ignore freshness
 ```
 
-The job runs six steps: fund universe → per-fund profile detail (including
-`跟踪标的`) → holdings → NAV history → sector classification via Yahoo
-`assetProfile` (which covers CN, HK and US listings under one taxonomy) →
-recomputed exposure.
+The job runs six steps: fund universe → per-fund profile detail → holdings →
+NAV history → sector classification via Yahoo `assetProfile` (which covers CN,
+HK and US listings under one taxonomy) → recomputed exposure. The first four are
+the provider's; the last two are shared, which is what makes exposure vectors
+from different markets directly comparable.
+
+**Providers.** A provider is one upstream source, declared in
+`src/shared/funds.ts` and implemented in `src/server/funds/providers/`:
+
+| Provider | Universe | Holdings | Cadence |
+|---|---|---|---|
+| `eastmoney` | China public funds, 6-digit codes | Quarterly report, top holdings only | re-checked weekly |
+| `ishares` | iShares US ETFs, listing tickers | Full published portfolio | daily |
+
+Each declares its own scopes and freshness windows, because they age
+differently: re-fetching a China quarterly report every day is waste, and
+caching an iShares file for a week serves stale positions as current. Adding a
+third means implementing `FundProvider` and adding a descriptor — no change to
+the pipeline, the tables, or the tools.
+
+**Disclosure conventions differ, and the tools say so.** `funds.holdings_completeness`
+records whether a fund's weights cover its whole book (`full`) or only its
+largest positions (`top_holdings`). Tool responses carry a note derived from it,
+and a result mixing both gets an explicit warning — ranking funds by a disclosed
+sector weight across conventions measures reporting rules, not portfolios.
 
 **Freshness windows.** Each fund carries a per-step watermark, and a run skips
 whatever is still current: profile detail for 30 days, holdings for 7, NAV for
@@ -271,7 +296,7 @@ summary reports rows the parser could not read. A non-zero value means an
 upstream format drift — the failure mode that once made Tokyo-coded positions
 (`285A`) vanish from QDII portfolios with no error at all.
 
-### China Fund dashboard page
+### Funds dashboard page
 
 `/funds` shows what is actually cached — fund count, holdings rows, distinct
 stocks, latest report date — and lists every fund with its holdings count and
@@ -288,13 +313,13 @@ request rate against hosts that already throttle.
 Syncs run in the server process, so a restart interrupts one; jobs left running
 are marked failed at boot rather than appearing stuck forever.
 
-> **Note on upstream formats.** The Eastmoney endpoints are undocumented and
+> **Note on upstream formats.** The Eastmoney and iShares endpoints are undocumented and
 > their response shapes were implemented from their known structure, not
 > verified against live responses. All shape knowledge is isolated in
-> `src/server/china/parse.ts` as pure functions with fixture-based tests, so a
+> each provider's `parse.ts` as pure functions with fixture-based tests, so a
 > format change is a fixture-plus-parser fix that touches nothing else.
 
-The theme crosswalk in `src/server/china/crosswalk.ts` is the one piece that
+The theme crosswalk in `src/server/funds/crosswalk.ts` is the one piece that
 cannot be scraped — it maps a theme onto Eastmoney board names, Yahoo GICS
 sectors and index names, which is what lets a single "半导体" query return both
 onshore sector funds and QDII funds holding the same sector offshore. Extend it

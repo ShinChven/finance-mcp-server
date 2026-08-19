@@ -1,8 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { holdingStability } from "../../china/exposure.js";
-import type { FundCache } from "../../china/ondemand.js";
-import type { FundRepo } from "../../china/repo.js";
+import { holdingStability } from "../../funds/exposure.js";
+import type { FundCache } from "../../funds/ondemand.js";
+import { describeFund, disclosureNote } from "../../funds/present.js";
+import type { FundRepo } from "../../funds/repo.js";
 import { cacheNote, ensureHoldings } from "./ensure-cached.js";
 import { fundCodeSchema, readOnlyToolAnnotations, runTool } from "./runtime.js";
 
@@ -23,7 +24,8 @@ export function registerFundExposureTool(
     {
       title: "Fund Exposure",
       description:
-        "Break a China public fund down into sector and market exposure derived from its disclosed holdings. " +
+        "Break a fund from any cached market down into sector and market exposure derived from its " +
+        "disclosed holdings. " +
         "Returns coverage (how much of the portfolio could be classified) and holdings stability " +
         "(how much of the previous report is still held), so exposure from a drifting active fund is not " +
         "mistaken for an index fund's.",
@@ -60,19 +62,9 @@ export function registerFundExposureTool(
           prior.length > 0 && current.length > 0 ? holdingStability(prior, current) : null;
 
         return {
-          fund: {
-            code: fund.code,
-            name: fund.name,
-            type: fund.fundType,
-            isQdii: fund.isQdii,
-            isIndexFund: fund.isIndexFund,
-            trackingIndex: fund.trackingIndex,
-            currency: fund.currency,
-            listedSymbol: fund.listedSymbol,
-            feeRate: fund.feeRate,
-            fundSize: fund.fundSize,
-          },
+          fund: describeFund(fund),
           reportDate: latest ?? null,
+          disclosure: disclosureNote([fund]),
           sectors: exposure.filter((row) => row.dimension === "sector"),
           markets: exposure.filter((row) => row.dimension === "market"),
           holdingsStability: stability && {

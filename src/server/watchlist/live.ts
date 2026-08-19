@@ -2,7 +2,7 @@
  * Attaches current values to watchlist rows.
  *
  * Nothing priceable is stored on the item itself, so this is where the two
- * sources meet: Yahoo for instruments, the local fund cache for China funds.
+ * sources meet: Yahoo for instruments, the local fund cache for funds.
  * The two are labelled rather than blended — a fund's daily NAV move and a
  * stock's intraday change are not the same measurement, and a column that
  * silently mixed them would be misleading.
@@ -161,7 +161,7 @@ async function quoteFunds(
     if (snapshot === undefined) {
       values.set(
         code,
-        UNAVAILABLE("This fund is not in the local index yet — cache it from the China Fund page.", "nav"),
+        UNAVAILABLE("This fund is not in the local index yet — cache it from the Funds page.", "nav"),
       );
       continue;
     }

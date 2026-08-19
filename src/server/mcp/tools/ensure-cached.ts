@@ -11,8 +11,8 @@
  * the first touch of a fund.
  */
 
-import type { FundCache, EnsureResult } from "../../china/ondemand.js";
-import type { FundRepo } from "../../china/repo.js";
+import type { FundCache, EnsureResult } from "../../funds/ondemand.js";
+import type { FundRepo } from "../../funds/repo.js";
 
 /**
  * Fetches on demand unless this step has been synced before.

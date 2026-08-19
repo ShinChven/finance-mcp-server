@@ -167,6 +167,12 @@ fund names do not describe their portfolios. The relationship layer inverts the
 problem: holdings and index membership are ingested offline into the tables
 above, and the tools query that index.
 
+One index spans every market. `funds.provider` records where a row came from,
+but holdings, NAV and exposure are keyed by fund code alone, so a reverse lookup
+crosses providers in a single index scan rather than a union of per-market
+tables — which is the point, since NVDA is held by both a QDII fund and a US
+ETF and the useful answer contains both.
+
 Three routes connect a stock/sector/theme to a fund, in descending confidence:
 
 1. **Tracking index** — an index fund declares its mandate; it will not drift.
@@ -178,14 +184,27 @@ Tools: `fundExposure`, `fundsByStock`, `fundsBySector`, `similarFunds`,
 `themeToFunds`, `compareFunds`, `fundPerformance`. All read-only, all local — no
 tool call reaches an upstream provider.
 
-Ingest (`npm run ingest:cn`, bundled to `dist/server/china/ingest-cli.js`) pulls
-the fund universe, per-fund profile detail (`跟踪标的` — without this step route
-1 has no data), holdings and NAV from Eastmoney, classifies holdings by sector
-via Yahoo `assetProfile` (one taxonomy across CN/HK/US), then recomputes
-`fund_exposure`. Upstream response shapes are isolated in pure parsers with
-fixture tests — see the README note on their unverified status.
+Ingest (`npm run ingest`, bundled to `dist/server/funds/ingest-cli.js`) pulls
+the fund universe, per-fund profile detail (the tracked index — without this
+step route 1 has no data), holdings and NAV from a **provider**, classifies
+holdings by sector via Yahoo `assetProfile` (one taxonomy across CN/HK/US), then
+recomputes `fund_exposure`. Upstream response shapes are isolated in pure
+parsers with fixture tests — see the README note on their unverified status.
 
-The same pipeline is drivable from the dashboard's China Fund page. Three pieces
+A provider is one upstream source behind the `FundProvider` interface
+(`src/server/funds/provider.ts`): `listUniverse`, `fetchDetails`,
+`fetchHoldings`, `fetchNav`, `scopeFilter`. Two exist — `eastmoney` for China
+public funds and `ishares` for US ETFs — and everything market-specific lives
+behind them: code shape, weight units, fund-size units, scope vocabulary,
+freshness windows, and whether disclosed holdings are the whole book or a
+top-ten slice. Steps 5 and 6 of the pipeline are shared and market-agnostic by
+construction, which is what makes exposure vectors comparable across providers.
+
+The iShares provider takes NAV from the Yahoo client the server already keeps
+rather than scraping a NAV file: adjusted closes carry distributions, so
+`fundPerformance` gets a correct total-return series for free.
+
+The same pipeline is drivable from the dashboard's Funds page. Three pieces
 make that safe:
 
 - **Per-step watermarks** (`funds.details_synced_at`, `holdings_synced_at`,
@@ -201,6 +220,12 @@ make that safe:
 
 Share classes are ingested per fund code rather than deduplicated by portfolio —
 see the README for why the deduplication loses more than it saves.
+
+`funds.holdings_completeness` carries the disclosure convention a fund's weights
+are denominated in. It is not a quality score but a unit: a China quarterly
+report sums to roughly 60% of net assets and an iShares daily file to 100%, so
+ranking across the two without saying so measures reporting rules rather than
+portfolios. `funds/present.ts` builds the caveat every tool response carries.
 - System tool: `whoami` returns the authenticated user and auth method.
 - Yahoo Finance tools: `search`, `quote`, `quoteSummary`, `chart`, `screener`,
   `trendingSymbols`, `options`, `insights`, `recommendationsBySymbol`,
@@ -212,11 +237,13 @@ see the README for why the deduplication loses more than it saves.
   control. `watchlist/live.ts` attaches values at read time (Yahoo for symbols,
   the cached NAV for funds) and degrades to `available: false` with a reason
   rather than failing the call. List deletion is deliberately dashboard-only.
-- On-demand caching (`china/ondemand.ts`): the dashboard drill-down and the
+- On-demand caching (`funds/ondemand.ts`): the dashboard drill-down and the
   fund tools fetch an uncached fund on first touch rather than failing. Shared
-  Eastmoney client (the throttle is per instance), in-flight de-duplication,
-  watermark-based skip, and a pending-queue ceiling. Tools depend on the
-  `FundCache` interface, not on the database, so they stay unit-testable.
+  client per provider (the throttle is per instance), in-flight de-duplication,
+  watermark-based skip, and a pending-queue ceiling. The fund row names its own
+  provider, so a caller holding only a code never has to know which upstream it
+  will hit. Tools depend on the `FundCache` interface, not on the database, so
+  they stay unit-testable.
 - SEC EDGAR tools: `secFilings` and `secFinancials` read data.sec.gov directly
   for US registrants — the filing index with document URLs, and as-reported XBRL
   financials carrying the accession number behind each value. `sec/edgar.ts`

@@ -1,20 +1,27 @@
 /**
  * CLI entry for the fund relationship ingest.
  *
- *   npm run ingest:cn -- --limit=200
- *   npm run ingest:cn -- --types=index --limit=500
- *   npm run ingest:cn -- --codes=162411,270042 --skip-universe
- *   npm run ingest:cn -- --types=qdii --dry-run
+ *   npm run ingest -- --provider=eastmoney --scope=qdii --limit=200
+ *   npm run ingest -- --provider=ishares --scope=all
+ *   npm run ingest -- --provider=eastmoney --codes=162411,270042 --skip-universe
+ *   npm run ingest -- --provider=ishares --scope=international --dry-run
  *
- * Bundled by `scripts/build-server.mjs` into `dist/server/china/ingest-cli.js`
+ * Bundled by `scripts/build-server.mjs` into `dist/server/funds/ingest-cli.js`
  * so the container can run it from cron without a TypeScript toolchain.
  */
 
 import "../load-env.js";
+import {
+  isProviderId,
+  isProviderScope,
+  PROVIDER_IDS,
+  providerScopes,
+  type ProviderId,
+} from "../../shared/funds.js";
 import { db, pool, waitForDb } from "../db/index.js";
 import { yahooFinanceClient } from "../mcp/client.js";
 import { previewSync, runIngest } from "./ingest.js";
-import { INGEST_SCOPES, isIngestScope, type IngestScope } from "./scope.js";
+import { getProvider } from "./providers/index.js";
 
 function flag(name: string): string | undefined {
   const prefix = `--${name}=`;
@@ -27,6 +34,15 @@ function hasFlag(name: string): boolean {
 }
 
 async function main(): Promise<void> {
+  const providerRaw = flag("provider") ?? "eastmoney";
+  if (!isProviderId(providerRaw)) {
+    throw new Error(
+      `--provider must be one of ${PROVIDER_IDS.join(", ")}, received "${providerRaw}"`,
+    );
+  }
+  const providerId: ProviderId = providerRaw;
+  const provider = getProvider(providerId);
+
   const codes = flag("codes")
     ?.split(",")
     .map((code) => code.trim())
@@ -38,16 +54,23 @@ async function main(): Promise<void> {
     throw new Error(`--limit must be a number, received "${limitRaw}"`);
   }
 
-  const typesRaw = flag("types");
-  if (typesRaw !== undefined && !isIngestScope(typesRaw)) {
-    throw new Error(`--types must be one of ${INGEST_SCOPES.join(", ")}, received "${typesRaw}"`);
+  // `--types` was the China-only spelling; kept as an alias so existing cron
+  // entries do not silently fall through to the default scope.
+  const scopeRaw = flag("scope") ?? flag("types");
+  if (scopeRaw !== undefined && !isProviderScope(providerId, scopeRaw)) {
+    const available = providerScopes(providerId)
+      .map((scope) => scope.id)
+      .join(", ");
+    throw new Error(
+      `--scope must be one of ${available} for provider "${providerId}", received "${scopeRaw}"`,
+    );
   }
-  const scope: IngestScope =
-    typesRaw !== undefined
-      ? typesRaw
+  const scope =
+    scopeRaw !== undefined
+      ? scopeRaw
       : codes !== undefined && codes.length > 0
         ? "codes"
-        : "qdii";
+        : provider.descriptor.defaultScope;
 
   await waitForDb();
 
@@ -56,7 +79,7 @@ async function main(): Promise<void> {
   // `--dry-run` prints the same counts the dashboard shows before a sync, so a
   // cron schedule can be sized without spending any requests.
   if (hasFlag("dry-run")) {
-    const preview = await previewSync(db, scope, {
+    const preview = await previewSync(db, provider, scope, {
       ...(codes !== undefined && codes.length > 0 ? { codes } : {}),
       ...(limit !== undefined ? { limit } : {}),
       force,
@@ -68,6 +91,7 @@ async function main(): Promise<void> {
   const summary = await runIngest({
     db,
     yahoo: yahooFinanceClient,
+    provider,
     scope,
     ...(codes !== undefined && codes.length > 0 ? { codes } : {}),
     ...(limit !== undefined ? { limit } : {}),

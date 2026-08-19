@@ -11,6 +11,7 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import type { HoldingsCompleteness, ProviderId } from "../../shared/funds.js";
 import type { UserPreferences } from "../../shared/preferences.js";
 import { WATCHLIST_ITEM_KINDS } from "../../shared/watchlist.js";
 
@@ -27,8 +28,11 @@ export const ingestJobStatus = pgEnum("ingest_job_status", [
   "failed",
   "cancelled",
 ]);
-/** Which slice of the fund universe a sync covers. `codes` is an explicit list. */
-export const ingestScope = pgEnum("ingest_scope", ["qdii", "index", "equity", "all", "codes"]);
+// Provider ids, scope ids and holdings completeness are deliberately stored as
+// plain text rather than pg enums: their vocabulary is defined in
+// `shared/funds.ts` and grows whenever a provider is added, and an enum would
+// turn each addition into a migration that has to run before the code that
+// needs it. Drizzle's `$type<>()` keeps the compile-time check either way.
 
 const id = () =>
   text("id")
@@ -283,6 +287,12 @@ export const auditLog = pgTable(
  * These tables answer "which fund gives me exposure to X" without full-text
  * search: holdings and index membership are ingested offline, and the derived
  * `fund_exposure` table is what the MCP tools actually read.
+ *
+ * One set of tables serves every market. Only `funds` knows which provider a
+ * row came from; holdings, NAV and exposure are keyed by fund code alone, so a
+ * reverse lookup on a symbol crosses providers in a single index scan instead
+ * of having to union per-market tables. That is the whole point — NVDA is held
+ * by both a QDII fund and a US ETF, and the interesting answer contains both.
  * ------------------------------------------------------------------ */
 
 /** Canonical symbol format is Yahoo-style so US and CN legs share one key space
@@ -320,23 +330,53 @@ export const instrumentSectors = pgTable(
 export const funds = pgTable(
   "funds",
   {
-    // 6-digit China fund code (场外 or 场内 primary code).
+    /**
+     * Globally unique across providers, and the only identifier anything
+     * outside this table uses: a 6-digit code for China (`162411`), the listing
+     * ticker elsewhere (`IVV`). Those key spaces cannot collide, which is what
+     * lets holdings, NAV and exposure keep single-column foreign keys and lets
+     * `watchlist_items.ref` — a loose reference, by design, so an uncached fund
+     * can still be watched — stay unambiguous.
+     */
     code: text("code").primaryKey(),
+    provider: text("provider").$type<ProviderId>().notNull(),
+    /** Where the fund itself is domiciled and traded — not where it invests. */
+    market: text("market").notNull(),
     name: text("name").notNull(),
     fundType: text("fund_type"),
-    isQdii: boolean("is_qdii").notNull().default(false),
+    /**
+     * The fund's mandate points outside its own market: China's QDII wrapper, a
+     * US ex-US or emerging-markets ETF. Generalizing QDII rather than keeping it
+     * is what makes "a fund I can buy here that holds NVDA" one query instead of
+     * one per market.
+     */
+    investsOffshore: boolean("invests_offshore").notNull().default(false),
     isIndexFund: boolean("is_index_fund").notNull().default(false),
     trackingIndex: text("tracking_index"),
-    trackingIndexCode: text("tracking_index_code"),
     company: text("company"),
     manager: text("manager"),
     feeRate: doublePrecision("fee_rate"),
     fundSize: doublePrecision("fund_size"),
-    currency: text("currency").notNull().default("CNY"),
+    currency: text("currency").notNull(),
     // Exchange-traded share class, when one exists (`510300.SS`).
     listedSymbol: text("listed_symbol"),
-    purchaseStatus: text("purchase_status"),
-    purchaseLimit: doublePrecision("purchase_limit"),
+    /**
+     * What this fund's disclosed weights are denominated in. Defaulted from the
+     * provider, but stored per fund because it is a property of the report that
+     * landed: a China annual report is a complete book where the quarterly one
+     * before it was a top-ten slice.
+     */
+    holdingsCompleteness: text("holdings_completeness")
+      .$type<HoldingsCompleteness>()
+      .notNull()
+      .default("top_holdings"),
+    /**
+     * Attributes only one provider has, kept out of the shared columns so a
+     * China-only field never has to be null on every US ETF row. Nothing joins
+     * or filters on these — the moment something needs to, it has earned a
+     * column.
+     */
+    providerMeta: jsonb("provider_meta").$type<Record<string, unknown>>().notNull().default({}),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
     // Per-step watermarks. A re-run skips whatever is still inside its freshness
     // window, which is what turns a 3-hour full sync into a short incremental
@@ -349,8 +389,12 @@ export const funds = pgTable(
     lastSyncError: text("last_sync_error"),
   },
   (t) => [
-    index("funds_qdii_idx").on(t.isQdii),
-    index("funds_tracking_index_idx").on(t.trackingIndexCode),
+    index("funds_offshore_idx").on(t.investsOffshore),
+    index("funds_tracking_index_idx").on(t.trackingIndex),
+    // Every sync scopes by provider, and the dashboard's market filter is the
+    // other half of the same scan.
+    index("funds_provider_idx").on(t.provider, t.holdingsSyncedAt),
+    index("funds_market_idx").on(t.market),
     // Drives both the "what still needs fetching" scan and the /funds listing's
     // default "recently cached first" order.
     index("funds_holdings_synced_idx").on(t.holdingsSyncedAt),
@@ -428,7 +472,9 @@ export const ingestJobs = pgTable(
   "ingest_jobs",
   {
     id: id(),
-    scope: ingestScope("scope").notNull(),
+    provider: text("provider").$type<ProviderId>().notNull(),
+    /** One of the provider's own scope ids; `codes` for an explicit list. */
+    scope: text("scope").notNull(),
     status: ingestJobStatus("status").notNull().default("queued"),
     /** Null for runs started by the CLI rather than a dashboard user. */
     requestedBy: text("requested_by").references(() => users.id, { onDelete: "set null" }),
@@ -453,6 +499,7 @@ export const ingestJobs = pgTable(
   (t) => [
     index("ingest_jobs_status_idx").on(t.status),
     index("ingest_jobs_created_idx").on(t.createdAt),
+    index("ingest_jobs_provider_idx").on(t.provider, t.createdAt),
   ],
 );
 

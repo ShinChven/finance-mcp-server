@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Database, Download, Layers, RefreshCw, X } from "lucide-react";
+import {
+  completenessNote,
+  PROVIDERS,
+  scopeLabel,
+  selectableScopes,
+  type ProviderId,
+} from "../../shared/funds.js";
 import { Modal } from "../components/modal.js";
 import { DataTable, FilterPills, SearchInput, type Column } from "../components/table.js";
 import { useToast } from "../components/toast.js";
@@ -13,20 +20,12 @@ import type {
   FundHoldingsResult,
   FundItem,
   IngestJobItem,
-  IngestScope,
   JobsResult,
   ListResult,
+  ProviderStats,
   SyncPreview,
 } from "../lib/types.js";
 import { useMe } from "./shell.js";
-
-/** Categories a sync can be started for, in the order they appear as buttons. */
-const CATEGORIES: { scope: Exclude<IngestScope, "codes">; label: string; hint: string }[] = [
-  { scope: "qdii", label: "QDII", hint: "Overseas-investing funds — the ones with US, HK and JP holdings." },
-  { scope: "index", label: "Index-tracking", hint: "Funds with a declared 跟踪标的 mandate." },
-  { scope: "equity", label: "Equity & balanced", hint: "股票型 and 混合型 funds." },
-  { scope: "all", label: "Entire universe", hint: "Every fund on record. Expect a very long run." },
-];
 
 const STATUS_FILTERS = [
   { value: "cached", label: "Cached" },
@@ -34,8 +33,19 @@ const STATUS_FILTERS = [
   { value: "failing", label: "Failing" },
 ];
 
+/** Every category a sync can be started for, flattened across providers. */
+interface Category {
+  provider: ProviderId;
+  scope: string;
+  label: string;
+}
+
 function isJobActive(job: IngestJobItem | undefined): boolean {
   return job?.status === "running" || job?.status === "queued";
+}
+
+function isProviderId(value: string): value is ProviderId {
+  return value in PROVIDERS;
 }
 
 export default function FundsPage() {
@@ -43,7 +53,7 @@ export default function FundsPage() {
   const toast = useToast();
   const queryClient = useQueryClient();
   const params = useListParams({ per_page: me.preferences.pageSize });
-  const [pending, setPending] = useState<Exclude<IngestScope, "codes"> | null>(null);
+  const [pending, setPending] = useState<Category | null>(null);
 
   const stats = useQuery({
     queryKey: ["fund-stats"],
@@ -64,6 +74,7 @@ export default function FundsPage() {
 
   const current = jobs.data?.items[0];
   const running = isJobActive(current);
+  const selectedProvider = isProviderId(params.provider) ? params.provider : null;
 
   const cancel = useMutation({
     mutationFn: (id: string) => api(`/api/sync/${id}/cancel`, { method: "POST" }),
@@ -108,6 +119,25 @@ export default function FundsPage() {
       ),
     },
     {
+      // Which market a fund trades in decides whether a reader can buy it at
+      // all, so it earns a column rather than living in the drill-down.
+      key: "market",
+      label: "Market",
+      render: (fund) => (
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs text-zinc-600 dark:text-zinc-300">{fund.market}</span>
+          {fund.investsOffshore && (
+            <span
+              className="text-xs text-zinc-400"
+              title="Mandate points outside its own market"
+            >
+              offshore
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
       key: "type",
       label: "Type",
       render: (fund) => <span className="text-xs text-zinc-500">{fund.fundType ?? "—"}</span>,
@@ -147,8 +177,8 @@ export default function FundsPage() {
   return (
     <>
       <PageHeader
-        title="China Fund"
-        description="Holdings are downloaded here so the stock- and sector-level tools can answer. Eastmoney only serves fund → holdings, so the reverse lookups exist only for funds cached below."
+        title="Funds"
+        description="Holdings are downloaded here so the stock- and sector-level tools can answer. Every source serves fund → holdings only, so the reverse lookups exist for the funds cached below — across all markets at once."
       />
 
       <StatTiles stats={stats.data} />
@@ -164,29 +194,15 @@ export default function FundsPage() {
         {running && current ? (
           <ActiveJob job={current} onCancel={() => cancel.mutate(current.id)} busy={cancel.isPending} />
         ) : (
-          <div className="grid gap-2 sm:grid-cols-2">
-            {CATEGORIES.map((category) => {
-              const coverage = stats.data?.byScope[category.scope];
-              return (
-                <button
-                  key={category.scope}
-                  disabled={me.role !== "admin"}
-                  onClick={() => setPending(category.scope)}
-                  className="flex cursor-pointer items-start gap-3 rounded-lg border border-zinc-200 p-3 text-left transition-colors hover:border-indigo-400 hover:bg-indigo-50/50 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-zinc-200 disabled:hover:bg-transparent dark:border-zinc-700 dark:hover:border-indigo-500 dark:hover:bg-indigo-500/5"
-                >
-                  <Download className="mt-0.5 size-4 shrink-0 text-indigo-500" />
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium">{category.label}</div>
-                    <div className="mt-0.5 text-xs text-zinc-500">{category.hint}</div>
-                    {coverage && (
-                      <div className="mt-1 text-xs tabular-nums text-zinc-400">
-                        {coverage.cached.toLocaleString()} of {coverage.total.toLocaleString()} cached
-                      </div>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
+          <div className="space-y-4">
+            {(stats.data?.providers ?? []).map((provider) => (
+              <ProviderCategories
+                key={provider.id}
+                provider={provider}
+                disabled={me.role !== "admin"}
+                onPick={setPending}
+              />
+            ))}
           </div>
         )}
       </Card>
@@ -194,7 +210,26 @@ export default function FundsPage() {
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <SearchInput params={params} placeholder="Search code, name, company…" />
         <div className="flex flex-wrap items-center gap-2">
-          <FilterPills params={params} paramKey="type" options={CATEGORIES.filter((c) => c.scope !== "all").map((c) => ({ value: c.scope, label: c.label }))} />
+          <FilterPills
+            params={params}
+            paramKey="provider"
+            clears={["scope"]}
+            options={(stats.data?.providers ?? []).map((provider) => ({
+              value: provider.id,
+              label: provider.label,
+            }))}
+          />
+          {/* A scope only narrows within one provider, so the pills appear only
+              once a provider is chosen — and reset with it. */}
+          {selectedProvider && (
+            <FilterPills
+              params={params}
+              paramKey="scope"
+              options={selectableScopes(selectedProvider)
+                .filter((scope) => scope.id !== "all")
+                .map((scope) => ({ value: scope.id, label: scope.label }))}
+            />
+          )}
           <FilterPills params={params} paramKey="status" options={STATUS_FILTERS} />
         </div>
       </div>
@@ -217,7 +252,7 @@ export default function FundsPage() {
 
       {pending && (
         <SyncConfirm
-          scope={pending}
+          category={pending}
           onClose={() => setPending(null)}
           onStarted={() => {
             setPending(null);
@@ -230,6 +265,58 @@ export default function FundsPage() {
         <HoldingsDialog code={params.fund} onClose={() => params.update({ fund: "" })} />
       )}
     </>
+  );
+}
+
+/**
+ * One provider's category buttons.
+ *
+ * Grouped by provider rather than pooled into one grid because the scope names
+ * only mean something next to their source: both providers offer "equity", and
+ * a flat list would put two different populations under one label.
+ */
+function ProviderCategories({
+  provider,
+  disabled,
+  onPick,
+}: {
+  provider: ProviderStats;
+  disabled: boolean;
+  onPick: (category: Category) => void;
+}) {
+  return (
+    <div>
+      <div className="mb-2 flex flex-wrap items-baseline gap-2">
+        <h3 className="text-xs font-medium text-zinc-600 dark:text-zinc-300">{provider.label}</h3>
+        <span className="font-mono text-xs text-zinc-400">{provider.domicile}</span>
+        <span className="text-xs text-zinc-400">
+          {provider.completeness === "full" ? "full portfolio" : "top holdings only"}
+        </span>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {selectableScopes(provider.id).map((scope) => {
+          const coverage = provider.byScope[scope.id];
+          return (
+            <button
+              key={scope.id}
+              disabled={disabled}
+              onClick={() => onPick({ provider: provider.id, scope: scope.id, label: scope.label })}
+              className="flex cursor-pointer items-start gap-3 rounded-lg border border-zinc-200 p-3 text-left transition-colors hover:border-indigo-400 hover:bg-indigo-50/50 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-zinc-200 disabled:hover:bg-transparent dark:border-zinc-700 dark:hover:border-indigo-500 dark:hover:bg-indigo-500/5"
+            >
+              <Download className="mt-0.5 size-4 shrink-0 text-indigo-500" />
+              <div className="min-w-0">
+                <div className="text-sm font-medium">{scope.label}</div>
+                {coverage && (
+                  <div className="mt-1 text-xs tabular-nums text-zinc-400">
+                    {coverage.cached.toLocaleString()} of {coverage.total.toLocaleString()} cached
+                  </div>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -259,6 +346,10 @@ function StatTiles({ stats }: { stats: FundCacheStats | undefined }) {
   );
 }
 
+function jobTitle(job: IngestJobItem): string {
+  return `${PROVIDERS[job.provider]?.label ?? job.provider} · ${scopeLabel(job.provider, job.scope)}`;
+}
+
 function ActiveJob({
   job,
   onCancel,
@@ -273,7 +364,7 @@ function ActiveJob({
     <div>
       <div className="mb-2 flex items-center justify-between gap-3">
         <div className="text-sm">
-          <span className="font-medium capitalize">{job.scope}</span> sync running —{" "}
+          <span className="font-medium">{jobTitle(job)}</span> sync running —{" "}
           <span className="tabular-nums">
             {job.processedFunds.toLocaleString()} / {job.totalFunds.toLocaleString()}
           </span>{" "}
@@ -302,27 +393,32 @@ function ActiveJob({
  * funds a category actually means and how long it will take.
  */
 function SyncConfirm({
-  scope,
+  category,
   onClose,
   onStarted,
 }: {
-  scope: Exclude<IngestScope, "codes">;
+  category: Category;
   onClose: () => void;
   onStarted: () => void;
 }) {
   const toast = useToast();
   const [force, setForce] = useState(false);
+  const { provider, scope } = category;
 
   const preview = useQuery({
-    queryKey: ["sync-preview", scope, force],
-    queryFn: () => api<SyncPreview>(`/api/sync/preview?scope=${scope}&force=${force}`),
+    queryKey: ["sync-preview", provider, scope, force],
+    queryFn: () =>
+      api<SyncPreview>(`/api/sync/preview?provider=${provider}&scope=${scope}&force=${force}`),
   });
 
   const start = useMutation({
     // `limit: null` is explicit rather than omitted: the preview above prices
     // the entire scope, so the run must not be capped behind the user's back.
     mutationFn: () =>
-      api<IngestJobItem>("/api/sync", { method: "POST", body: { scope, force, limit: null } }),
+      api<IngestJobItem>("/api/sync", {
+        method: "POST",
+        body: { provider, scope, force, limit: null },
+      }),
     onSuccess: () => {
       toast("success", "Sync started.");
       onStarted();
@@ -332,11 +428,10 @@ function SyncConfirm({
     },
   });
 
-  const label = CATEGORIES.find((category) => category.scope === scope)?.label ?? scope;
   const data = preview.data;
 
   return (
-    <Modal title={`Cache ${label} funds`} onClose={onClose}>
+    <Modal title={`Cache ${category.label} — ${PROVIDERS[provider].label}`} onClose={onClose}>
       {preview.isPending ? (
         <Spinner />
       ) : preview.isError ? (
@@ -349,7 +444,7 @@ function SyncConfirm({
             <Row label="Funds in this category" value={data.matched.toLocaleString()} />
             <Row label="Already cached and fresh" value={data.fresh.toLocaleString()} />
             <Row label="Will be fetched" value={data.toFetch.toLocaleString()} emphasis />
-            <Row label="API requests" value={data.estimatedRequests.toLocaleString()} />
+            <Row label="Upstream requests" value={data.estimatedRequests.toLocaleString()} />
             <Row
               label="Estimated time"
               value={data.estimatedMinutes < 1 ? "under a minute" : `about ${data.estimatedMinutes} min`}
@@ -476,24 +571,34 @@ function FundHoldings({ result }: { result: FundHoldingsResult }) {
     );
   }
 
+  const full = result.fund.holdingsCompleteness === "full";
+
   return (
     <>
       <div className="mb-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-zinc-500">
         <span>
           Code <code className="text-zinc-700 dark:text-zinc-300">{result.fund.code}</code>
         </span>
+        <span>{PROVIDERS[result.fund.provider]?.label ?? result.fund.provider}</span>
         {result.fund.company && <span>{result.fund.company}</span>}
         <span>Report {result.latestReport ?? "—"}</span>
         <span>Cached {formatRelative(result.fund.holdingsSyncedAt)}</span>
       </div>
 
-      {/* Eastmoney discloses a top-20 portfolio, so the weights never sum to
-          100. Saying so stops the gap reading as missing data. */}
+      {/* What the disclosed weight means depends entirely on the source: ~62%
+          is normal for a top-holdings discloser and alarming for a full one.
+          The sentence follows the fund's own convention rather than assuming. */}
       <p className="mb-3 rounded-lg bg-zinc-50 p-2 text-xs text-zinc-500 dark:bg-zinc-800/50">
         {result.items.length} disclosed position{result.items.length === 1 ? "" : "s"} covering{" "}
         <span className="font-medium tabular-nums">{result.disclosedWeight.toFixed(1)}%</span> of net
-        asset value. Quarterly reports disclose only the largest holdings, so the remainder is not
-        missing — it is undisclosed.
+        asset value. {completenessNote(result.fund.holdingsCompleteness)}
+        {full && result.disclosedWeight < 90 && (
+          <span className="text-amber-600 dark:text-amber-400">
+            {" "}
+            The shortfall here is unexpected for a full-portfolio source — some rows may have failed
+            to parse.
+          </span>
+        )}
       </p>
 
       <div className="overflow-x-auto">
@@ -537,7 +642,7 @@ function JobHistory({ jobs }: { jobs: IngestJobItem[] }) {
           return (
             <li key={job.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
               <div className="min-w-0">
-                <span className="font-medium capitalize">{job.scope}</span>
+                <span className="font-medium">{jobTitle(job)}</span>
                 <span className="ml-2 text-xs text-zinc-400">{formatDate(job.finishedAt ?? job.createdAt)}</span>
                 {job.error && <div className="text-xs text-red-500">{job.error}</div>}
               </div>

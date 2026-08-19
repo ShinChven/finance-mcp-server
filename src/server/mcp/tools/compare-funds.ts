@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { holdingsOverlap } from "../../china/exposure.js";
-import type { FundRepo } from "../../china/repo.js";
+import { holdingsOverlap } from "../../funds/exposure.js";
+import { describeFund, disclosureNote } from "../../funds/present.js";
+import type { FundRepo } from "../../funds/repo.js";
 import { fundCodesSchema, readOnlyToolAnnotations, runTool } from "./runtime.js";
 
 /**
@@ -16,9 +17,9 @@ export function registerCompareFundsTool(server: McpServer, repo: FundRepo): voi
     {
       title: "Compare Funds",
       description:
-        "Compare 2-10 China public funds: fees, size, tracking index, top sector exposure, and pairwise " +
-        "portfolio overlap (the share of net asset value invested in the same positions). Use before " +
-        "holding several funds in one theme.",
+        "Compare 2-10 funds from any cached market: fees, size, tracking index, top sector exposure, and " +
+        "pairwise portfolio overlap (the share of net asset value invested in the same positions). Use " +
+        "before holding several funds in one theme.",
       inputSchema: { codes: fundCodesSchema },
       annotations: readOnlyToolAnnotations,
     },
@@ -58,17 +59,7 @@ export function registerCompareFundsTool(server: McpServer, repo: FundRepo): voi
 
         return {
           funds: entries.map((entry) => ({
-            code: entry.code,
-            name: entry.fund?.name ?? null,
-            type: entry.fund?.fundType ?? null,
-            isQdii: entry.fund?.isQdii ?? null,
-            isIndexFund: entry.fund?.isIndexFund ?? null,
-            trackingIndex: entry.fund?.trackingIndex ?? null,
-            feeRate: entry.fund?.feeRate ?? null,
-            fundSize: entry.fund?.fundSize ?? null,
-            currency: entry.fund?.currency ?? null,
-            listedSymbol: entry.fund?.listedSymbol ?? null,
-            purchaseStatus: entry.fund?.purchaseStatus ?? null,
+            ...(entry.fund === null ? { code: entry.code } : describeFund(entry.fund)),
             reportDate: entry.holdings[0]?.reportDate ?? null,
             topSectors: entry.exposure
               .filter((row) => row.dimension === "sector")
@@ -80,8 +71,10 @@ export function registerCompareFundsTool(server: McpServer, repo: FundRepo): voi
           })),
           overlaps: overlaps.sort((a, b) => b.overlapPercent - a.overlapPercent),
           note:
-            "Overlap is computed from disclosed top holdings only, so it is a lower bound — the true " +
-            "overlap of two index funds tracking the same index approaches 100% even if this reports less.",
+            "Overlap is computed from disclosed holdings only. Where either fund discloses just its top " +
+            "positions it is a lower bound — the true overlap of two index funds tracking the same index " +
+            "approaches 100% even if this reports less. " +
+            disclosureNote(entries.flatMap((entry) => (entry.fund === null ? [] : [entry.fund]))),
         };
       }),
   );

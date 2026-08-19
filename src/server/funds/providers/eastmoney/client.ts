@@ -7,6 +7,7 @@
  * an outage degrades data freshness instead of breaking tool calls.
  */
 
+import type { HoldingEntry, NavPoint } from "../../provider.js";
 import {
   parseFundBasics,
   parseFundCodeList,
@@ -16,9 +17,7 @@ import {
   type FundBasics,
   type FundListEntry,
   type FundProfile,
-  type HoldingEntry,
   type HoldingParseResult,
-  type NavPoint,
 } from "./parse.js";
 
 const REQUEST_TIMEOUT_MS = 20_000;
