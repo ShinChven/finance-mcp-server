@@ -43,6 +43,13 @@
       "when": 1787223163963,
       "tag": "0005_skill_auto_discover",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787231483181,
+      "tag": "0006_drop_chat",
+      "breakpoints": true
     }
   ]
 }

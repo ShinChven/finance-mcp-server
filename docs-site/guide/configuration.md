@@ -42,18 +42,6 @@ produces `redirect_uri_mismatch`.
 Access is invitation-only: an email that is neither in `ADMIN_EMAILS` nor invited
 by an admin cannot sign in, even with a valid Google account.
 
-## Chat assistant
-
-| Variable | Required | Notes |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | no | Enables Claude models in the assistant's model picker |
-| `OPENAI_API_KEY` | no | Enables GPT models |
-| `GEMINI_API_KEY` | no | Enables Gemini models |
-
-Any subset works. The built-in Assistant page is enabled when at least one key is
-set; each key enables that provider's models. These keys are for the dashboard's
-own chat feature — MCP clients bring their own model.
-
 ## Upstream data sources
 
 | Variable | Required | Notes |

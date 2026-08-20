@@ -9,10 +9,6 @@ const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().min(1),
   GOOGLE_CLIENT_SECRET: z.string().min(1),
   ADMIN_EMAILS: z.string().default(""),
-  // Chat assistant LLM providers — each optional; chat is enabled if at least one is set.
-  ANTHROPIC_API_KEY: z.string().optional(),
-  OPENAI_API_KEY: z.string().optional(),
-  GEMINI_API_KEY: z.string().optional(),
   // SEC EDGAR requires a descriptive User-Agent with a contact email on every
   // request, or it starts rejecting them: https://www.sec.gov/os/webmaster-faq#developers
   SEC_EDGAR_CONTACT_EMAIL: z.string().min(1).default("shinchven@gmail.com"),

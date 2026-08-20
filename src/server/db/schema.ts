@@ -181,40 +181,6 @@ export const oauthTokens = pgTable(
 
 export const watchlistItemKind = pgEnum("watchlist_item_kind", WATCHLIST_ITEM_KINDS);
 
-export const chatRole = pgEnum("chat_role", ["user", "assistant"]);
-
-export const chatConversations = pgTable(
-  "chat_conversations",
-  {
-    id: id(),
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    title: text("title").notNull().default("New chat"),
-    provider: text("provider").notNull(),
-    model: text("model").notNull(),
-    createdAt: createdAt(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-  },
-  (t) => [index("chat_conversations_user_idx").on(t.userId, t.updatedAt)],
-);
-
-export const chatMessages = pgTable(
-  "chat_messages",
-  {
-    id: id(),
-    conversationId: text("conversation_id")
-      .notNull()
-      .references(() => chatConversations.id, { onDelete: "cascade" }),
-    role: chatRole("role").notNull(),
-    content: text("content").notNull(),
-    // Model that produced an assistant message (may differ across the conversation).
-    model: text("model"),
-    createdAt: createdAt(),
-  },
-  (t) => [index("chat_messages_conversation_idx").on(t.conversationId, t.createdAt)],
-);
-
 /* ------------------------------------------------------------------ *
  * Watchlists
  *

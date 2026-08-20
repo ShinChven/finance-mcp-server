@@ -18,7 +18,6 @@ const ACTIONS = [
   "token.update",
   "token.revoke",
   "token.delete",
-  "chat.message",
   "oauth.client_register",
   "oauth.client_update",
   "oauth.client_delete",

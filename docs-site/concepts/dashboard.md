@@ -9,24 +9,29 @@ database rows, same vocabulary.
 | `/activity` | Recent activity |
 | `/connector-setup` | Copy-ready setup guides per MCP client, OAuth and token both |
 | `/tools` | Every registered MCP tool with its full input schema, read live from the server |
-| `/funds` | What is cached, per-category sync, per-fund portfolios |
 | `/watchlist` | Saved lists, priced per request |
 | `/notes` | Notes, collections, tag and symbol facets |
 | `/skills` | Saved procedures — and where a draft written over MCP gets published |
-| `/assistant` | Built-in streaming chat, when a provider key is configured |
 | `/tokens` | Personal access tokens |
 | `/clients` | The user's own OAuth grants |
 | `/settings` | Account settings |
 | `/admin/users` · `/admin/clients` · `/admin/audit` | User management, all registered clients, the full audit log |
+| `/admin/funds` | Admin: what is cached, per-category sync, per-fund portfolios |
 
-## Funds
+## Fund Cache (admin)
 
-Shows what is actually cached — fund count, holdings rows, distinct stocks,
+Admin-only, and admin-only on the server too: the cache is shared
+infrastructure — one copy of the holdings serves every user's tools — and
+filling it costs hours of outbound requests against hosts that rate limit.
+Everyone else reads what it produced, through the fund tools over MCP and the
+pages built on them.
+
+The page shows what is actually cached — fund count, holdings rows, distinct stocks,
 latest report date — and lists every fund with its holdings count and cache age,
 filterable by category and by cached / not cached / failing. Clicking a fund
 opens its stored portfolio.
 
-Admins can start a sync per category. Picking one opens a confirmation showing
+A sync is started per category. Picking one opens a confirmation showing
 how many funds it matches, how many are already fresh, how many will actually be
 fetched, the request count and an estimated duration — **nothing is fetched until
 that is confirmed**.

@@ -19,7 +19,8 @@ both, tagged with the market each fund trades in.
 | `fundPerformance` | Cumulative/annualized return, max drawdown and volatility from NAV history |
 
 ::: tip No tool call hits an upstream source
-These tools read local tables only. Populate them from the **Funds** page or the
+These tools read local tables only. An admin populates them from the **Fund
+Cache** page or the
 [ingest CLI](/operations/ingest) — or simply name a fund, which triggers an
 [on-demand fetch](/concepts/on-demand).
 :::

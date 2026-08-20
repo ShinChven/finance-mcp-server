@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { NavLink, Outlet, redirect, useNavigate, useRouteLoaderData } from "react-router";
 import {
   Activity,
-  Bot,
   BookOpen,
   Database,
   History,
@@ -130,9 +129,6 @@ export default function Shell() {
           <NavLink to="/activity" className={navItemClass}>
             <History className="size-4" /> Recent Activity
           </NavLink>
-          <NavLink to="/assistant" className={navItemClass}>
-            <Bot className="size-4" /> Assistant
-          </NavLink>
           <NavLink to="/connector-setup" className={navItemClass}>
             <BookOpen className="size-4" /> Connector Setup
           </NavLink>
@@ -147,9 +143,6 @@ export default function Shell() {
           </NavLink>
           <NavLink to="/skills" className={navItemClass}>
             <Sparkles className="size-4" /> Skills
-          </NavLink>
-          <NavLink to="/funds" className={navItemClass}>
-            <Database className="size-4" /> Funds
           </NavLink>
           <NavLink to="/tokens" className={navItemClass}>
             <KeyRound className="size-4" /> Access Tokens
@@ -171,6 +164,9 @@ export default function Shell() {
               </NavLink>
               <NavLink to="/admin/audit" className={navItemClass}>
                 <ScrollText className="size-4" /> Audit Log
+              </NavLink>
+              <NavLink to="/admin/funds" className={navItemClass}>
+                <Database className="size-4" /> Fund Cache
               </NavLink>
             </>
           )}

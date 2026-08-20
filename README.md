@@ -42,12 +42,7 @@ push to `main`.
   Claude, Claude Code, Codex, Cursor, VS Code, Antigravity 2, Gemini Spark and generic MCP clients,
   with both OAuth and personal-token instructions.
 - **Admin** — user management (invite/enable/disable/role), all registered OAuth
-  clients, full audit log.
-- **Built-in chat assistant** — streaming chat with the latest Anthropic
-  (Claude Opus 4.8 / Sonnet 5 / Haiku 4.5), OpenAI (GPT-5.6 family), and Google
-  Gemini (3.1 Pro / 3.5 Flash / 3.5 Flash-Lite / 3.6 Flash) models. API keys come from the environment
-  (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` — any subset);
-  conversations are persisted per user with a model picker per conversation.
+  clients, full audit log, and the fund cache console.
 - **URL-driven UI** — search, filters, pagination, sorting and tabs all live in
   URL search params, so every view is shareable and back/forward-safe.
 
@@ -308,8 +303,8 @@ listed, edited, filed and deleted on `/notes`.
 #### Fetching a fund on demand
 
 Naming a fund is request enough for its data. Opening an uncached fund in the
-dashboard, or calling `fundExposure`, `fundPerformance` or `similarFunds` on
-one, fetches it there and then — three requests, a couple of seconds — instead
+fund cache console, or calling `fundExposure`, `fundPerformance` or
+`similarFunds` on one, fetches it there and then — three requests, a couple of seconds — instead
 of returning an empty result and telling you to go run a batch job.
 
 Four things keep that safe on a request path:
@@ -333,8 +328,8 @@ says so.
 ### Fund data ingest
 
 The relationship tools read local tables only — no tool call ever hits an
-upstream data source. Populate them from the **Funds** page in the dashboard, or
-from the CLI:
+upstream data source. An admin populates them from the **Fund Cache** page in the
+dashboard, or from the CLI:
 
 ```sh
 npm run build
@@ -424,14 +419,19 @@ which is the same split the MCP tools use. A note written by an assistant is
 marked as such, and deleting a collection keeps its notes: they fall back to
 unfiled rather than disappearing with the folder.
 
-### Funds dashboard page
+### Fund cache page (admin)
 
-`/funds` shows what is actually cached — fund count, holdings rows, distinct
+`/admin/funds` shows what is actually cached — fund count, holdings rows, distinct
 stocks, latest report date — and lists every fund with its holdings count and
 cache age, filterable by category and by cached / not cached / failing. Clicking
 a fund opens its stored portfolio.
 
-Admins can start a sync per category. Picking one opens a confirmation showing
+The page is admin-only, and so is its API: the cache is shared infrastructure —
+one copy of the holdings serves every user's tools — and filling it costs hours
+of outbound requests against hosts that rate limit. Everyone else reads what it
+produced, through the fund tools over MCP and the pages built on them.
+
+A sync is started per category. Picking one opens a confirmation showing
 how many funds it matches, how many are already fresh, how many will actually be
 fetched, the request count and an estimated duration — nothing is fetched until
 that is confirmed. A run is tracked in `ingest_jobs` with live progress and can
