@@ -5,6 +5,8 @@ import {
   CheckCircle2,
   Code2,
   ExternalLink,
+  FileCode2,
+  FolderTree,
   KeyRound,
   Laptop,
   Orbit,
@@ -15,7 +17,14 @@ import {
 } from "lucide-react";
 import { Card, CodeCopyBlock, CopyField, PageHeader } from "../components/ui.js";
 
-export type ClientId = "claude" | "claude-code" | "codex" | "cursor" | "antigravity" | "generic";
+export type ClientId =
+  | "claude"
+  | "claude-code"
+  | "codex"
+  | "cursor"
+  | "vscode"
+  | "antigravity"
+  | "generic";
 
 interface ClientOption {
   id: ClientId;
@@ -29,6 +38,7 @@ const CLIENTS: ClientOption[] = [
   { id: "claude-code", label: "Claude Code", description: "CLI and IDE", icon: TerminalSquare },
   { id: "codex", label: "Codex", description: "App, CLI and IDE", icon: Code2 },
   { id: "cursor", label: "Cursor", description: "Editor and Agent CLI", icon: Laptop },
+  { id: "vscode", label: "VS Code", description: "Copilot agent mode", icon: FileCode2 },
   { id: "antigravity", label: "Antigravity 2", description: "App, IDE and CLI", icon: Orbit },
   { id: "generic", label: "Common MCP", description: "Any HTTP client", icon: Wrench },
 ];
@@ -41,6 +51,7 @@ const DOCS: Record<ClientId, string> = {
   "claude-code": "https://code.claude.com/docs/en/mcp",
   codex: "https://developers.openai.com/codex/mcp/",
   cursor: "https://cursor.com/docs/mcp",
+  vscode: "https://code.visualstudio.com/docs/agent-customization/mcp-servers",
   antigravity: "https://antigravity.google/docs/mcp",
   generic: "https://modelcontextprotocol.io/docs/develop/connect-remote-servers",
 };
@@ -180,6 +191,8 @@ claude mcp add-json --scope user mcp-server '${JSON.stringify({
     url: mcpUrl,
     headers: { Authorization: "Bearer ${MCP_SERVER_TOKEN}" },
   })}'`;
+  const projectCommand = `claude mcp add --transport http --scope project mcp-server ${mcpUrl}`;
+  const projectJson = JSON.stringify({ mcpServers: { "mcp-server": { type: "http", url: mcpUrl } } }, null, 2);
 
   return (
     <>
@@ -219,9 +232,24 @@ claude mcp add-json --scope user mcp-server '${JSON.stringify({
           {!token && <> If it shows “Needs authentication,” run <code>claude mcp login mcp-server</code> again.</>}
         </p>
       </Step>
-      <Notice>
-        Use <code>--scope project</code> instead of <code>--scope user</code> when you want Claude Code to write a shareable <code>.mcp.json</code> for one repository.
-      </Notice>
+      <Step number={token ? 3 : 4} title="Or share it with one repository">
+        <p>
+          Use <code>--scope project</code> instead of <code>--scope user</code> and Claude Code writes{" "}
+          <code>.mcp.json</code> at your repository root. Commit that file and every teammate gets the server.
+        </p>
+        <CodeCopyBlock label="Project scope · shell" value={projectCommand} />
+        <p>
+          The command creates the file below, which you can also write by hand. The leading dot and the repository
+          root are both required — a plain <code>mcp.json</code> in the project folder is ignored.
+        </p>
+        <CodeCopyBlock label=".mcp.json · repository root" value={projectJson} />
+        <p>
+          Claude Code asks each user to approve servers from <code>.mcp.json</code> before connecting, so the file is
+          safe to commit. Run <code>claude</code> in the repository and accept, or reset earlier answers with{" "}
+          <code>claude mcp reset-project-choices</code>. Never commit a token in this file — use OAuth, or reference{" "}
+          <code>{"${MCP_SERVER_TOKEN}"}</code> in a <code>headers</code> entry so each machine supplies its own.
+        </p>
+      </Step>
     </>
   );
 }
@@ -337,6 +365,94 @@ function CursorGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
           </p>
         )}
       </Step>
+    </>
+  );
+}
+
+function VsCodeGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
+  const oauthJson = JSON.stringify({ servers: { "mcp-server": { type: "http", url: mcpUrl } } }, null, 2);
+  const tokenJson = JSON.stringify(
+    token
+      ? {
+          servers: {
+            "mcp-server": { type: "http", url: mcpUrl, headers: { Authorization: `Bearer ${token}` } },
+          },
+        }
+      : {
+          servers: {
+            "mcp-server": {
+              type: "http",
+              url: mcpUrl,
+              headers: { Authorization: "Bearer ${input:mcp-server-token}" },
+            },
+          },
+          inputs: [
+            {
+              id: "mcp-server-token",
+              type: "promptString",
+              description: "MCP Server personal access token",
+              password: true,
+            },
+          ],
+        },
+    null,
+    2,
+  );
+
+  return (
+    <>
+      <GuideHeader
+        client="vscode"
+        title="Visual Studio Code"
+        description="Copilot agent mode reads MCP servers from a workspace file you can commit, or from your user profile. VS Code names the map servers, not mcpServers."
+      />
+      {!token && <AuthSummary />}
+      <Notice kind="warning">
+        VS Code uses <code>servers</code> as the root key. A snippet copied from another client's{" "}
+        <code>mcpServers</code> map will not load here.
+      </Notice>
+      <Step number={1} title="Choose a configuration scope">
+        <p>
+          Create <code>.vscode/mcp.json</code> in the repository to share the server with your team, or run{" "}
+          <strong>MCP: Open User Configuration</strong> from the Command Palette for a profile-wide file that follows
+          you across workspaces.
+        </p>
+      </Step>
+      {!token && (
+        <Step number={2} title="Add the OAuth configuration">
+          <p>
+            Paste this JSON into the file you chose. With no Authorization header, VS Code discovers this server's
+            OAuth endpoints and opens browser sign-in the first time it starts the server.
+          </p>
+          <CodeCopyBlock label="mcp.json · OAuth" value={oauthJson} />
+        </Step>
+      )}
+      <Step number={token ? 2 : 3} title={token ? "Add your access token" : "Or use a personal token"}>
+        {token ? (
+          <p>
+            Your new token is filled in below. Put this version in the user configuration rather than{" "}
+            <code>.vscode/mcp.json</code>, or replace it with the prompted <code>inputs</code> form before committing.
+          </p>
+        ) : (
+          <p>
+            The <code>inputs</code> block makes VS Code prompt for the token once and store it in secret storage, so a
+            committed <code>.vscode/mcp.json</code> never contains the secret.
+          </p>
+        )}
+        <CodeCopyBlock label="mcp.json · Bearer token" value={tokenJson} />
+      </Step>
+      <Step number={token ? 3 : 4} title="Start and verify">
+        <p>
+          Select <strong>Start</strong> on the server entry in <code>mcp.json</code>, or run{" "}
+          <strong>MCP: List Servers</strong> from the Command Palette and start it there. Then open Chat, switch to{" "}
+          <strong>Agent</strong> mode, and enable this server's tools in the <strong>Tools</strong> picker.
+        </p>
+      </Step>
+      <Notice>
+        Server configurations support variables such as <code>{"${workspaceFolder}"}</code> and{" "}
+        <code>{"${input:id}"}</code>. If a server fails to start, use <strong>MCP: List Servers → Show Output</strong>{" "}
+        to read its log.
+      </Notice>
     </>
   );
 }
@@ -474,6 +590,7 @@ function GenericGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
               <tr><td className="px-3 py-2">Claude Code</td><td className="px-3 py-2"><code>url</code></td><td className="px-3 py-2"><code>type: http</code></td></tr>
               <tr><td className="px-3 py-2">Codex</td><td className="px-3 py-2"><code>url</code></td><td className="px-3 py-2">Inferred</td></tr>
               <tr><td className="px-3 py-2">Cursor</td><td className="px-3 py-2"><code>url</code></td><td className="px-3 py-2">Inferred</td></tr>
+              <tr><td className="px-3 py-2">VS Code</td><td className="px-3 py-2"><code>url</code> under <code>servers</code></td><td className="px-3 py-2"><code>type: http</code></td></tr>
               <tr><td className="px-3 py-2">Antigravity 2</td><td className="px-3 py-2"><code>serverUrl</code></td><td className="px-3 py-2">Inferred</td></tr>
             </tbody>
           </table>
@@ -483,6 +600,74 @@ function GenericGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
         Cloud-hosted clients require a publicly reachable HTTPS endpoint. Local desktop and CLI clients can use <code>http://localhost</code> while this app is running locally.
       </Notice>
     </>
+  );
+}
+
+interface ProjectScopeRow {
+  client: string;
+  path: string;
+  note: string;
+}
+
+const PROJECT_SCOPES: ProjectScopeRow[] = [
+  { client: "Claude Code", path: ".mcp.json", note: "Repository root. Each user approves the server once." },
+  { client: "Cursor", path: ".cursor/mcp.json", note: "Overrides the same server name in ~/.cursor/mcp.json." },
+  { client: "VS Code", path: ".vscode/mcp.json", note: "Root key is servers, not mcpServers." },
+  { client: "Codex", path: ".codex/config.toml", note: "TOML, and only for projects you have trusted." },
+  { client: "Antigravity 2", path: ".agents/mcp_config.json", note: "Workspace file alongside the global one." },
+  { client: "Claude Web, Desktop, Cowork", path: "—", note: "Connectors are per account; no project file." },
+  { client: "Windsurf, Cline", path: "—", note: "Global configuration only." },
+];
+
+function ProjectScopeReference() {
+  return (
+    <Card className="mt-5 p-5">
+      <div className="flex items-start gap-2.5">
+        <FolderTree className="mt-0.5 size-4 shrink-0 text-indigo-500" />
+        <div>
+          <h2 className="text-sm font-semibold">Per-project configuration</h2>
+          <p className="mt-1 text-sm leading-6 text-zinc-500 dark:text-zinc-400">
+            Most clients can load this server from a file inside a repository instead of your home directory, so a
+            checkout carries its own tools. There is no shared format: each client reads one exact filename in one
+            exact folder.
+          </p>
+        </div>
+      </div>
+      <div className="mt-4">
+        <Notice kind="warning">
+          A file named <code>mcp.json</code> at the root of your project is not read by any client. Claude Code wants
+          the leading dot in <code>.mcp.json</code>; Cursor and VS Code want their own dot-folders.
+        </Notice>
+      </div>
+      <div className="mt-4 overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
+        <table className="w-full text-left text-xs">
+          <thead className="bg-zinc-50 text-zinc-500 dark:bg-zinc-800/60 dark:text-zinc-400">
+            <tr>
+              <th className="px-3 py-2 font-medium">Client</th>
+              <th className="px-3 py-2 font-medium">File in your project folder</th>
+              <th className="px-3 py-2 font-medium">Notes</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+            {PROJECT_SCOPES.map((row) => (
+              <tr key={row.client}>
+                <td className="px-3 py-2 whitespace-nowrap">{row.client}</td>
+                <td className="px-3 py-2 whitespace-nowrap">
+                  {row.path === "—" ? <span className="text-zinc-400">—</span> : <code>{row.path}</code>}
+                </td>
+                <td className="px-3 py-2 text-zinc-500 dark:text-zinc-400">{row.note}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-3 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
+        Claude Code and Cursor share the same <code>mcpServers</code> shape, so a single <code>.mcp.json</code> can be
+        symlinked to <code>.cursor/mcp.json</code>. VS Code and Codex cannot join that link — different key and
+        different file format. Commit project files only when they authenticate with OAuth or read the token from an
+        environment variable or prompt; a raw Bearer token belongs in your own machine's configuration.
+      </p>
+    </Card>
   );
 }
 
@@ -597,9 +782,12 @@ export function IntegrationGuides({
         {selectedClient === "claude-code" && <ClaudeCodeGuide mcpUrl={mcpUrl} token={token} />}
         {selectedClient === "codex" && <CodexGuide mcpUrl={mcpUrl} token={token} />}
         {selectedClient === "cursor" && <CursorGuide mcpUrl={mcpUrl} token={token} />}
+        {selectedClient === "vscode" && <VsCodeGuide mcpUrl={mcpUrl} token={token} />}
         {selectedClient === "antigravity" && <AntigravityGuide mcpUrl={mcpUrl} token={token} />}
         {selectedClient === "generic" && <GenericGuide mcpUrl={mcpUrl} token={token} />}
       </Card>
+
+      <ProjectScopeReference />
 
       <Troubleshooting tokenOnly={tokenOnly} />
     </>
