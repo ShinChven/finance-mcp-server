@@ -267,9 +267,9 @@ claude mcp add-json --scope user mcp-server '${JSON.stringify({
 }
 
 function CodexGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
-  const oauthCommands = `codex mcp add mcp-server --url ${mcpUrl}
-codex mcp login mcp-server
-codex mcp list`;
+  const oauthAddAndLogin = `codex mcp add mcp-server --url ${mcpUrl}
+codex mcp login mcp-server`;
+  const oauthList = "codex mcp list";
   const tokenCommands = `export MCP_SERVER_TOKEN="${token ?? "mcp_…"}"
 codex mcp add mcp-server --url ${mcpUrl} \\
   --bearer-token-env-var MCP_SERVER_TOKEN`;
@@ -286,9 +286,12 @@ bearer_token_env_var = "MCP_SERVER_TOKEN"`;
       />
       {!token && <AuthSummary />}
       {!token && (
-        <Step number={1} title="Add with OAuth">
-          <p>Add the remote server, start its browser login, and verify the saved configuration.</p>
-          <CodeCopyBlock label="OAuth · shell" value={oauthCommands} />
+        <Step number={1} title="Add and authenticate with OAuth">
+          <p>Add the remote server and authenticate in your browser:</p>
+          <div className="space-y-3">
+            <CodeCopyBlock label="CLI · Add & sign in" value={oauthAddAndLogin} />
+            <CodeCopyBlock label="CLI · List configured servers" value={oauthList} />
+          </div>
         </Step>
       )}
       <Step number={token ? 1 : 2} title={token ? "Add with your access token" : "Or add a personal token"}>
