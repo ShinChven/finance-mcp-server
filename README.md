@@ -455,6 +455,17 @@ are marked failed at boot rather than appearing stuck forever.
 > each provider's `parse.ts` as pure functions with fixture-based tests, so a
 > format change is a fixture-plus-parser fix that touches nothing else.
 
+**iShares holdings come from the product page's own API.** The screener
+(`product-screener-v3.1.jsn`) is unchanged and still lists the whole US lineup
+in one request, but the per-fund holdings CSV at
+`…/<product page>/1467271812596.ajax?fileType=csv` is retired: it now answers
+with the product page's HTML — labelled `text/csv`, so the content type does not
+give it away — or a 404, or a redirect to the closed-funds page. Holdings are
+read from `get-product-data` (`component=holdings.all`, keyed by portfolio id)
+instead, which is what the product page itself calls. Both planes are keyless;
+the only requirement is a browser-like `User-Agent`, without which iShares
+serves an interstitial page rather than data.
+
 **When a source fails, it says so rather than reading as empty.** The parsers
 answer an unreadable payload with an empty list — right for a pure function, and
 dangerous one layer up, where "no funds" is a statement no real provider makes.

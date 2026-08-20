@@ -13,15 +13,30 @@ import { IsharesClient } from "./client.js";
  * happen here, while the response is still in hand.
  */
 
-const HOLDINGS = `iShares Core S&P 500 ETF
-Fund Holdings as of,"Aug 15, 2026"
-
-Ticker,Name,Asset Class,Weight (%),Exchange
-NVDA,NVIDIA CORP,Equity,7.45,NASDAQ
-`;
+/** A `holdings.all` payload, columnar the way the live one is. */
+const HOLDINGS = JSON.stringify({
+  fundName: "iShares Core S&P 500 ETF",
+  componentsByNameMap: {
+    holdings: {
+      containersByNameMap: {
+        all: {
+          dataPointsByNameMap: {
+            issueName: { value: ["NVIDIA CORP"] },
+            ticker: { value: ["NVDA"] },
+            assetClass: { value: ["Equity"] },
+            exchange: { value: ["NASDAQ"] },
+            isin: { value: ["US67066G1040"] },
+            holdingPercent: { value: [7.45] },
+            asOfDate: { value: 20260815 },
+          },
+        },
+      },
+    },
+  },
+});
 
 function client(body: string, init: ResponseInit = {}) {
-  const fetchImpl = vi.fn(async () => new Response(body, { status: 200, ...init }));
+  const fetchImpl = vi.fn(async (_url: string) => new Response(body, { status: 200, ...init }));
   return {
     fetchImpl,
     instance: new IsharesClient({
@@ -31,7 +46,7 @@ function client(body: string, init: ResponseInit = {}) {
   };
 }
 
-const product = { productPageUrl: "/us/products/239726/ivv", ticker: "IVV" };
+const product = { productId: "239726", ticker: "IVV" };
 
 describe("IsharesClient", () => {
   it("rejects a challenge page instead of reading no funds from it", async () => {
@@ -72,22 +87,43 @@ describe("IsharesClient", () => {
     await expect(instance.fetchProducts()).rejects.toThrow(/failed \(403\)/);
   });
 
-  it("reads a holdings file, byte-order mark and all", async () => {
-    const { instance } = client(`﻿${HOLDINGS}`);
+  it("reads a holdings payload, byte-order mark and all", async () => {
+    const { instance, fetchImpl } = client(`﻿${HOLDINGS}`);
 
     const result = await instance.fetchHoldings(product, "2026-01-01");
 
     expect(result.asOf).toBe("2026-08-15");
     expect(result.entries).toHaveLength(1);
+    // Keyed by portfolio id, not by the product page's URL — the retired CSV
+    // download was addressed by page path and broke when a page was renamed.
+    const url = fetchImpl.mock.calls[0]?.[0] ?? "";
+    expect(url).toContain("get-product-data");
+    expect(url).toContain("portfolioId=239726");
+    expect(url).toContain("component=holdings.all");
   });
 
-  it("rejects a holdings download that carries no positions table", async () => {
-    // An error page or a redirect body parses to zero positions, which the
-    // ingest would store as "this fund holds nothing" and mark synced.
-    const { instance } = client("Sorry, this file is temporarily unavailable.");
+  it("rejects the retired CSV endpoint's HTML, which arrives labelled text/csv", async () => {
+    // The exact failure that made this provider cache nothing: a 200 whose body
+    // is the product page. A CSV parser reads no rows from it and reports an
+    // empty portfolio, which the ingest then stores and marks synced.
+    const { instance } = client("<!DOCTYPE html><html><body>Product page</body></html>");
 
     await expect(instance.fetchHoldings(product, "2026-01-01")).rejects.toThrow(
-      /no positions table/,
+      /HTML page rather than data/,
     );
+  });
+
+  it("rejects a body that is not the holdings component", async () => {
+    const { instance } = client(JSON.stringify({ componentsByNameMap: {} }));
+
+    await expect(instance.fetchHoldings(product, "2026-01-01")).rejects.toThrow(
+      /no holdings component/,
+    );
+  });
+
+  it("rejects a non-JSON body that is not HTML either", async () => {
+    const { instance } = client("Sorry, temporarily unavailable.");
+
+    await expect(instance.fetchHoldings(product, "2026-01-01")).rejects.toThrow(/was not JSON/);
   });
 });

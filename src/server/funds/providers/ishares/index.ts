@@ -1,14 +1,19 @@
 /**
- * The US ETF provider, backed by iShares' public product screener and daily
- * holdings files.
+ * The US ETF provider, backed by iShares' public product screener and the
+ * per-fund product-data API.
  *
- * Two things about this source shape the implementation:
+ * Three things about this source shape the implementation:
  *
  * - **There is no per-fund profile endpoint.** The screener row *is* the
  *   profile, and it arrives for the whole lineup in one request, so the
- *   provider memoizes it and serves `fetchDetails` and `fetchHoldings` from
+ *   provider memoizes it and serves `fetchDetails` and the holdings lookup from
  *   that instead of issuing a request per fund. This is why `listUniverse` is
  *   not a prerequisite for the other calls — any of them will warm the memo.
+ * - **Holdings come from the product page's own API,** keyed by portfolio id.
+ *   The `…/1467271812596.ajax?fileType=csv` download this provider was written
+ *   against is retired, and answers with the product page's HTML under a
+ *   `text/csv` content type — which is why the provider used to report every US
+ *   ETF as holding nothing.
  * - **There is no NAV file worth scraping.** Daily closes come from the Yahoo
  *   client the server already keeps, which is both cheaper and better data than
  *   the published NAV history: adjusted closes carry distributions, so a

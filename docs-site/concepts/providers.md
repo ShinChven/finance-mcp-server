@@ -48,11 +48,28 @@ by construction beat it.
 Nothing in the pipeline, the tables or the tools changes.
 
 ::: warning Upstream formats are undocumented
-The Eastmoney and iShares endpoints are undocumented, and their response shapes
-were implemented from their known structure rather than verified against live
-responses. All shape knowledge is isolated in each provider's `parse.ts`, so a
-format change is a fixture-plus-parser fix that touches nothing else.
+The Eastmoney and iShares endpoints are undocumented and change without notice.
+All shape knowledge is isolated in each provider's `parse.ts`, so a format
+change is a fixture-plus-parser fix that touches nothing else — and each fetch
+layer raises what its parser cannot read, so a retired endpoint surfaces as an
+error rather than as a source that appears to publish nothing.
 :::
+
+### The iShares planes
+
+Two keyless JSON endpoints, both needing only a browser-like `User-Agent` (the
+default one gets an HTML interstitial):
+
+| Plane | Use |
+|---|---|
+| `product-screener-v3.1.jsn` | The whole US lineup in one request — the universe index and every fund's profile |
+| `get-product-data?component=holdings.all` | One fund's complete published portfolio, keyed by portfolio id |
+
+The per-fund holdings CSV at `…/1467271812596.ajax?fileType=csv` — which this
+provider originally used — is retired. It answers with the product page's HTML
+under a `text/csv` content type, or a 404, or a redirect to the closed-funds
+page, depending on the fund. Read as CSV that is simply a file with no rows in
+it, which is how the provider came to report every US ETF as holding nothing.
 
 ## Running an ingest
 

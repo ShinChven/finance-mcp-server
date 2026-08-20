@@ -1,15 +1,20 @@
 /**
- * Thin fetch layer over iShares' public product screener and holdings files.
+ * Thin fetch layer over iShares' two public JSON planes.
  *
  * All shape knowledge lives in `parse.ts`; this module only does HTTP, headers
  * and timeouts. As with Eastmoney these are undocumented public endpoints, so
  * they are polled by the ingest job rather than from a tool request path: a
  * format change or an outage degrades data freshness instead of breaking tool
  * calls.
+ *
+ * Both planes are keyless — no login, no cookie, no crumb. The one thing they
+ * do require is a browser-like User-Agent: the default one gets an HTML
+ * interstitial instead of data, which is why the header below is not decorative
+ * and why a body that turns out to be HTML is raised rather than parsed.
  */
 
 import {
-  parseHoldingsCsv,
+  parseHoldingsPayload,
   parseProductScreener,
   type IsharesHoldingsResult,
   type IsharesProduct,
@@ -24,7 +29,7 @@ const ORIGIN = "https://www.ishares.com";
 
 export interface IsharesEndpoints {
   productScreener: string;
-  holdings: (productPageUrl: string, ticker: string) => string;
+  holdings: (portfolioId: string) => string;
 }
 
 export const defaultEndpoints: IsharesEndpoints = {
@@ -32,11 +37,24 @@ export const defaultEndpoints: IsharesEndpoints = {
     `${ORIGIN}/us/product-screener/product-screener-v3.1.jsn` +
     "?dcrPath=/templatedata/config/product-screener-v3/data/en/us-ishares/ishares-product-screener-backend-config" +
     "&siteEntryPassthrough=true",
-  // The numeric segment is iShares' fixed component id for the holdings
-  // download, not a per-product value.
-  holdings: (productPageUrl, ticker) =>
-    `${ORIGIN}${productPageUrl}/1467271812596.ajax` +
-    `?fileType=csv&fileName=${encodeURIComponent(ticker)}_holdings&dataType=fund`,
+  /**
+   * The request the product page itself makes for its holdings table.
+   *
+   * Not the `<product page>/1467271812596.ajax?fileType=csv` download this
+   * provider used to fetch. That one is retired: depending on the fund it now
+   * answers with the product page's HTML — still labelled `text/csv` — or a 404,
+   * or a redirect to the closed-funds page. None of that looks like an error to
+   * a CSV parser, which is why the provider silently cached nothing.
+   *
+   * Keyed by portfolio id rather than by the product page's URL, so it does not
+   * break when a fund's page is renamed. `excludeContent` drops the narrative
+   * blocks, which are most of the response and none of the data.
+   */
+  holdings: (portfolioId) =>
+    `${ORIGIN}/varnish-api/blk-one01-product-data/product-data/api/v2/get-product-data` +
+    "?appSubType=ISHARES&appType=PRODUCT_PAGE&component=holdings.all&locale=en_US" +
+    `&portfolioId=${encodeURIComponent(portfolioId)}` +
+    "&targetSite=us-ishares&userType=individual&excludeContent=true",
 };
 
 export type Fetcher = typeof globalThis.fetch;
@@ -133,29 +151,30 @@ export class IsharesClient {
   /**
    * The fund's complete published portfolio.
    *
-   * `fallbackDate` is used only when the file's preamble carries no "as of"
-   * line; it is the caller's today, so a report date is never invented from a
-   * different day than the fetch.
+   * `fallbackDate` is used only when the payload carries no `asOfDate`; it is
+   * the caller's today, so a report date is never invented from a different day
+   * than the fetch.
    */
   async fetchHoldings(
-    product: Pick<IsharesProduct, "productPageUrl" | "ticker">,
+    product: Pick<IsharesProduct, "productId" | "ticker">,
     fallbackDate: string,
   ): Promise<IsharesHoldingsResult> {
-    if (product.productPageUrl === null) {
-      throw new Error(`no product page known for ${product.ticker}`);
+    const body = await this.get(this.endpoints.holdings(product.productId), "application/json, */*");
+    let payload: unknown;
+    try {
+      payload = JSON.parse(body);
+    } catch {
+      throw new Error(
+        `iShares holdings response for ${product.ticker} was not JSON (${describeBody(body)}).`,
+      );
     }
-    const body = await this.get(
-      this.endpoints.holdings(product.productPageUrl, product.ticker),
-      "text/csv, */*",
-    );
-    const result = parseHoldingsCsv(body, fallbackDate);
-    if (result.headerFound) return result;
-    // No header row means the download was not a holdings file at all — an
-    // error page, a redirect, an empty body. Distinguished from a file whose
-    // rows were all skipped, which is a real (if odd) answer and is left to the
-    // drop counters.
+    const result = parseHoldingsPayload(payload, fallbackDate);
+    if (result.holdingsFound) return result;
+    // An empty `componentsByNameMap` is what an unknown component returns, so
+    // this is the shape having moved rather than the fund holding nothing — a
+    // fund with an empty book still answers with columns.
     throw new Error(
-      `iShares holdings file for ${product.ticker} carried no positions table (${describeBody(body)}).`,
+      `iShares returned no holdings component for ${product.ticker} (${describeBody(body)}).`,
     );
   }
 }
