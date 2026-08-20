@@ -55,3 +55,4 @@ Requirements:
 - TypeScript strict mode; `npm run typecheck && npm run test` must pass before
   every commit.
 - Drizzle migrations via `drizzle-kit`; never edit applied migration files.
+- Never push directly to `main`. Always create a new branch and submit a pull request (PR) for any changes.
