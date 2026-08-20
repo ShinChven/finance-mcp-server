@@ -11,6 +11,7 @@ import {
   Laptop,
   Orbit,
   ShieldCheck,
+  Sparkles,
   TerminalSquare,
   Wrench,
   type LucideIcon,
@@ -24,6 +25,7 @@ export type ClientId =
   | "cursor"
   | "vscode"
   | "antigravity"
+  | "gemini"
   | "generic";
 
 interface ClientOption {
@@ -39,12 +41,13 @@ const CLIENTS: ClientOption[] = [
   { id: "codex", label: "Codex", description: "App, CLI and IDE", icon: Code2 },
   { id: "cursor", label: "Cursor", description: "Editor and Agent CLI", icon: Laptop },
   { id: "vscode", label: "VS Code", description: "Copilot agent mode", icon: FileCode2 },
-  { id: "antigravity", label: "Antigravity 2", description: "App, IDE, CLI & Gemini Spark", icon: Orbit },
+  { id: "antigravity", label: "Antigravity 2", description: "App, IDE and CLI", icon: Orbit },
+  { id: "gemini", label: "Gemini Spark", description: "Web & Cloud Agents", icon: Sparkles },
   { id: "generic", label: "Common MCP", description: "Any HTTP client", icon: Wrench },
 ];
 
 const CLIENT_IDS = new Set<ClientId>(CLIENTS.map((client) => client.id));
-const TOKEN_CLIENTS = CLIENTS.filter((client) => client.id !== "claude");
+const TOKEN_CLIENTS = CLIENTS.filter((client) => client.id !== "claude" && client.id !== "gemini");
 
 const DOCS: Record<ClientId, string> = {
   claude: "https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp",
@@ -53,6 +56,7 @@ const DOCS: Record<ClientId, string> = {
   cursor: "https://cursor.com/docs/mcp",
   vscode: "https://code.visualstudio.com/docs/agent-customization/mcp-servers",
   antigravity: "https://antigravity.google/docs/mcp",
+  gemini: "https://support.google.com/gemini/answer/16289947",
   generic: "https://modelcontextprotocol.io/docs/develop/connect-remote-servers",
 };
 
@@ -487,10 +491,13 @@ function AntigravityGuide({ mcpUrl, token }: { mcpUrl: string; token?: string })
     <>
       <GuideHeader
         client="antigravity"
-        title="Google Antigravity 2 & Gemini Spark"
-        description="Connect Antigravity 2.0 desktop app, Antigravity IDE, Gemini Spark, and Antigravity CLI (agy) using the remote MCP schema."
+        title="Google Antigravity 2"
+        description="Antigravity 2.0, Antigravity IDE and Antigravity CLI (agy) share the same remote MCP schema. Remote servers must use the serverUrl field."
       />
       {!token && <AuthSummary />}
+      <Notice kind="warning" className="mb-5">
+        Each snippet below is a complete <code>mcp_config.json</code>. If that file already configures other MCP servers, merge the <code>"mcp-server"</code> entry into your existing <code>mcpServers</code> object — don't paste over the whole file.
+      </Notice>
 
       <Step number={1} title="Antigravity 2.0 & IDE (UI Setup)">
         <p>Configure the server directly in the Antigravity user interface:</p>
@@ -515,25 +522,7 @@ function AntigravityGuide({ mcpUrl, token }: { mcpUrl: string; token?: string })
         </p>
       </Step>
 
-      <Step number={2} title="Gemini Spark (Web UI Setup)">
-        <p>In Gemini Spark, connect custom MCP servers through the web settings interface:</p>
-        <ol className="list-decimal space-y-1.5 pl-5 text-sm">
-          <li>
-            Go to <strong>gemini.google.com</strong> and open <strong>Settings & help</strong> (or profile menu) → <strong>Connected Apps</strong>.
-          </li>
-          <li>
-            Under <strong>Custom apps for Spark</strong>, click <strong>Add MCP server</strong>.
-          </li>
-          <li>
-            Paste the endpoint URL and complete authorization:
-          </li>
-        </ol>
-        <div className="mt-2">
-          <CopyField value={mcpUrl} />
-        </div>
-      </Step>
-
-      <Step number={3} title="Antigravity CLI (agy commands)">
+      <Step number={2} title="Antigravity CLI (agy commands)">
         <p>
           Configure and inspect the server using native <code>agy mcp</code> commands:
         </p>
@@ -546,10 +535,9 @@ function AntigravityGuide({ mcpUrl, token }: { mcpUrl: string; token?: string })
         </p>
       </Step>
 
-      <Step number={4} title="Manual configuration reference (optional)">
+      <Step number={3} title="Manual configuration reference (optional)">
         <p>
-          If you prefer inspecting or editing <code>~/.gemini/config/mcp_config.json</code> (global) or{" "}
-          <code>.agents/mcp_config.json</code> (workspace) directly, merge this object under <code>mcpServers</code>:
+          The global file is <code>~/.gemini/config/mcp_config.json</code>; the workspace file is <code>.agents/mcp_config.json</code>. Merge this object under <code>mcpServers</code>:
         </p>
         <CodeCopyBlock
           label={token ? "mcp_config.json · Bearer token" : "mcp_config.json · OAuth"}
@@ -558,7 +546,46 @@ function AntigravityGuide({ mcpUrl, token }: { mcpUrl: string; token?: string })
       </Step>
 
       <Notice className="mt-4">
-        Antigravity and Gemini Spark use <code>serverUrl</code>. The legacy keys <code>url</code> and <code>httpUrl</code> are not valid for remote MCP configurations.
+        Antigravity uses <code>serverUrl</code>. The legacy keys <code>url</code> and <code>httpUrl</code> are not valid for remote MCP configurations.
+      </Notice>
+    </>
+  );
+}
+
+function GeminiGuide({ mcpUrl, isLocal }: { mcpUrl: string; isLocal: boolean }) {
+  return (
+    <>
+      <GuideHeader
+        client="gemini"
+        title="Google Gemini & Gemini Spark"
+        description="Connect this MCP server to Gemini Spark via Connected Apps in the Gemini web interface."
+      />
+      {isLocal && (
+        <Notice kind="warning" className="mb-5">
+          Gemini Spark runs from Google Cloud and cannot connect to <code>localhost</code>. Deploy this app at a public HTTPS URL first, or use Antigravity 2 / CLI for local testing.
+        </Notice>
+      )}
+      <Step number={1} title="Open Connected Apps in Gemini">
+        <p>
+          Navigate to <strong>gemini.google.com</strong> on your computer. Open <strong>Settings & help</strong> (or your profile icon) at the bottom left, then select <strong>Connected Apps</strong>.
+        </p>
+      </Step>
+      <Step number={2} title="Add custom MCP app for Spark">
+        <p>
+          In the Connected Apps panel, locate the <strong>Custom apps for Spark</strong> section and click <strong>Add MCP server</strong> (or <strong>+</strong>).
+        </p>
+      </Step>
+      <Step number={3} title="Enter the MCP endpoint URL">
+        <p>Paste the Streamable HTTP endpoint URL for this server:</p>
+        <CopyField value={mcpUrl} />
+      </Step>
+      <Step number={4} title="Authorize and use in Spark">
+        <p>
+          Complete the connection authorization prompt. Once connected, Gemini Spark can discover and execute these finance tools in conversations, scheduled tasks, and persistent background workflows.
+        </p>
+      </Step>
+      <Notice className="mt-4">
+        Ensure <strong>Keep Activity</strong> is turned on in your Google Account settings, as Gemini Spark requires activity history to maintain connected custom MCP apps.
       </Notice>
     </>
   );
@@ -636,7 +663,8 @@ function GenericGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
               <tr><td className="px-3 py-2">Codex</td><td className="px-3 py-2"><code>url</code></td><td className="px-3 py-2">Inferred</td></tr>
               <tr><td className="px-3 py-2">Cursor</td><td className="px-3 py-2"><code>url</code></td><td className="px-3 py-2">Inferred</td></tr>
               <tr><td className="px-3 py-2">VS Code</td><td className="px-3 py-2"><code>url</code> under <code>servers</code></td><td className="px-3 py-2"><code>type: http</code></td></tr>
-              <tr><td className="px-3 py-2">Antigravity 2 & Gemini Spark</td><td className="px-3 py-2"><code>serverUrl</code></td><td className="px-3 py-2">Inferred</td></tr>
+              <tr><td className="px-3 py-2">Antigravity 2</td><td className="px-3 py-2"><code>serverUrl</code></td><td className="px-3 py-2">Inferred</td></tr>
+              <tr><td className="px-3 py-2">Gemini Spark</td><td className="px-3 py-2">URL endpoint</td><td className="px-3 py-2">Streamable HTTP</td></tr>
             </tbody>
           </table>
         </div>
@@ -659,7 +687,8 @@ const PROJECT_SCOPES: ProjectScopeRow[] = [
   { client: "Cursor", path: ".cursor/mcp.json", note: "Overrides the same server name in ~/.cursor/mcp.json." },
   { client: "VS Code", path: ".vscode/mcp.json", note: "Root key is servers, not mcpServers." },
   { client: "Codex", path: ".codex/config.toml", note: "TOML, and only for projects you have trusted." },
-  { client: "Antigravity 2 / Gemini Spark", path: ".agents/mcp_config.json", note: "Workspace file alongside the global ~/.gemini/config/mcp_config.json." },
+  { client: "Antigravity 2", path: ".agents/mcp_config.json", note: "Workspace file alongside global ~/.gemini/config/mcp_config.json." },
+  { client: "Gemini Spark", path: "—", note: "Account-level Connected Apps; no project file." },
   { client: "Claude Web, Desktop, Cowork", path: "—", note: "Connectors are per account; no project file." },
   { client: "Windsurf, Cline", path: "—", note: "Global configuration only." },
 ];
@@ -827,6 +856,7 @@ export function IntegrationGuides({
         {selectedClient === "cursor" && <CursorGuide mcpUrl={mcpUrl} token={token} />}
         {selectedClient === "vscode" && <VsCodeGuide mcpUrl={mcpUrl} token={token} />}
         {selectedClient === "antigravity" && <AntigravityGuide mcpUrl={mcpUrl} token={token} />}
+        {!tokenOnly && selectedClient === "gemini" && <GeminiGuide mcpUrl={mcpUrl} isLocal={isLocal} />}
         {selectedClient === "generic" && <GenericGuide mcpUrl={mcpUrl} token={token} />}
       </Card>
 
