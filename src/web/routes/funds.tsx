@@ -208,7 +208,7 @@ export default function FundsPage() {
       </Card>
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <SearchInput params={params} placeholder="Search code, name, company…" />
+        <SearchInput params={params} placeholder="Search code, name, or holding symbol (e.g. NVDA)…" />
         <div className="flex flex-wrap items-center gap-2">
           <FilterPills
             params={params}
