@@ -820,7 +820,10 @@ export function IntegrationGuides({
         </div>
       </Card>
 
-      <nav aria-label="MCP client guides" className="mb-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      <nav
+        aria-label="MCP client guides"
+        className="mb-5 flex items-center gap-1.5 overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-100/80 p-1.5 dark:border-zinc-800 dark:bg-zinc-900/60"
+      >
         {clients.map((client) => {
           const Icon = client.icon;
           const active = selectedClient === client.id;
@@ -831,19 +834,14 @@ export function IntegrationGuides({
               key={client.id}
               to={`${basePath}?${nextSearchParams.toString()}`}
               aria-current={active ? "page" : undefined}
-              className={`flex items-center gap-3 rounded-xl border p-3.5 transition-colors ${
+              className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition-all ${
                 active
-                  ? "border-indigo-400 bg-indigo-50 text-indigo-900 dark:border-indigo-500/60 dark:bg-indigo-500/10 dark:text-indigo-100"
-                  : "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700 dark:hover:bg-zinc-800/60"
+                  ? "bg-white text-zinc-950 shadow-sm dark:bg-zinc-800 dark:text-white"
+                  : "text-zinc-600 hover:bg-white/50 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100"
               }`}
             >
-              <div className={`grid size-9 shrink-0 place-items-center rounded-lg ${active ? "bg-indigo-600 text-white" : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"}`}>
-                <Icon className="size-4.5" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-sm font-semibold">{client.label}</div>
-                <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">{client.description}</div>
-              </div>
+              <Icon className="size-4 shrink-0" />
+              <span>{client.label}</span>
             </Link>
           );
         })}
