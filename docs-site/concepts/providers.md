@@ -56,5 +56,5 @@ format change is a fixture-plus-parser fix that touches nothing else.
 
 ## Running an ingest
 
-From the dashboard's **Funds** page, or the CLI — see
+From the dashboard's admin **Fund Cache** page, or the CLI — see
 [Fund Data Ingest](/operations/ingest).

@@ -20,7 +20,6 @@ const ACTION_LABELS: Record<string, string> = {
   "token.update": "Updated token",
   "token.revoke": "Revoked token",
   "token.delete": "Deleted token",
-  "chat.message": "Sent chat message",
   "oauth.client_register": "Registered OAuth client",
   "oauth.client_update": "Updated OAuth client",
   "oauth.client_delete": "Deleted OAuth client",

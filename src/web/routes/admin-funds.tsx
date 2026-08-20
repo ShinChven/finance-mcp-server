@@ -27,6 +27,9 @@ import type {
 } from "../lib/types.js";
 import { useMe } from "./shell.js";
 
+const CACHE_DESCRIPTION =
+  "Holdings are downloaded here so the stock- and sector-level tools can answer. Every source serves fund → holdings only, so the reverse lookups exist for the funds cached below — across all markets at once.";
+
 const STATUS_FILTERS = [
   { value: "cached", label: "Cached" },
   { value: "uncached", label: "Not cached" },
@@ -48,7 +51,31 @@ function isProviderId(value: string): value is ProviderId {
   return value in PROVIDERS;
 }
 
-export default function FundsPage() {
+/**
+ * The fund cache console.
+ *
+ * Admin-only, and admin-only on the server too: a category sync is hours of
+ * outbound requests against hosts that rate limit, and the cache it fills is
+ * shared by every user. Ordinary accounts never manage it — they read what it
+ * produced, through the MCP fund tools and the watchlist pages.
+ */
+export default function AdminFundsPage() {
+  const me = useMe();
+  if (me.role !== "admin") {
+    return (
+      <>
+        <PageHeader title="Fund Cache" description={CACHE_DESCRIPTION} />
+        <EmptyState
+          title="Admins only"
+          description="Filling the fund cache is an administrator task. The data it produces is available to you through the fund tools over MCP and on your watchlists."
+        />
+      </>
+    );
+  }
+  return <FundCacheConsole />;
+}
+
+function FundCacheConsole() {
   const me = useMe();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -203,19 +230,13 @@ export default function FundsPage() {
 
   return (
     <>
-      <PageHeader
-        title="Funds"
-        description="Holdings are downloaded here so the stock- and sector-level tools can answer. Every source serves fund → holdings only, so the reverse lookups exist for the funds cached below — across all markets at once."
-      />
+      <PageHeader title="Fund Cache" description={CACHE_DESCRIPTION} />
 
       <StatTiles stats={stats.data} />
 
       <Card className="mb-4 p-4">
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="text-sm font-medium">Cache a category</h2>
-          {!running && me.role !== "admin" && (
-            <span className="text-xs text-zinc-400">Admins only</span>
-          )}
         </div>
 
         {running && current ? (
@@ -223,12 +244,7 @@ export default function FundsPage() {
         ) : (
           <div className="space-y-4">
             {(stats.data?.providers ?? []).map((provider) => (
-              <ProviderCategories
-                key={provider.id}
-                provider={provider}
-                disabled={me.role !== "admin"}
-                onPick={setPending}
-              />
+              <ProviderCategories key={provider.id} provider={provider} onPick={setPending} />
             ))}
           </div>
         )}
@@ -333,11 +349,9 @@ export default function FundsPage() {
  */
 function ProviderCategories({
   provider,
-  disabled,
   onPick,
 }: {
   provider: ProviderStats;
-  disabled: boolean;
   onPick: (category: Category) => void;
 }) {
   return (
@@ -355,9 +369,8 @@ function ProviderCategories({
           return (
             <button
               key={scope.id}
-              disabled={disabled}
               onClick={() => onPick({ provider: provider.id, scope: scope.id, label: scope.label })}
-              className="flex cursor-pointer items-start gap-3 rounded-lg border border-zinc-200 p-3 text-left transition-colors hover:border-indigo-400 hover:bg-indigo-50/50 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-zinc-200 disabled:hover:bg-transparent dark:border-zinc-700 dark:hover:border-indigo-500 dark:hover:bg-indigo-500/5"
+              className="flex cursor-pointer items-start gap-3 rounded-lg border border-zinc-200 p-3 text-left transition-colors hover:border-indigo-400 hover:bg-indigo-50/50 dark:border-zinc-700 dark:hover:border-indigo-500 dark:hover:bg-indigo-500/5"
             >
               <Download className="mt-0.5 size-4 shrink-0 text-indigo-500" />
               <div className="min-w-0">

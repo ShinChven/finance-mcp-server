@@ -150,13 +150,13 @@ Lifecycle semantics (tokens and grants alike):
 | `/tokens` | Create/manage personal access tokens | `?q=&status=&page=&sort=` |
 | `/tokens/new` (modal route) | Name + optional expiry; shows token **once** with copy button | — |
 | `/clients` | OAuth clients that have a grant from this user; disable/revoke/delete, last access | `?q=&status=&page=` |
-| `/assistant` | Built-in chat assistant (Anthropic / OpenAI / Gemini via env keys); streaming, per-user persisted conversations | `?c=<conversation>&q=` |
 | `/tools` | Browse the built-in MCP tools: description, annotations, parameter schemas | `?q=&tool=` |
 | `/notes` | Notes: collections, tag/symbol facets, search, markdown editor | `?q=&collection=&tag=&symbol=&status=&sort=&page=&note=` |
 | `/settings` | Account name, preferences | `?tab=profile\|preferences` |
 | `/admin/users` | Admin: list/create users, enable/disable, role | `?q=&status=&role=&page=&sort=` |
 | `/admin/clients` | Admin: all registered OAuth clients | `?q=&status=&page=` |
 | `/admin/audit` | Admin: audit log | `?q=&action=&actor=&page=` |
+| `/admin/funds` | Admin: fund cache console — coverage, per-category sync, per-fund portfolios | `?q=&provider=&scope=&status=&page=&sort=&fund=` |
 
 Layout: sidebar app shell (admin section visible only to admins), route-level
 auth guards via loader redirects, error boundaries, toast notifications.

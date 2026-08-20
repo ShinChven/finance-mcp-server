@@ -5,11 +5,11 @@ ever hits an upstream data source. This page is how those tables get populated o
 purpose, rather than by an
 [on-demand fetch](/concepts/on-demand).
 
-Two ways in: the **Funds** page in the dashboard, or the CLI.
+Two ways in: the admin **Fund Cache** page in the dashboard, or the CLI.
 
 ## From the dashboard
 
-Admins start a sync per category on `/funds`. Picking one opens a confirmation
+An admin starts a sync per category on `/admin/funds`. Picking one opens a confirmation
 showing how many funds it matches, how many are already fresh, how many will
 actually be fetched, the request count and an estimated duration — nothing is
 fetched until that is confirmed.

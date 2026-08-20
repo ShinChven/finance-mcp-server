@@ -1,9 +1,11 @@
 /**
- * The fund cache dashboard's API.
+ * The fund cache console's API — admin-only, all of it.
  *
- * Read routes are open to any signed-in user; anything that starts a sync is
- * admin-only — a run costs hours of outbound requests against hosts that rate
- * limit, so it is not something an ordinary account should be able to trigger.
+ * The cache is shared infrastructure: one copy of the holdings feeds every
+ * user's MCP tools and watchlists, and filling it costs hours of outbound
+ * requests against hosts that rate limit. So managing it is an administrator's
+ * job, and ordinary accounts never reach these routes — they consume what the
+ * cache produced, through the fund tools and the pages built on them.
  *
  * Coverage is reported per provider rather than pooled. A single
  * "3,412 of 27,000 cached" spanning markets would be meaningless: the two
@@ -61,6 +63,7 @@ const failingExpr = sql<number>`count(*) filter (where ${funds.lastSyncError} is
 
 export const fundRoutes = new Hono<AppEnv>()
   .use(requireAuth)
+  .use(requireAdmin)
 
   /** Cache-wide totals for the page header, plus one block per provider. */
   .get("/stats", async (c) => {
@@ -299,6 +302,7 @@ export const fundRoutes = new Hono<AppEnv>()
 
 export const syncRoutes = new Hono<AppEnv>()
   .use(requireAuth)
+  .use(requireAdmin)
 
   /** Recent runs, newest first, for the job history panel. */
   .get("/jobs", async (c) => {
@@ -325,7 +329,7 @@ export const syncRoutes = new Hono<AppEnv>()
     return c.json(preview);
   })
 
-  .post("/", requireAdmin, zValidator("json", syncBodySchema), async (c) => {
+  .post("/", zValidator("json", syncBodySchema), async (c) => {
     const user = c.get("user");
     const body = c.req.valid("json");
 
@@ -369,7 +373,7 @@ export const syncRoutes = new Hono<AppEnv>()
    * out the freshness window. Cheap — one listing call per provider — but it
    * writes, so it is admin-only and audited like any other sync action.
    */
-  .post("/index", requireAdmin, async (c) => {
+  .post("/index", async (c) => {
     const user = c.get("user");
     const results = await refreshAllFundIndexes(db, { force: true });
 
@@ -384,7 +388,7 @@ export const syncRoutes = new Hono<AppEnv>()
     return c.json({ results });
   })
 
-  .post("/:id/cancel", requireAdmin, async (c) => {
+  .post("/:id/cancel", async (c) => {
     const user = c.get("user");
     const id = c.req.param("id");
     if (!cancelJob(id)) return c.json({ error: "job is not running" }, 409);

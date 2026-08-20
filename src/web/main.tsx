@@ -10,17 +10,16 @@ import OverviewPage from "./routes/overview.js";
 import ActivityPage from "./routes/activity.js";
 import ConnectorSetupPage from "./routes/connector-setup.js";
 import ToolsPage from "./routes/tools.js";
-import FundsPage from "./routes/funds.js";
 import WatchlistPage from "./routes/watchlist.js";
 import NotesPage from "./routes/notes.js";
 import SkillsPage from "./routes/skills.js";
-import AssistantPage from "./routes/assistant.js";
 import TokensPage from "./routes/tokens.js";
 import ClientsPage from "./routes/clients.js";
 import SettingsPage from "./routes/settings.js";
 import AdminUsersPage from "./routes/admin-users.js";
 import AdminClientsPage from "./routes/admin-clients.js";
 import AdminAuditPage from "./routes/admin-audit.js";
+import AdminFundsPage from "./routes/admin-funds.js";
 import "./app.css";
 
 const queryClient = new QueryClient({
@@ -57,17 +56,17 @@ const router = createBrowserRouter([
       { path: "integrations", element: <Navigate to="/connector-setup" replace /> },
       { path: "connectors", element: <Navigate to="/connector-setup" replace /> },
       { path: "tools", element: <ToolsPage /> },
-      { path: "funds", element: <FundsPage /> },
+      { path: "funds", element: <Navigate to="/admin/funds" replace /> },
       { path: "watchlist", element: <WatchlistPage /> },
       { path: "notes", element: <NotesPage /> },
       { path: "skills", element: <SkillsPage /> },
-      { path: "assistant", element: <AssistantPage /> },
       { path: "tokens", element: <TokensPage /> },
       { path: "clients", element: <ClientsPage /> },
       { path: "settings", element: <SettingsPage /> },
       { path: "admin/users", element: <AdminUsersPage /> },
       { path: "admin/clients", element: <AdminClientsPage /> },
       { path: "admin/audit", element: <AdminAuditPage /> },
+      { path: "admin/funds", element: <AdminFundsPage /> },
     ],
   },
 ]);

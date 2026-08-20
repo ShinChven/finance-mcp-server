@@ -1,8 +1,8 @@
 # On-Demand Fetching
 
 Naming a fund is request enough for its data. Opening an uncached fund in the
-dashboard, or calling `fundExposure`, `fundPerformance` or `similarFunds` on one,
-fetches it there and then — three requests, a couple of seconds — instead of
+admin fund cache console, or calling `fundExposure`, `fundPerformance` or
+`similarFunds` on one, fetches it there and then — three requests, a couple of seconds — instead of
 returning an empty result and telling you to go run a batch job.
 
 Four things keep that safe on a request path.
