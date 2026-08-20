@@ -135,10 +135,12 @@ export default function FundsPage() {
       label: "Market",
       render: (fund) => (
         <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs text-zinc-600 dark:text-zinc-300">{fund.market}</span>
+          <span className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+            {fund.market}
+          </span>
           {fund.investsOffshore && (
             <span
-              className="text-xs text-zinc-400"
+              className="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
               title="Mandate points outside its own market"
             >
               offshore
@@ -155,6 +157,7 @@ export default function FundsPage() {
     {
       key: "holdings",
       label: "Holdings",
+      align: "right",
       render: (fund) =>
         fund.holdingsCount > 0 ? (
           <span className="tabular-nums">{fund.holdingsCount}</span>
@@ -165,6 +168,7 @@ export default function FundsPage() {
     {
       key: "report",
       label: "Report",
+      align: "right",
       render: (fund) =>
         fund.latestReport ? (
           // The disclosure date, not the cache date: a fund synced this morning
@@ -178,6 +182,7 @@ export default function FundsPage() {
       key: "holdings_synced_at",
       label: "Cached",
       sortable: true,
+      align: "right",
       render: (fund) =>
         fund.lastSyncError ? (
           <span
@@ -256,11 +261,32 @@ export default function FundsPage() {
         </div>
       </div>
 
+      {/* A search that matched on holdings returns fund names with nothing in
+          them resembling the query, so the page states what it is filtered by
+          — and offers the way out, which the pills already have and `q` did not. */}
+      {params.q && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-800/40">
+          <span className="text-zinc-600 dark:text-zinc-300">
+            Showing funds matching{" "}
+            <span className="font-medium text-zinc-900 dark:text-zinc-100">"{params.q}"</span> ·{" "}
+            {list.data?.total ?? 0} {list.data?.total === 1 ? "fund" : "funds"}
+          </span>
+          <button
+            type="button"
+            onClick={() => params.update({ q: "" })}
+            className="inline-flex cursor-pointer items-center gap-1 rounded px-2 py-1 font-medium text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
+          >
+            <X className="size-3" /> Clear search
+          </button>
+        </div>
+      )}
+
       <DataTable
         params={params}
         columns={columns}
         rows={list.data?.items}
         rowKey={(fund) => fund.code}
+        onRowClick={(fund) => params.update({ fund: fund.code })}
         loading={list.isPending}
         empty={{
           title: "No funds match",
@@ -288,7 +314,11 @@ export default function FundsPage() {
       )}
 
       {params.fund && (
-        <HoldingsDialog code={params.fund} onClose={() => params.update({ fund: "" })} />
+        <HoldingsDialog
+          code={params.fund}
+          highlight={params.q}
+          onClose={() => params.update({ fund: "" })}
+        />
       )}
     </>
   );
@@ -542,7 +572,16 @@ function Row({ label, value, emphasis }: { label: string; value: string; emphasi
  * (it has side effects and outbound cost), fired once per open, and the
  * holdings query is invalidated when it lands.
  */
-function HoldingsDialog({ code, onClose }: { code: string; onClose: () => void }) {
+function HoldingsDialog({
+  code,
+  highlight,
+  onClose,
+}: {
+  code: string;
+  /** The list's search term, so the position that matched can be picked out. */
+  highlight: string;
+  onClose: () => void;
+}) {
   const queryClient = useQueryClient();
   const [triggered, setTriggered] = useState(false);
 
@@ -586,13 +625,13 @@ function HoldingsDialog({ code, onClose }: { code: string; onClose: () => void }
           {(cacheNow.error as Error).message}
         </p>
       ) : query.data ? (
-        <FundHoldings result={query.data} />
+        <FundHoldings result={query.data} highlight={highlight} />
       ) : null}
     </Modal>
   );
 }
 
-function FundHoldings({ result }: { result: FundHoldingsResult }) {
+function FundHoldings({ result, highlight }: { result: FundHoldingsResult; highlight: string }) {
   if (result.items.length === 0) {
     return (
       <EmptyState
@@ -608,6 +647,9 @@ function FundHoldings({ result }: { result: FundHoldingsResult }) {
 
   const full = result.fund.holdingsCompleteness === "full";
   const enriched = result.enrichedPositions;
+  // A top-holdings list can run to hundreds of rows; without this the reader
+  // has to scan for the stock that put the fund in the results in the first place.
+  const needle = highlight.trim().toLowerCase();
 
   return (
     <>
@@ -657,22 +699,36 @@ function FundHoldings({ result }: { result: FundHoldingsResult }) {
             </tr>
           </thead>
           <tbody>
-            {result.items.map((holding) => (
-              <tr
-                key={holding.symbol}
-                className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60"
-              >
-                <td className="px-3 py-2 font-mono text-xs" title={holding.isin ?? undefined}>
-                  {holding.symbol}
-                </td>
-                <td className="px-3 py-2">{holding.name ?? "—"}</td>
-                <td className="px-3 py-2 text-xs text-zinc-500">{holding.country ?? "—"}</td>
-                <td className="px-3 py-2 text-right text-xs tabular-nums text-zinc-500">
-                  {formatUsdCompact(holding.marketCapUsd)}
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums">{holding.weight.toFixed(2)}%</td>
-              </tr>
-            ))}
+            {result.items.map((holding) => {
+              const matched =
+                needle.length > 0 &&
+                (holding.symbol.toLowerCase().includes(needle) ||
+                  (holding.name?.toLowerCase().includes(needle) ?? false));
+              return (
+                <tr
+                  key={holding.symbol}
+                  className={`border-b border-zinc-100 last:border-0 dark:border-zinc-800/60 ${
+                    matched ? "bg-emerald-50 dark:bg-emerald-500/10" : ""
+                  }`}
+                >
+                  <td className="px-3 py-2 font-mono text-xs" title={holding.isin ?? undefined}>
+                    {holding.symbol}
+                  </td>
+                  <td className="px-3 py-2">{holding.name ?? "—"}</td>
+                  <td className="px-3 py-2 text-xs text-zinc-500">{holding.country ?? "—"}</td>
+                  <td className="px-3 py-2 text-right text-xs tabular-nums text-zinc-500">
+                    {formatUsdCompact(holding.marketCapUsd)}
+                  </td>
+                  <td
+                    className={`px-3 py-2 text-right tabular-nums ${
+                      matched ? "font-medium text-emerald-700 dark:text-emerald-400" : ""
+                    }`}
+                  >
+                    {holding.weight.toFixed(2)}%
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

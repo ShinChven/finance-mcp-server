@@ -10,6 +10,8 @@ export interface Column<T> {
   key: string;
   label: string;
   sortable?: boolean;
+  /** Counts and dates line up when right-aligned; text columns stay left. */
+  align?: "left" | "right";
   render: (row: T) => ReactNode;
   className?: string;
 }
@@ -118,6 +120,7 @@ export function DataTable<T>({
   empty,
   total,
   totalPages,
+  onRowClick,
 }: {
   params: ListParams;
   columns: Column<T>[];
@@ -127,6 +130,12 @@ export function DataTable<T>({
   empty: { title: string; description?: string };
   total: number;
   totalPages: number;
+  /**
+   * Whole-row shortcut into the row's detail view. Purely additive: the row
+   * still has to carry its own focusable control, since a `<tr>` handler is
+   * unreachable by keyboard.
+   */
+  onRowClick?: (row: T) => void;
 }) {
   const [sortField, sortDirection] = params.sort.split(".");
 
@@ -147,10 +156,13 @@ export function DataTable<T>({
             <thead>
               <tr className="border-b border-zinc-200 text-left text-xs text-zinc-500 uppercase dark:border-zinc-800">
                 {columns.map((column) => (
-                  <th key={column.key} className={`px-4 py-3 font-medium ${column.className ?? ""}`}>
+                  <th
+                    key={column.key}
+                    className={`px-4 py-3 font-medium ${column.align === "right" ? "text-right" : ""} ${column.className ?? ""}`}
+                  >
                     {column.sortable ? (
                       <button
-                        className="inline-flex cursor-pointer items-center gap-1 uppercase hover:text-zinc-800 dark:hover:text-zinc-200"
+                        className={`inline-flex cursor-pointer items-center gap-1 uppercase hover:text-zinc-800 dark:hover:text-zinc-200 ${column.align === "right" ? "w-full justify-end" : ""}`}
                         onClick={() => toggleSort(column.key)}
                       >
                         {column.label}
@@ -168,10 +180,14 @@ export function DataTable<T>({
               {rows.map((row) => (
                 <tr
                   key={rowKey(row)}
-                  className="border-b border-zinc-100 last:border-0 hover:bg-zinc-50 dark:border-zinc-800/60 dark:hover:bg-zinc-800/40"
+                  onClick={onRowClick && (() => onRowClick(row))}
+                  className={`border-b border-zinc-100 last:border-0 hover:bg-zinc-50 dark:border-zinc-800/60 dark:hover:bg-zinc-800/40 ${onRowClick ? "cursor-pointer" : ""}`}
                 >
                   {columns.map((column) => (
-                    <td key={column.key} className={`px-4 py-3 ${column.className ?? ""}`}>
+                    <td
+                      key={column.key}
+                      className={`px-4 py-3 ${column.align === "right" ? "text-right" : ""} ${column.className ?? ""}`}
+                    >
                       {column.render(row)}
                     </td>
                   ))}

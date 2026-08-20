@@ -1,21 +1,23 @@
 import type { ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
-  Bot,
   CheckCircle2,
-  Code2,
   ExternalLink,
-  FileCode2,
   FolderTree,
   KeyRound,
-  Laptop,
-  Orbit,
   ShieldCheck,
-  Sparkles,
-  TerminalSquare,
-  Wrench,
-  type LucideIcon,
 } from "lucide-react";
+import {
+  AntigravityIcon,
+  ClaudeCodeIcon,
+  ClaudeIcon,
+  CodexIcon,
+  CursorIcon,
+  GeminiIcon,
+  McpIcon,
+  VsCodeIcon,
+  type BrandIconComponent,
+} from "../components/brand-icons.js";
 import { Card, CodeCopyBlock, CopyField, PageHeader } from "../components/ui.js";
 
 export type ClientId =
@@ -32,18 +34,18 @@ interface ClientOption {
   id: ClientId;
   label: string;
   description: string;
-  icon: LucideIcon;
+  icon: BrandIconComponent;
 }
 
 const CLIENTS: ClientOption[] = [
-  { id: "claude", label: "Claude", description: "Web, Desktop & Cowork", icon: Bot },
-  { id: "claude-code", label: "Claude Code", description: "CLI and IDE", icon: TerminalSquare },
-  { id: "codex", label: "Codex", description: "App, CLI and IDE", icon: Code2 },
-  { id: "cursor", label: "Cursor", description: "Editor and Agent CLI", icon: Laptop },
-  { id: "vscode", label: "VS Code", description: "Copilot agent mode", icon: FileCode2 },
-  { id: "antigravity", label: "Antigravity 2", description: "App, IDE and CLI", icon: Orbit },
-  { id: "gemini", label: "Gemini Spark", description: "Web & Cloud Agents", icon: Sparkles },
-  { id: "generic", label: "Common MCP", description: "Any HTTP client", icon: Wrench },
+  { id: "claude", label: "Claude", description: "Web, Desktop & Cowork", icon: ClaudeIcon },
+  { id: "claude-code", label: "Claude Code", description: "CLI and IDE", icon: ClaudeCodeIcon },
+  { id: "codex", label: "Codex", description: "App, CLI and IDE", icon: CodexIcon },
+  { id: "cursor", label: "Cursor", description: "Editor and Agent CLI", icon: CursorIcon },
+  { id: "vscode", label: "VS Code", description: "Copilot agent mode", icon: VsCodeIcon },
+  { id: "antigravity", label: "Antigravity 2", description: "App, IDE and CLI", icon: AntigravityIcon },
+  { id: "gemini", label: "Gemini Spark", description: "Web & Cloud Agents", icon: GeminiIcon },
+  { id: "generic", label: "Common MCP", description: "Any HTTP client", icon: McpIcon },
 ];
 
 const CLIENT_IDS = new Set<ClientId>(CLIENTS.map((client) => client.id));
@@ -265,9 +267,9 @@ claude mcp add-json --scope user mcp-server '${JSON.stringify({
 }
 
 function CodexGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
-  const oauthCommands = `codex mcp add mcp-server --url ${mcpUrl}
-codex mcp login mcp-server
-codex mcp list`;
+  const oauthAddAndLogin = `codex mcp add mcp-server --url ${mcpUrl}
+codex mcp login mcp-server`;
+  const oauthList = "codex mcp list";
   const tokenCommands = `export MCP_SERVER_TOKEN="${token ?? "mcp_…"}"
 codex mcp add mcp-server --url ${mcpUrl} \\
   --bearer-token-env-var MCP_SERVER_TOKEN`;
@@ -284,9 +286,12 @@ bearer_token_env_var = "MCP_SERVER_TOKEN"`;
       />
       {!token && <AuthSummary />}
       {!token && (
-        <Step number={1} title="Add with OAuth">
-          <p>Add the remote server, start its browser login, and verify the saved configuration.</p>
-          <CodeCopyBlock label="OAuth · shell" value={oauthCommands} />
+        <Step number={1} title="Add and authenticate with OAuth">
+          <p>Add the remote server and authenticate in your browser:</p>
+          <div className="space-y-3">
+            <CodeCopyBlock label="CLI · Add & sign in" value={oauthAddAndLogin} />
+            <CodeCopyBlock label="CLI · List configured servers" value={oauthList} />
+          </div>
         </Step>
       )}
       <Step number={token ? 1 : 2} title={token ? "Add with your access token" : "Or add a personal token"}>
