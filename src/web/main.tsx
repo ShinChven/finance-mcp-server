@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, Navigate } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "./components/toast.js";
@@ -8,7 +8,7 @@ import Login, { loginLoader } from "./routes/login.js";
 import Shell, { shellLoader } from "./routes/shell.js";
 import OverviewPage from "./routes/overview.js";
 import ActivityPage from "./routes/activity.js";
-import IntegrationsPage from "./routes/integrations.js";
+import ConnectorSetupPage from "./routes/connector-setup.js";
 import ToolsPage from "./routes/tools.js";
 import FundsPage from "./routes/funds.js";
 import WatchlistPage from "./routes/watchlist.js";
@@ -53,7 +53,9 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <OverviewPage /> },
       { path: "activity", element: <ActivityPage /> },
-      { path: "integrations", element: <IntegrationsPage /> },
+      { path: "connector-setup", element: <ConnectorSetupPage /> },
+      { path: "integrations", element: <Navigate to="/connector-setup" replace /> },
+      { path: "connectors", element: <Navigate to="/connector-setup" replace /> },
       { path: "tools", element: <ToolsPage /> },
       { path: "funds", element: <FundsPage /> },
       { path: "watchlist", element: <WatchlistPage /> },

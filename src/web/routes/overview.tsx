@@ -82,10 +82,10 @@ export default function OverviewPage() {
           </p>
           <CopyField value={mcpUrl} />
           <Link
-            to="/integrations"
+            to="/connector-setup"
             className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
           >
-            Open step-by-step integration guides <ArrowRight className="size-4" />
+            Open step-by-step connector setup guides <ArrowRight className="size-4" />
           </Link>
         </Card>
         <Card className="p-5">

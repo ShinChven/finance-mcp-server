@@ -9,7 +9,7 @@ import { api } from "../lib/api.js";
 import { formatDate, formatRelative } from "../lib/format.js";
 import { useListParams } from "../lib/params.js";
 import type { ListResult, TokenItem } from "../lib/types.js";
-import { IntegrationGuides } from "./integrations.js";
+import { ConnectorGuides } from "./connector-setup.js";
 import { useMe } from "./shell.js";
 
 const STATUS_OPTIONS = [
@@ -72,7 +72,7 @@ function CreateTokenModal({ onClose }: { onClose: () => void }) {
             </div>
           </div>
         </div>
-        <IntegrationGuides
+        <ConnectorGuides
           mcpUrl={`${window.location.origin}/mcp`}
           token={created}
           basePath="/tokens"

@@ -777,10 +777,10 @@ function Troubleshooting({ tokenOnly = false }: { tokenOnly?: boolean }) {
   );
 }
 
-export function IntegrationGuides({
+export function ConnectorGuides({
   mcpUrl,
   token,
-  basePath = "/integrations",
+  basePath = "/connector-setup",
   defaultClient = "claude",
 }: {
   mcpUrl: string;
@@ -821,7 +821,7 @@ export function IntegrationGuides({
       </Card>
 
       <nav
-        aria-label="MCP client guides"
+        aria-label="MCP connector guides"
         className="mb-4 sm:mb-5 flex items-center gap-1 sm:gap-1.5 overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-100/80 p-1 sm:p-1.5 dark:border-zinc-800 dark:bg-zinc-900/60"
       >
         {clients.map((client) => {
@@ -865,16 +865,16 @@ export function IntegrationGuides({
   );
 }
 
-export default function IntegrationsPage() {
+export default function ConnectorSetupPage() {
   const mcpUrl = `${window.location.origin}/mcp`;
 
   return (
     <>
       <PageHeader
-        title="MCP Integrations"
+        title="Connector Setup"
         description="Choose your client for exact setup commands, authentication options, and verification steps."
       />
-      <IntegrationGuides mcpUrl={mcpUrl} />
+      <ConnectorGuides mcpUrl={mcpUrl} />
     </>
   );
 }
