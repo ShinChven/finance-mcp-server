@@ -16,6 +16,7 @@ import { and, asc, desc, eq, or, sql, type SQL } from "drizzle-orm";
 import type { db as Database } from "../db/index.js";
 import { skillRevisions, skills, type Skill } from "../db/schema.js";
 import { escapeLike } from "../lib/listing.js";
+import { isUniqueViolation } from "../lib/pg-errors.js";
 import {
   MAX_SEARCH_RESULTS,
   MAX_SKILLS_PER_USER,
@@ -82,10 +83,13 @@ export interface SkillsRepo {
   /** By id or by slug — callers address skills the way a person names them. */
   getSkill(userId: string, reference: string): Promise<SkillRecord | null>;
   createSkill(userId: string, input: CreateSkillInput): Promise<SkillRecord>;
-  updateSkill(userId: string, id: string, patch: UpdateSkillPatch): Promise<SkillRecord | null>;
-  deleteSkill(userId: string, id: string): Promise<boolean>;
-  /** Previous versions, newest first. */
-  listRevisions(userId: string, id: string, limit?: number): Promise<SkillRevisionRecord[]>;
+  /** Addressed the same way `getSkill` is: by id or by slug. */
+  updateSkill(userId: string, reference: string, patch: UpdateSkillPatch): Promise<SkillRecord | null>;
+  deleteSkill(userId: string, reference: string): Promise<boolean>;
+  /** Previous versions, newest first. Addressed by id or slug. */
+  listRevisions(userId: string, reference: string, limit?: number): Promise<SkillRevisionRecord[]>;
+  /** Every skill the user opted into `resources/list`, unpaged. */
+  listDiscoverable(userId: string): Promise<SkillRecord[]>;
   countSkills(userId: string): Promise<number>;
 }
 
@@ -103,22 +107,6 @@ type Db = typeof Database;
 /** Kept per skill; older versions fall off. Enough to undo a bad edit or two
  *  without turning a text column into an unbounded log. */
 const MAX_REVISIONS_PER_SKILL = 20;
-
-/**
- * Walks the cause chain rather than reading `error.code` directly.
- *
- * Drizzle wraps driver errors in its own `Failed query: …` error, so the pg
- * SQLSTATE lives on `cause`, not on the error it throws. A check that only
- * looks at the top level never matches, and a duplicate slug surfaces as a 500
- * instead of the 409 the dashboard knows how to show.
- */
-function isUniqueViolation(error: unknown): boolean {
-  for (let current = error; current !== null && current !== undefined; ) {
-    if (typeof current === "object" && "code" in current && current.code === "23505") return true;
-    current = typeof current === "object" && "cause" in current ? current.cause : null;
-  }
-  return false;
-}
 
 /** Everything but `search_vector`, which is large and never read. */
 const skillColumns = {
@@ -138,6 +126,41 @@ const skillColumns = {
 
 export function createSkillsRepo(db: Db): SkillsRepo {
   const owned = (userId: string, id: string): SQL => and(eq(skills.id, id), eq(skills.userId, userId))!;
+
+  /**
+   * A skill addressed the way a caller has it: an id, or the slug the user
+   * types. Every public method accepts both, because accepting a slug on `get`
+   * and rejecting it on `delete` is the kind of inconsistency that only shows
+   * up in someone else's integration.
+   */
+  const ownedRef = (userId: string, reference: string): SQL =>
+    and(
+      eq(skills.userId, userId),
+      or(eq(skills.id, reference), eq(skills.slug, reference.toLowerCase()))!,
+    )!;
+
+  /**
+   * Ties are broken toward an exact id match.
+   *
+   * A UUID satisfies the slug rule, so nothing stops one skill's slug from
+   * being another skill's id. Both rows belong to the same user so this is not
+   * a leak, but without an explicit order the winner would be whichever row
+   * Postgres reached first.
+   */
+  const idFirst = (reference: string): SQL<number> =>
+    sql<number>`case when ${skills.id} = ${reference} then 0 else 1 end`;
+
+  async function resolveId(userId: string, reference: string): Promise<string | null> {
+    const needle = reference.trim();
+    if (needle === "") return null;
+    const [row] = await db
+      .select({ id: skills.id })
+      .from(skills)
+      .where(ownedRef(userId, needle))
+      .orderBy(asc(idFirst(needle)))
+      .limit(1);
+    return row?.id ?? null;
+  }
 
   /**
    * The filter half of a search, shared by the page query and its count.
@@ -261,17 +284,37 @@ export function createSkillsRepo(db: Db): SkillsRepo {
 
     async getSkill(userId, reference) {
       const needle = reference.trim();
+      if (needle === "") return null;
       const [row] = await db
+        .select(skillColumns)
+        .from(skills)
+        .where(ownedRef(userId, needle))
+        .orderBy(asc(idFirst(needle)))
+        .limit(1);
+      return row ?? null;
+    },
+
+    /**
+     * Unpaged on purpose.
+     *
+     * `searchSkills` clamps to a page size, which silently dropped everything
+     * past the first 25 out of the resource listing — a client cannot tell a
+     * truncated enumeration from a complete one. The per-user cap already
+     * bounds this, so the honest listing is all of them.
+     */
+    async listDiscoverable(userId) {
+      return db
         .select(skillColumns)
         .from(skills)
         .where(
           and(
             eq(skills.userId, userId),
-            or(eq(skills.id, needle), eq(skills.slug, needle.toLowerCase()))!,
+            eq(skills.status, "active"),
+            eq(skills.autoDiscover, true),
           )!,
         )
-        .limit(1);
-      return row ?? null;
+        .orderBy(asc(skills.slug))
+        .limit(MAX_SKILLS_PER_USER);
     },
 
     async createSkill(userId, input) {
@@ -307,7 +350,9 @@ export function createSkillsRepo(db: Db): SkillsRepo {
       }
     },
 
-    async updateSkill(userId, id, patch) {
+    async updateSkill(userId, reference, patch) {
+      const id = await resolveId(userId, reference);
+      if (id === null) return null;
       const existing = await loadOne(userId, id);
       if (existing === null) return null;
 
@@ -343,14 +388,16 @@ export function createSkillsRepo(db: Db): SkillsRepo {
       }
     },
 
-    async deleteSkill(userId, id) {
+    async deleteSkill(userId, reference) {
+      const id = await resolveId(userId, reference);
+      if (id === null) return false;
       const rows = await db.delete(skills).where(owned(userId, id)).returning({ id: skills.id });
       return rows.length > 0;
     },
 
-    async listRevisions(userId, id, limit = MAX_REVISIONS_PER_SKILL) {
-      const skill = await loadOne(userId, id);
-      if (skill === null) return [];
+    async listRevisions(userId, reference, limit = MAX_REVISIONS_PER_SKILL) {
+      const id = await resolveId(userId, reference);
+      if (id === null) return [];
       return db
         .select({
           id: skillRevisions.id,

@@ -13,6 +13,7 @@
 
 import { and, asc, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import type { db as Database } from "../db/index.js";
+import { isUniqueViolation } from "../lib/pg-errors.js";
 import {
   fundNav,
   funds,
@@ -122,11 +123,6 @@ export interface WatchlistRepo {
 }
 
 type Db = typeof Database;
-
-/** Postgres raises 23505 when a unique index rejects a write. */
-function isUniqueViolation(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
-}
 
 export function createWatchlistRepo(db: Db): WatchlistRepo {
   const owned = (userId: string, id: string): SQL =>

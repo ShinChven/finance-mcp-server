@@ -132,6 +132,10 @@ function memoryRepo(seed: SkillRecord[] = []) {
       return true;
     }),
 
+    listDiscoverable: vi.fn(async (userId: string) =>
+      rows.filter((row) => row.userId === userId && row.status === "active" && row.autoDiscover),
+    ),
+
     listRevisions: vi.fn(async () => []),
   };
 

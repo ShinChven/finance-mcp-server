@@ -28,9 +28,6 @@ import {
 } from "../../../shared/skills.js";
 import type { SkillsRepo } from "../../skills/repo.js";
 
-/** How many skills a single `resources/list` will advertise. */
-const LIST_LIMIT = MAX_SEARCH_RESULTS;
-
 export function registerSkillResources(
   server: McpServer,
   repo: SkillsRepo,
@@ -50,12 +47,9 @@ export function registerSkillResources(
        */
       list: async () => {
         if (auth === null) return { resources: [] };
-        const { items } = await repo.searchSkills(auth.user.id, {
-          status: "active",
-          listedOnly: true,
-          sort: "name",
-          limit: LIST_LIMIT,
-        });
+        // Unpaged: a client cannot tell a truncated enumeration from a
+        // complete one, and the per-user cap already bounds the answer.
+        const items = await repo.listDiscoverable(auth.user.id);
         return {
           resources: items.map((skill) => ({
             uri: skillUri(skill.slug),
@@ -75,7 +69,7 @@ export function registerSkillResources(
           const { items } = await repo.searchSkills(auth.user.id, {
             ...(value.trim() !== "" && { q: value }),
             status: "active",
-            limit: LIST_LIMIT,
+            limit: MAX_SEARCH_RESULTS,
           });
           return items.map((skill) => skill.slug);
         },

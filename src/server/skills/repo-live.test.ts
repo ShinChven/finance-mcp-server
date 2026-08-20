@@ -147,9 +147,39 @@ describe.skipIf(connectionString === undefined)("skills queries against Postgres
             .where(eq(skillRevisions.skillId, screen.id));
           expect(trimmed.length).toBeLessThanOrEqual(20);
 
+          // Every method addresses a skill the same way `getSkill` does.
+          // Before this, `get` took a slug while `delete` and the revision
+          // listing silently did not — an inconsistency that only surfaces in
+          // someone else's integration.
+          expect(await repo.listRevisions(userId, "fund-screen")).toHaveLength(
+            (await repo.listRevisions(userId, screen.id)).length,
+          );
+          expect((await repo.listRevisions(userId, "fund-screen")).length).toBeGreaterThan(0);
+
+          // A UUID satisfies the slug rule, so a slug may equal another row's
+          // id. Both rows are the same user's, but resolution must still be
+          // deterministic: the exact id wins.
+          const impostor = await repo.createSkill(userId, {
+            slug: screen.id,
+            name: "Named after another skill's id",
+            whenToUse: "a slug that looks like a uuid",
+            source: "web",
+          });
+          expect(impostor.slug).toBe(screen.id);
+          expect(await repo.getSkill(userId, screen.id)).toMatchObject({ id: screen.id });
+          await repo.deleteSkill(userId, impostor.id);
+
+          // The resource listing is unpaged: nothing may be dropped without the
+          // client being able to tell.
+          expect(await repo.listDiscoverable(userId)).toEqual([]);
+          await repo.updateSkill(userId, "earnings-review", { autoDiscover: true });
+          expect((await repo.listDiscoverable(userId)).map((row) => row.slug)).toEqual([
+            "earnings-review",
+          ]);
+
           // Deletes are scoped, and take the revisions with them.
           expect(await repo.deleteSkill(stranger!.id, screen.id)).toBe(false);
-          expect(await repo.deleteSkill(userId, screen.id)).toBe(true);
+          expect(await repo.deleteSkill(userId, "fund-screen")).toBe(true);
           expect(
             await tx
               .select({ id: skillRevisions.id })
