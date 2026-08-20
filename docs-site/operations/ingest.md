@@ -32,6 +32,7 @@ npm run ingest -- --provider=eastmoney --scope=index --dry-run   # counts only
 npm run ingest -- --provider=eastmoney --codes=162411,270042
 npm run ingest -- --provider=ishares --codes=IVV --skip-universe
 npm run ingest -- --provider=eastmoney --scope=qdii --force      # ignore freshness
+npm run ingest -- --provider=ishares --probe                     # diagnose a source
 ```
 
 In a container:
@@ -52,6 +53,29 @@ docker compose exec app node dist/server/funds/ingest-cli.js \
 | `--skip-universe` | off | Skip the universe step — for a known list of codes |
 | `--dry-run` | off | Print the counts the dashboard would show, spending no requests |
 | `--force` | off | Ignore freshness watermarks and refetch |
+| `--probe` | off | Make one request per provider step and print what came back, writing nothing |
+
+### Diagnosing a provider that caches nothing
+
+`--probe` makes the same four calls a run makes — listing, profile, holdings,
+NAV — against a single fund, stores nothing, and prints what each returned or
+how it failed:
+
+```bash
+npm run ingest -- --provider=ishares --probe
+npm run ingest -- --provider=ishares --probe --codes=IVV   # a fund of your choosing
+```
+
+Reach for it first when a provider's coverage stays at zero. The pipeline is
+built to absorb per-fund failures so a run of thousands survives one dead fund,
+and the parsers answer an unreadable response with an empty list — between them
+they can turn a blocked endpoint into a source that merely looks empty. The
+probe removes that tolerance for one fund, and exits non-zero if any step fails.
+
+The Fund Cache page reports the other half: each provider card shows when its
+fund index last loaded and the error if the listing failed, which is why a
+provider showing zero funds is never ambiguous between "never synced" and
+"cannot be reached".
 
 ### Scopes
 

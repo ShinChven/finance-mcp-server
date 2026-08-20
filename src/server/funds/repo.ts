@@ -7,7 +7,7 @@
  */
 
 import { and, asc, desc, eq, gte, inArray, lte, or, sql, type SQL } from "drizzle-orm";
-import type { ProviderId } from "../../shared/funds.js";
+import { normalizeFundCode, type ProviderId } from "../../shared/funds.js";
 import type { db as Database } from "../db/index.js";
 import {
   fundExposure,
@@ -160,7 +160,14 @@ export function createFundRepo(db: Db): FundRepo {
 
   return {
     async getFund(code) {
-      const [row] = await db.select().from(funds).where(eq(funds.code, code)).limit(1);
+      // Normalized here rather than at each call site: this is the lookup every
+      // fund tool starts from, and a listing ticker typed in lower case is the
+      // ordinary case, not a malformed one.
+      const [row] = await db
+        .select()
+        .from(funds)
+        .where(eq(funds.code, normalizeFundCode(code)))
+        .limit(1);
       return row ?? null;
     },
 

@@ -19,6 +19,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import {
   isProviderScope,
+  normalizeFundCode,
   previewQuerySchema,
   PROVIDER_IDS,
   PROVIDERS,
@@ -26,7 +27,7 @@ import {
   syncBodySchema,
 } from "../../shared/funds.js";
 import { db } from "../db/index.js";
-import { fundHoldings, funds, ingestJobs, instruments } from "../db/schema.js";
+import { fundHoldings, fundIndexState, funds, ingestJobs, instruments } from "../db/schema.js";
 import { previewSync } from "../funds/ingest.js";
 import { refreshAllFundIndexes } from "../funds/universe.js";
 import { activeJobId, cancelJob, JobInProgressError, startJob } from "../funds/jobs.js";
@@ -79,6 +80,16 @@ export const fundRoutes = new Hono<AppEnv>()
       })
       .from(fundHoldings);
 
+    // The index watermarks, keyed by provider. Reported next to the coverage
+    // counts because a provider showing zero funds has two very different
+    // causes — nobody has run a sync, or its listing is failing — and only this
+    // row can tell them apart. Without it a blocked screener presented as an
+    // empty lineup, which is how "caching iShares ETFs never worked" looked
+    // from the console: a page of zeros and no error anywhere.
+    const indexStates = new Map(
+      (await db.select().from(fundIndexState)).map((row) => [row.provider, row]),
+    );
+
     const providers = [];
     for (const id of PROVIDER_IDS) {
       const provider = getProvider(id);
@@ -98,6 +109,7 @@ export const fundRoutes = new Hono<AppEnv>()
         byScope[scope.id] = { total: scopeRow?.total ?? 0, cached: scopeRow?.cached ?? 0 };
       }
 
+      const indexState = indexStates.get(id);
       providers.push({
         id,
         label: PROVIDERS[id].label,
@@ -107,6 +119,11 @@ export const fundRoutes = new Hono<AppEnv>()
         cached: row?.cached ?? 0,
         failing: row?.failing ?? 0,
         byScope,
+        index: {
+          funds: indexState?.fundCount ?? 0,
+          syncedAt: indexState?.syncedAt ?? null,
+          lastError: indexState?.lastError ?? null,
+        },
       });
     }
 
@@ -235,7 +252,7 @@ export const fundRoutes = new Hono<AppEnv>()
    * follows from the fund row, so this route stays provider-agnostic.
    */
   .post("/:code/cache", async (c) => {
-    const result = await fundCache.ensure(c.req.param("code"));
+    const result = await fundCache.ensure(normalizeFundCode(c.req.param("code")));
     // "unknown" is the caller's mistake; "busy" is ours, temporarily.
     const status = result.status === "unknown" ? 404 : result.status === "busy" ? 429 : 200;
     return c.json(result, status);
@@ -243,7 +260,9 @@ export const fundRoutes = new Hono<AppEnv>()
 
   /** The cached portfolio for one fund — the drill-down behind a list row. */
   .get("/:code/holdings", async (c) => {
-    const code = c.req.param("code");
+    // A listing ticker is stored upper case, and a path segment is whatever the
+    // caller typed — matching them raw is how a real fund reads as missing.
+    const code = normalizeFundCode(c.req.param("code"));
     const [fund] = await db.select().from(funds).where(eq(funds.code, code)).limit(1);
     if (!fund) return c.json({ error: "fund not found" }, 404);
 

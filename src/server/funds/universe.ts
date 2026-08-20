@@ -83,6 +83,38 @@ export async function refreshFundIndex(
 }
 
 /**
+ * Fill in the indexes that hold nothing, for a caller that just failed to find
+ * a fund.
+ *
+ * A code that matches no fund row has two very different explanations: it is
+ * not a real fund, or nobody has ever successfully loaded the index it would be
+ * in. Only the second is worth acting on, and it is distinguishable without an
+ * upstream request — an index that has never landed has no watermark row, or a
+ * row saying it holds nothing. Providers whose index did load are left alone,
+ * so a typo costs one cheap local query.
+ *
+ * Freshness still applies, so this cannot become a per-request listing storm:
+ * a provider whose last attempt failed is retried (its watermark deliberately
+ * did not advance), and one that simply has not been asked yet is filled.
+ */
+export async function seedEmptyFundIndexes(
+  db: Db,
+  options: { now?: number } = {},
+): Promise<IndexRefresh[]> {
+  const states = await db.select().from(fundIndexState);
+  const loaded = new Set(
+    states.filter((state) => state.fundCount > 0).map((state) => state.provider),
+  );
+  const missing = PROVIDER_IDS.filter((provider) => !loaded.has(provider));
+
+  const results: IndexRefresh[] = [];
+  for (const provider of missing) {
+    results.push(await refreshFundIndex(db, provider, options));
+  }
+  return results;
+}
+
+/**
  * Refresh every provider's index, one at a time.
  *
  * Sequential on purpose: each provider throttles its own upstream, but there is

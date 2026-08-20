@@ -67,12 +67,19 @@ export async function ensureNav(
  */
 export function cacheNote(result: EnsureResult | null): string | undefined {
   if (result === null || result.status === "fresh") return undefined;
-  const base = `Cached on demand for this request (${result.fetched.join(", ")}).`;
+  const base =
+    result.fetched.length === 0
+      ? "Nothing could be cached for this request."
+      : `Cached on demand for this request (${result.fetched.join(", ")}).`;
+  const parts = [base];
+  // A step that failed is the likeliest explanation for a thin answer, so it
+  // travels with the answer rather than only into the server's error column.
+  if (result.error !== undefined) parts.push(`Some of it failed: ${result.error}.`);
   if (result.unclassified > 0) {
-    return (
-      `${base} ${result.unclassified} holdings were not classified before the time limit, ` +
-      `so coverage understates this fund until the next sync.`
+    parts.push(
+      `${result.unclassified} holdings were not classified before the time limit, ` +
+        `so coverage understates this fund until the next sync.`,
     );
   }
-  return base;
+  return parts.join(" ");
 }

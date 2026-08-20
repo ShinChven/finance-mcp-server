@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { PROVIDERS } from "../../shared/funds.js";
 import type { db as Database } from "../db/index.js";
-import { ingestFundDetails } from "./ingest.js";
+import { ingestFundDetails, ingestFundUniverse } from "./ingest.js";
 import type { FundDetails, FundProvider } from "./provider.js";
 
 /**
@@ -101,5 +101,21 @@ describe("ingestFundDetails", () => {
     expect(writes).toHaveLength(0);
     expect(summary.fundDetailsUpserted).toBe(0);
     expect(summary.errors).toEqual(["details 513100: 503"]);
+  });
+});
+
+describe("ingestFundUniverse", () => {
+  it("refuses to record an empty listing as a loaded index", async () => {
+    // No provider publishes zero funds, so an empty list is a block or a
+    // format change. Stored as a success it wrote "0 funds, no error, synced
+    // just now", which then answered every request for one of that provider's
+    // funds with "not in the fund universe index" for a full day — the exact
+    // shape of "caching iShares ETFs never worked".
+    const { db, writes } = fakeDb();
+
+    await expect(ingestFundUniverse(db, fakeProvider(details()))).rejects.toThrow(
+      /empty fund index/,
+    );
+    expect(writes).toHaveLength(0);
   });
 });

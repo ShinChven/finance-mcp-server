@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("./ingest.js", () => ({ ingestFundUniverse: mocks.ingestFundUniverse }));
 vi.mock("./providers/index.js", () => ({ getProvider: (id: string) => ({ id }) }));
 
-const { refreshFundIndex } = await import("./universe.js");
+const { refreshFundIndex, seedEmptyFundIndexes } = await import("./universe.js");
 
 const NOW = Date.parse("2026-08-19T12:00:00Z");
 
@@ -118,5 +118,55 @@ describe("refreshFundIndex", () => {
 
     expect(result.funds).toBe(0);
     expect(writes[0]).toMatchObject({ syncedAt: new Date(0), lastError: "dns" });
+  });
+});
+
+/** Serves the whole `fund_index_state` table for the seeding check. */
+function fakeTable(rows: FundIndexState[]) {
+  const db = {
+    select: () => {
+      const result = Promise.resolve(rows) as Promise<FundIndexState[]> & {
+        from: () => typeof result;
+        where: () => { limit: () => Promise<FundIndexState[]> };
+      };
+      result.from = () => result;
+      result.where = () => ({
+        limit: async () => rows.filter((row) => row.provider === "ishares"),
+      });
+      return result;
+    },
+    insert: () => ({
+      values: () => ({ onConflictDoUpdate: async () => undefined }),
+    }),
+  } as unknown as typeof Database;
+  return db;
+}
+
+describe("seedEmptyFundIndexes", () => {
+  it("loads an index nobody has ever managed to fetch", async () => {
+    // The state a fund lookup cannot tell from a bad code: iShares has a
+    // watermark row saying it holds nothing, so the answer to "cache IVV" was
+    // "no such fund" forever.
+    mocks.ingestFundUniverse.mockClear();
+    const db = fakeTable([
+      state({ provider: "eastmoney", fundCount: 27_000 }),
+      state({ provider: "ishares", fundCount: 0, syncedAt: new Date(0) }),
+    ]);
+
+    const results = await seedEmptyFundIndexes(db, { now: NOW });
+
+    expect(results.map((result) => result.provider)).toEqual(["ishares"]);
+    expect(mocks.ingestFundUniverse).toHaveBeenCalledOnce();
+  });
+
+  it("does nothing when every index has funds in it", async () => {
+    mocks.ingestFundUniverse.mockClear();
+    const db = fakeTable([
+      state({ provider: "eastmoney", fundCount: 27_000 }),
+      state({ provider: "ishares", fundCount: 412 }),
+    ]);
+
+    expect(await seedEmptyFundIndexes(db, { now: NOW })).toEqual([]);
+    expect(mocks.ingestFundUniverse).not.toHaveBeenCalled();
   });
 });

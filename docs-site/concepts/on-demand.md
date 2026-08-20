@@ -31,6 +31,22 @@ Refreshing genuinely stale data is the ingest run's job, not the request path's.
 Past **8 pending fetches**, callers are refused with a clear message rather than
 silently enqueuing an hour of scraping.
 
+## A failed fetch is reported as failed
+
+The ingest steps collect per-fund failures rather than throwing, which is right
+for a batch run and wrong for a caller waiting on one fund. So this path reads
+back the watermarks each step writes and reports only what actually landed: a
+fund whose upstream was blocked comes back `failed`, carrying the reason, rather
+than `cached` with an empty portfolio behind it. The reason is also written to
+the fund's `last_sync_error`, so the console's **failing** filter sees on-demand
+failures and not only batch ones.
+
+A code that matches no fund has one more chance before it is called unknown: if
+a provider's index has never successfully loaded, it is loaded now and the
+lookup retried — throttled, so a typo cannot trigger a listing call each time it
+is retried. The previous answer sent people to run a universe refresh, which was
+the very thing that had been failing.
+
 ## Classification runs against a deadline
 
 Sector classification runs to a deadline rather than to completion, so a first

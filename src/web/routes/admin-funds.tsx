@@ -362,7 +362,20 @@ function ProviderCategories({
         <span className="text-xs text-zinc-400">
           {provider.completeness === "full" ? "full portfolio" : "top holdings only"}
         </span>
+        <span className="text-xs text-zinc-400" title={formatDate(provider.index.syncedAt)}>
+          index: {provider.index.funds.toLocaleString()} funds
+          {provider.index.syncedAt === null ? "" : `, ${formatRelative(provider.index.syncedAt)}`}
+        </span>
       </div>
+      {/* The listing is what every count on this card is a count of, so its
+          failure belongs here rather than in a log: a provider whose screener
+          is blocked otherwise reads as a source with nothing in it, and the
+          category buttons below quietly cache nothing forever. */}
+      {provider.index.lastError !== null && (
+        <p className="mb-2 rounded-lg bg-red-50 p-2 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-400">
+          Fund index refresh failed: {provider.index.lastError}
+        </p>
+      )}
       <div className="grid gap-2 sm:grid-cols-2">
         {selectableScopes(provider.id).map((scope) => {
           const coverage = provider.byScope[scope.id];

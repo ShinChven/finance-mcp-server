@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   lookupVenue,
-  parseAsOfDate,
-  parseHoldingsCsv,
+  parseHoldingsPayload,
   parseProductScreener,
   readIsin,
-  splitCsvLine,
   totalDrops,
+  ymdToIso,
 } from "./parse.js";
 
 /**
@@ -71,47 +70,118 @@ describe("parseProductScreener", () => {
     expect(parseProductScreener("<html>maintenance</html>")).toEqual([]);
     expect(parseProductScreener(null)).toEqual([]);
   });
-});
 
-describe("splitCsvLine", () => {
-  it("honours quoted commas and doubled quotes", () => {
-    expect(splitCsvLine('AAPL,"Apple, Inc.",5.12')).toEqual(["AAPL", "Apple, Inc.", "5.12"]);
-    expect(splitCsvLine('X,"He said ""hi""",1')).toEqual(["X", 'He said "hi"', "1"]);
+  it("survives a byte-order mark", () => {
+    // Served UTF-8 with a BOM, `JSON.parse` throws on the first character and
+    // the whole lineup reads as empty — which the pipeline stored as an index
+    // holding no funds.
+    expect(parseProductScreener(`\uFEFF${SCREENER}`)).toHaveLength(2);
+  });
+
+  it("finds the rows when the payload is wrapped or listed", () => {
+    // Recognized by their fields rather than by where they sit, so a container
+    // key or an array is read instead of counted as "no funds published".
+    const rows = JSON.parse(SCREENER) as Record<string, unknown>;
+    expect(parseProductScreener(JSON.stringify({ data: rows }))).toHaveLength(2);
+    expect(parseProductScreener(JSON.stringify(Object.values(rows)))).toHaveLength(2);
+  });
+
+  it("skips a sibling key that is not a product", () => {
+    const rows = JSON.parse(SCREENER) as Record<string, unknown>;
+    const withConfig = { config: { columns: ["fundName"] }, ...rows };
+    expect(parseProductScreener(JSON.stringify(withConfig))).toHaveLength(2);
   });
 });
 
-describe("parseAsOfDate", () => {
-  it("reads the formats the preamble uses", () => {
-    expect(parseAsOfDate('"Aug 15, 2026"')).toBe("2026-08-15");
-    expect(parseAsOfDate("2026-08-15")).toBe("2026-08-15");
-    expect(parseAsOfDate("not a date")).toBeNull();
+describe("ymdToIso", () => {
+  it("reads the payload's date form", () => {
+    expect(ymdToIso(20260815)).toBe("2026-08-15");
+    expect(ymdToIso("20260815")).toBe("2026-08-15");
+    expect(ymdToIso("-")).toBeNull();
+    expect(ymdToIso("not a date")).toBeNull();
   });
 });
 
-const HOLDINGS_CSV = `iShares Core S&P 500 ETF
-Fund Holdings as of,"Aug 15, 2026"
-Inception Date,"May 15, 2000"
-Shares Outstanding,"1,000,000,000.00"
- 
-Ticker,Name,Sector,Asset Class,Market Value,Weight (%),Shares,Price,Location,Exchange,Currency,ISIN
-NVDA,NVIDIA CORP,Information Technology,Equity,"41,000,000,000.00",7.45,"200,000,000.00",205.00,United States,NASDAQ,USD,US67066G1040
-AAPL,"APPLE INC, CLASS A",Information Technology,Equity,"33,000,000,000.00",6.02,"140,000,000.00",235.00,United States,New York Stock Exchange Inc.,USD,US0378331005
-BRK.B,BERKSHIRE HATHAWAY INC CLASS B,Financials,Equity,"9,000,000,000.00",1.64,"20,000,000.00",450.00,United States,New York Stock Exchange Inc.,USD,US0846707026
-0700,TENCENT HOLDINGS LTD,Communication,Equity,"1,000,000,000.00",0.18,"20,000,000.00",50.00,China,Hong Kong Exchanges And Clearing Ltd,HKD,KYG875721634
-7203,TOYOTA MOTOR CORP,Consumer Discretionary,Equity,"900,000,000.00",0.16,"30,000,000.00",30.00,Japan,Tokyo Stock Exchange,JPY,JP3633400001
-035720,KAKAO CORP,Communication,Equity,"200,000,000.00",0.04,"1,000,000.00",40.00,Korea,Korea Exchange (KOSDAQ),KRW,KR7035720002
-6758,SONY GROUP CORP,Consumer Discretionary,Equity,"300,000,000.00",0.05,"2,000,000.00",25.00,Japan,Nasdaq Stockholm,SEK,
-XTSLA,BLK CSH FND TREASURY SL AGENCY,Cash and/or Derivatives,Cash and/or Derivatives,"500,000,000.00",0.09,"500,000,000.00",1.00,United States,-,USD,
-QQQQ,ORDINARY SHARES ON AN UNSAID BOARD,Industrials,Equity,"50,000,000.00",0.01,"500,000.00",100.00,Korea,Korea Exchange,KRW,
-ZZZZ,SOMETHING ON A NEW VENUE,Industrials,Equity,"100,000,000.00",0.02,"1,000,000.00",100.00,Nowhere,Interstellar Exchange,USD,
- 
-The performance quoted represents past performance and does not guarantee future results.
-`;
+/**
+ * A `holdings.all` payload the way the live plane sends one: columnar, with the
+ * `i`th element of every column making up row `i`, and `"-"` where a fund has
+ * no value for a field.
+ */
+function holdingsPayload(overrides: Record<string, unknown[]> = {}) {
+  const columns: Record<string, unknown[]> = {
+    issueName: [
+      "NVIDIA CORP",
+      "APPLE INC, CLASS A",
+      "BERKSHIRE HATHAWAY INC CLASS B",
+      "TENCENT HOLDINGS LTD",
+      "TOYOTA MOTOR CORP",
+      "KAKAO CORP",
+      "SONY GROUP CORP",
+      "BLK CSH FND TREASURY SL AGENCY",
+      "ORDINARY SHARES ON AN UNSAID BOARD",
+      "SOMETHING ON A NEW VENUE",
+    ],
+    ticker: ["NVDA", "AAPL", "BRK.B", "0700", "7203", "035720", "6758", "XTSLA", "QQQQ", "ZZZZ"],
+    assetClass: [
+      "Equity",
+      "Equity",
+      "Equity",
+      "Equity",
+      "Equity",
+      "Equity",
+      "Equity",
+      "Cash and/or Derivatives",
+      "Equity",
+      "Equity",
+    ],
+    exchange: [
+      "NASDAQ",
+      "New York Stock Exchange Inc.",
+      "New York Stock Exchange Inc.",
+      "Hong Kong Exchanges And Clearing Ltd",
+      "Tokyo Stock Exchange",
+      "Korea Exchange (KOSDAQ)",
+      "Nasdaq Stockholm",
+      "-",
+      "Korea Exchange",
+      "Interstellar Exchange",
+    ],
+    isin: [
+      "US67066G1040",
+      "US0378331005",
+      "US0846707026",
+      "KYG875721634",
+      "JP3633400001",
+      "KR7035720002",
+      "-",
+      "-",
+      "-",
+      "-",
+    ],
+    holdingPercent: [7.45, 6.02, 1.64, 0.18, 0.16, 0.04, 0.05, 0.09, 0.01, 0.02],
+    ...overrides,
+  };
+  return {
+    fundName: "iShares Core S&P 500 ETF",
+    componentsByNameMap: {
+      holdings: {
+        containersByNameMap: {
+          all: {
+            dataPointsByNameMap: Object.fromEntries([
+              ...Object.entries(columns).map(([name, value]) => [name, { value }]),
+              ["asOfDate", { value: 20260815 }],
+            ]),
+          },
+        },
+      },
+    },
+  };
+}
 
-describe("parseHoldingsCsv", () => {
-  const result = parseHoldingsCsv(HOLDINGS_CSV, "2026-01-01");
+describe("parseHoldingsPayload", () => {
+  const result = parseHoldingsPayload(holdingsPayload(), "2026-01-01");
 
-  it("takes the report date from the preamble rather than the fallback", () => {
+  it("takes the report date from the payload rather than the fallback", () => {
     expect(result.asOf).toBe("2026-08-15");
     expect(result.entries[0]?.reportDate).toBe("2026-08-15");
   });
@@ -130,16 +200,16 @@ describe("parseHoldingsCsv", () => {
     expect(result.entries.find((entry) => entry.symbol === "NVDA")?.weight).toBeCloseTo(7.45);
   });
 
-  it("reads a quoted name containing a comma", () => {
+  it("reads a name containing a comma", () => {
     expect(result.entries.find((entry) => entry.symbol === "AAPL")?.name).toBe(
       "APPLE INC, CLASS A",
     );
   });
 
   it("excludes cash rows without counting them as drops", () => {
-    // A holdings file always carries cash and derivative lines. Counting them
-    // as parse failures would make the drop alarm permanently loud, and the
-    // one genuine failure below invisible.
+    // A holdings payload always carries cash and derivative lines. Counting
+    // them as parse failures would make the drop alarm permanently loud, and
+    // the one genuine failure below invisible.
     expect(result.stats.excluded).toBe(1);
     expect(result.entries.some((entry) => entry.symbol.startsWith("XTSLA"))).toBe(false);
   });
@@ -172,35 +242,71 @@ describe("parseHoldingsCsv", () => {
   });
 
   it("spells a US share class the way Yahoo does", () => {
-    // `BRK.B` in the file, `BRK-B` on Yahoo. Left alone it is not wrong so much
-    // as absent: an instrument row nothing can ever classify.
+    // `BRK.B` upstream, `BRK-B` on Yahoo. Left alone it is not wrong so much as
+    // absent: an instrument row nothing can ever classify.
     expect(result.entries.some((entry) => entry.symbol === "BRK-B")).toBe(true);
   });
 
-  it("keeps the ISIN when the file carries one", () => {
+  it("keeps the ISIN when the payload carries one", () => {
     expect(result.entries.find((entry) => entry.symbol === "NVDA")?.isin).toBe("US67066G1040");
-    // Absent, malformed or empty ISINs are simply not set.
+    // The `"-"` sentinel is not an ISIN; absent and malformed ones stay unset.
     expect(result.entries.find((entry) => entry.symbol === "6758.ST")?.isin).toBeUndefined();
   });
 
-  it("returns nothing when the header row is absent", () => {
-    // An error page or a redirect must not be read as an empty portfolio with
-    // a straight face — but it must not throw either, or one bad fund kills
-    // the run.
-    const empty = parseHoldingsCsv("<html>Access Denied</html>", "2026-01-01");
-    expect(empty.entries).toEqual([]);
-    expect(totalDrops(empty.stats)).toBe(0);
-  });
-
   it("folds a dual-listed name into one position", () => {
-    const csv = HOLDINGS_CSV.replace(
-      "ZZZZ,SOMETHING ON A NEW VENUE,Industrials,Equity,\"100,000,000.00\",0.02,\"1,000,000.00\",100.00,Nowhere,Interstellar Exchange,USD",
-      "NVDA,NVIDIA CORP,Information Technology,Equity,\"1,000,000.00\",0.55,\"1,000,000.00\",100.00,United States,NASDAQ,USD",
+    const folded = parseHoldingsPayload(
+      holdingsPayload({
+        ticker: ["NVDA", "AAPL", "BRK.B", "0700", "7203", "035720", "6758", "XTSLA", "QQQQ", "NVDA"],
+        exchange: [
+          "NASDAQ",
+          "New York Stock Exchange Inc.",
+          "New York Stock Exchange Inc.",
+          "Hong Kong Exchanges And Clearing Ltd",
+          "Tokyo Stock Exchange",
+          "Korea Exchange (KOSDAQ)",
+          "Nasdaq Stockholm",
+          "-",
+          "Korea Exchange",
+          "NASDAQ",
+        ],
+        holdingPercent: [7.45, 6.02, 1.64, 0.18, 0.16, 0.04, 0.05, 0.09, 0.01, 0.55],
+      }),
+      "2026-01-01",
     );
-    const folded = parseHoldingsCsv(csv, "2026-01-01");
     const nvda = folded.entries.filter((entry) => entry.symbol === "NVDA");
     expect(nvda).toHaveLength(1);
     expect(nvda[0]?.weight).toBeCloseTo(8.0);
+  });
+
+  it("counts rows off the columns every fund has, not the bond-only ones", () => {
+    // An equity fund carries no `couponRate`; sizing the book by a column it
+    // does not have would read a full portfolio as empty.
+    const equityOnly = parseHoldingsPayload(holdingsPayload(), "2026-01-01");
+    expect(equityOnly.entries.length).toBeGreaterThan(5);
+  });
+
+  it("separates a payload that is not the holdings component from an empty book", () => {
+    // An unknown component answers with an empty map, and a redirect or error
+    // envelope carries no components at all. Neither is "this fund holds
+    // nothing" — which is a real answer, with columns of length zero.
+    const missing = parseHoldingsPayload({ componentsByNameMap: {} }, "2026-01-01");
+    expect(missing.holdingsFound).toBe(false);
+    expect(missing.entries).toEqual([]);
+
+    const emptyBook = parseHoldingsPayload(
+      holdingsPayload({
+        issueName: [],
+        ticker: [],
+        assetClass: [],
+        exchange: [],
+        isin: [],
+        holdingPercent: [],
+      }),
+      "2026-01-01",
+    );
+    expect(emptyBook.holdingsFound).toBe(true);
+    expect(emptyBook.entries).toEqual([]);
+    expect(totalDrops(emptyBook.stats)).toBe(0);
   });
 });
 
@@ -228,8 +334,17 @@ describe("lookupVenue", () => {
     // means the table needs a new rule.
     expect(lookupVenue("Korea Exchange")).toEqual({ kind: "ambiguous" });
     expect(lookupVenue("Interstellar Exchange")).toEqual({ kind: "unknown" });
-    expect(lookupVenue("-")).toEqual({ kind: "unknown" });
     expect(lookupVenue(undefined)).toEqual({ kind: "unknown" });
+  });
+
+  it("reads the source saying a line trades nowhere as an exclusion", () => {
+    // Rights, when-issued lines and derived entries are labelled this way and
+    // are not positions in a listed instrument. Counting them as drift would
+    // put a non-zero drop count on nearly every US fund, which is how a drop
+    // count stops meaning anything.
+    expect(lookupVenue("-")).toEqual({ kind: "none" });
+    expect(lookupVenue("No Market (Derived Other)")).toEqual({ kind: "none" });
+    expect(lookupVenue("Non-Nms Quotation Service (Nnqs)")).toEqual({ kind: "none" });
   });
 });
 

@@ -88,6 +88,19 @@ export async function ingestFundUniverse(
   summary: IngestSummary = emptySummary(),
 ): Promise<IngestSummary> {
   const list = await provider.listUniverse();
+  // An empty listing is never a real answer — every provider publishes funds —
+  // so it is a parse or a block, and the one thing it must not do is buy itself
+  // a freshness window. Written as a success it left `fund_index_state` saying
+  // "0 funds, no error, synced just now", and for the next day every request
+  // for one of that provider's funds was answered "not in the fund index" while
+  // the console showed a healthy refresh. Throwing hands it to
+  // `refreshFundIndex`, which records the reason and leaves the watermark where
+  // it was.
+  if (list.length === 0) {
+    throw new Error(
+      `${provider.id} returned an empty fund index — the listing was blocked or its format changed.`,
+    );
+  }
   const { domicile, currency, completeness } = provider.descriptor;
 
   await chunked(list, 500, async (batch) => {

@@ -339,7 +339,15 @@ npm run ingest -- --provider=eastmoney --scope=index --dry-run  # counts only
 npm run ingest -- --provider=eastmoney --codes=162411,270042
 npm run ingest -- --provider=ishares --codes=IVV --skip-universe
 npm run ingest -- --provider=eastmoney --scope=qdii --force     # ignore freshness
+npm run ingest -- --provider=ishares --probe                    # diagnose a source
 ```
+
+**`--probe` is the first thing to run when a provider caches nothing.** It makes
+the same four calls the ingest does — listing, profile, holdings, NAV — against
+one fund, writes nothing, and prints what each returned or how it failed. The
+pipeline is deliberately tolerant (a fund that fails is collected into a summary
+so a run of thousands survives it), and that tolerance is what hides a blocked
+endpoint or a changed response format; the probe removes it.
 
 The job runs six steps: fund universe → per-fund profile detail → holdings →
 NAV history → instrument enrichment from Yahoo → recomputed exposure. The first
@@ -446,6 +454,29 @@ are marked failed at boot rather than appearing stuck forever.
 > verified against live responses. All shape knowledge is isolated in
 > each provider's `parse.ts` as pure functions with fixture-based tests, so a
 > format change is a fixture-plus-parser fix that touches nothing else.
+
+**iShares holdings come from the product page's own API.** The screener
+(`product-screener-v3.1.jsn`) is unchanged and still lists the whole US lineup
+in one request, but the per-fund holdings CSV at
+`…/<product page>/1467271812596.ajax?fileType=csv` is retired: it now answers
+with the product page's HTML — labelled `text/csv`, so the content type does not
+give it away — or a 404, or a redirect to the closed-funds page. Holdings are
+read from `get-product-data` (`component=holdings.all`, keyed by portfolio id)
+instead, which is what the product page itself calls. Both planes are keyless;
+the only requirement is a browser-like `User-Agent`, without which iShares
+serves an interstitial page rather than data.
+
+**When a source fails, it says so rather than reading as empty.** The parsers
+answer an unreadable payload with an empty list — right for a pure function, and
+dangerous one layer up, where "no funds" is a statement no real provider makes.
+So each fetch layer raises what its parser cannot: an HTML challenge page, a
+screener that yields no products, a holdings download with no positions table. A
+listing that returns nothing never records as a loaded index — it leaves the
+error on `fund_index_state` and the previous watermark in place, so the next
+attempt is immediate and the Fund Cache page shows the reason next to the
+provider's counts. On-demand fetches report the same way: a fund whose upstream
+failed comes back `failed` with the reason, not `cached` with an empty
+portfolio.
 
 The theme crosswalk in `src/server/funds/crosswalk.ts` is the one piece that
 cannot be scraped — it maps a theme onto Eastmoney board names, Yahoo GICS
