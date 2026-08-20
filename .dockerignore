@@ -1,0 +1,29 @@
+# The build needs package.json, package-lock.json, src/, scripts/, drizzle/,
+# vite.config.ts and tsconfig.json. Everything below is either rebuilt inside
+# the image, secret, or documentation that has no business in a runtime layer.
+.git
+.github
+.gitignore
+.gitattributes
+node_modules
+dist
+coverage
+.env
+.env.*
+!.env.example
+*.log
+npm-debug.log*
+.DS_Store
+.vscode
+.idea
+.claude
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.ghcr.yml
+docs/
+docs-site/
+README.md
+CLAUDE.md
+AGENTS.md
+GEMINI.md

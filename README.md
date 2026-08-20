@@ -10,6 +10,10 @@ authorization server.
 Drizzle ORM · PostgreSQL · TypeScript. One process serves everything — in dev,
 Hono runs inside the Vite dev server; in production, Hono serves the built SPA.
 
+**Documentation:** <https://shinchven.github.io/finance-mcp-server/> — built from
+[`docs-site/`](docs-site/) with VitePress and deployed to GitHub Pages on every
+push to `main`.
+
 ## Features
 
 - **Google sign-in only** — no passwords. Access is invitation-only: admins invite
@@ -72,8 +76,22 @@ share one port, so a single `APP_URL` and one registered redirect URI cover both
 
 ```sh
 cp .env.example .env   # set SESSION_SECRET, Google credentials, ADMIN_EMAILS, APP_URL
-docker compose up -d   # app + PostgreSQL 17 with a persistent volume
+docker compose up -d   # build from source: app + PostgreSQL 17, persistent volume
 ```
+
+Or run the published image instead of building it:
+
+```sh
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+`docker-compose.ghcr.yml` defaults to
+`ghcr.io/shinchven/finance-mcp-server:latest`, which tracks `main`; pin a release
+with `APP_IMAGE=ghcr.io/shinchven/finance-mcp-server:0.1.0` in `.env`. CI builds
+multi-arch (`linux/amd64`, `linux/arm64`) images on every push to `main` and
+publishes SemVer tags plus a GitHub Release for every `v*` tag — see
+[`.github/workflows/docker.yml`](.github/workflows/docker.yml).
 
 The image is a multi-stage build (`node:24-alpine`, non-root, healthcheck on
 `/healthz`). The server waits for Postgres and applies migrations before
@@ -450,9 +468,14 @@ or summary modules.
 | `npm run typecheck` · `npm run lint` · `npm run test` | Checks (run in CI) |
 | `node scripts/smoke.mjs` | End-to-end smoke test against a running dev server |
 | `npm run db:generate` | Generate a migration after editing `src/server/db/schema.ts` |
+| `npm run docs:install` / `docs:dev` / `docs:build` | The VitePress site in `docs-site/` |
 
 ## Architecture
 
 See [`docs/PLAN.md`](docs/PLAN.md) for the full design and [`CLAUDE.md`](CLAUDE.md)
 for project conventions (notably: URL search params are the source of truth for
 all page-level UI state).
+
+The [documentation site](https://shinchven.github.io/finance-mcp-server/) covers
+deployment, configuration, every tool group and the fund pipeline in more depth;
+its sources are in [`docs-site/`](docs-site/README.md).

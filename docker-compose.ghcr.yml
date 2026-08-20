@@ -1,9 +1,17 @@
+# Deploy the image published to GHCR instead of building from source.
+#
+#   docker compose -f docker-compose.ghcr.yml pull
+#   docker compose -f docker-compose.ghcr.yml up -d
+#
+# APP_IMAGE defaults to :latest, which tracks the default branch. Pin a release
+# tag in .env for a stable deployment:
+#   APP_IMAGE=ghcr.io/shinchven/finance-mcp-server:0.1.0
 services:
   app:
-    build: .
+    image: ${APP_IMAGE:-ghcr.io/shinchven/finance-mcp-server:latest}
     restart: unless-stopped
     ports:
-      - "5173:5173"
+      - "${PORT:-5173}:5173"
     environment:
       PORT: 5173
       APP_URL: ${APP_URL:-http://localhost:5173}
