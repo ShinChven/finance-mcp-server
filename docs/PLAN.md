@@ -112,6 +112,26 @@ partially-classified holdings is a materially weaker claim than fully-classified
 exposure, and a schema that cannot express the difference forces the tools to
 present both identically.
 
+Notes (written by both the MCP tools and the dashboard, one user's rows either way):
+- **note_collections** — id, user_id, name (unique per user, case-insensitive),
+  description, created_at, updated_at
+- **notes** — id, user_id, collection_id (nullable = unfiled, `ON DELETE SET NULL`),
+  title, **summary**, body, status (`active`|`archived`), source (`agent`|`web`),
+  source_ref, pinned, created_at, updated_at, **search_vector** (generated
+  `tsvector`, GIN-indexed: title weighted A, summary B, body C, `simple` config)
+- **note_tags** — note_id, tag (normalized lowercase-hyphenated); unique per note,
+  indexed on tag for the reverse lookup
+- **note_symbols** — note_id, kind (`symbol`|`fund`, the watchlist vocabulary),
+  ref; unique per note, indexed on ref
+
+`summary` is a first-class column rather than a slice of the body because it is
+what every listing returns: an agent scans summaries and reads only the bodies
+that matter, which is the difference between a notes feature that fits in a
+context window and one that does not. Tags and symbols are normalized into their
+own tables because both are filters, and a filter over a JSON array is a
+sequential scan. The vector is generated rather than maintained in application
+code, so a note edited on the dashboard is searchable by the tools immediately.
+
 Lifecycle semantics (tokens and grants alike):
 - **Disable/enable** — reversible; token stays valid data but is rejected while disabled.
 - **Revoke** — permanent; row kept for audit/history, can never authenticate again.
@@ -132,6 +152,7 @@ Lifecycle semantics (tokens and grants alike):
 | `/clients` | OAuth clients that have a grant from this user; disable/revoke/delete, last access | `?q=&status=&page=` |
 | `/assistant` | Built-in chat assistant (Anthropic / OpenAI / Gemini via env keys); streaming, per-user persisted conversations | `?c=<conversation>&q=` |
 | `/tools` | Browse the built-in MCP tools: description, annotations, parameter schemas | `?q=&tool=` |
+| `/notes` | Notes: collections, tag/symbol facets, search, markdown editor | `?q=&collection=&tag=&symbol=&status=&sort=&page=&note=` |
 | `/settings` | Account name, preferences | `?tab=profile\|preferences` |
 | `/admin/users` | Admin: list/create users, enable/disable, role | `?q=&status=&role=&page=&sort=` |
 | `/admin/clients` | Admin: all registered OAuth clients | `?q=&status=&page=` |
@@ -150,6 +171,11 @@ auth guards via loader redirects, error boundaries, toast notifications.
 - `GET /api/tools` — MCP tool catalog (accepts `q`), produced by running
   `tools/list` against a metadata-only MCP server so it never drifts from the
   real registrations
+- `GET|POST /api/notes`, `GET|PATCH|DELETE /api/notes/:id`, `GET /api/notes/facets`;
+  `GET|POST /api/note-collections`, `PATCH|DELETE /api/note-collections/:id`.
+  The list endpoint takes `q`, `collection`, `tag`, `symbol`, `status`, `pinned`,
+  `sort`, `page`, `per_page` — the page's search params 1:1 — and returns
+  summaries and snippets, never bodies.
 - Admin: `GET|POST /api/admin/users`, `PATCH /api/admin/users/:id`,
   `GET /api/admin/clients`, `PATCH /api/admin/clients/:id`, `GET /api/admin/audit`
 - List endpoints accept `q`, `status`, `page`, `per_page`, `sort` — mirroring the

@@ -12,6 +12,7 @@ import IntegrationsPage from "./routes/integrations.js";
 import ToolsPage from "./routes/tools.js";
 import FundsPage from "./routes/funds.js";
 import WatchlistPage from "./routes/watchlist.js";
+import NotesPage from "./routes/notes.js";
 import AssistantPage from "./routes/assistant.js";
 import TokensPage from "./routes/tokens.js";
 import ClientsPage from "./routes/clients.js";
@@ -55,6 +56,7 @@ const router = createBrowserRouter([
       { path: "tools", element: <ToolsPage /> },
       { path: "funds", element: <FundsPage /> },
       { path: "watchlist", element: <WatchlistPage /> },
+      { path: "notes", element: <NotesPage /> },
       { path: "assistant", element: <AssistantPage /> },
       { path: "tokens", element: <TokensPage /> },
       { path: "clients", element: <ClientsPage /> },

@@ -1,4 +1,5 @@
 import type { HoldingsCompleteness, ProviderId } from "../../shared/funds.js";
+import type { NoteSource, NoteStatus } from "../../shared/notes.js";
 import type { WatchlistItemKind } from "../../shared/watchlist.js";
 
 import type { JsonSchemaNode } from "./json-schema.js";
@@ -301,4 +302,51 @@ export interface WatchlistItemsResult {
 export interface AddItemsResult {
   added: { id: string; ref: string }[];
   skipped: string[];
+}
+
+/* ---------------------------------------------------------------- *
+ * Notes
+ * ---------------------------------------------------------------- */
+
+export interface NoteCollection {
+  id: string;
+  userId: string;
+  name: string;
+  description: string | null;
+  noteCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NoteSymbol {
+  kind: WatchlistItemKind;
+  ref: string;
+}
+
+/** A note as a listing sees it: summary and snippet, never the body. */
+export interface NoteCard {
+  id: string;
+  title: string;
+  summary: string | null;
+  collectionId: string | null;
+  collectionName: string | null;
+  tags: string[];
+  symbols: NoteSymbol[];
+  status: NoteStatus;
+  source: NoteSource;
+  pinned: boolean;
+  bodyChars: number;
+  snippet: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NoteDetail extends NoteCard {
+  body: string;
+  sourceRef: string | null;
+}
+
+export interface NoteFacets {
+  tags: { tag: string; count: number }[];
+  symbols: { kind: WatchlistItemKind; ref: string; count: number }[];
 }

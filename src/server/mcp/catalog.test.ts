@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { getMcpToolCatalog, toolMatches } from "./catalog.js";
 
 /** The tools that change stored state; every other tool must stay read-only. */
-const WRITE_TOOLS = new Set(["watchlistAdd", "watchlistRemove"]);
+const WRITE_TOOLS = new Set([
+  "watchlistAdd",
+  "watchlistRemove",
+  "noteCreate",
+  "noteUpdate",
+  "noteDelete",
+]);
 
 describe("mcp tool catalog", () => {
   it("exposes every registered tool with browsable metadata", async () => {
@@ -29,6 +35,12 @@ describe("mcp tool catalog", () => {
       "watchlist",
       "watchlistAdd",
       "watchlistRemove",
+      "noteCollections",
+      "notesSearch",
+      "noteRead",
+      "noteCreate",
+      "noteUpdate",
+      "noteDelete",
       "fundExposure",
       "fundsByStock",
       "fundsBySector",
@@ -42,8 +54,8 @@ describe("mcp tool catalog", () => {
       expect(tool.title, tool.name).toBeTruthy();
       expect(tool.description, tool.name).toBeTruthy();
       expect(tool.inputSchema.type, tool.name).toBe("object");
-      // Only the watchlist writers may declare themselves mutating; anything
-      // else that stops being read-only is a tool that grew side effects.
+      // Only the watchlist and note writers may declare themselves mutating;
+      // anything else that stops being read-only is a tool that grew side effects.
       expect(tool.annotations?.readOnlyHint, tool.name).toBe(!WRITE_TOOLS.has(tool.name));
     }
   });

@@ -28,12 +28,31 @@ export interface ListParamValues {
   list: string;
   /** Watchlist item kind (`symbol`, `fund`). */
   kind: string;
+  /** Selected note collection (an id, or `none` for unfiled notes). */
+  collection: string;
+  /** Single tag facet on the Notes page. */
+  tag: string;
+  /** Single symbol facet on the Notes page. */
+  symbol: string;
+  /** Open note on the Notes page; `new` for the unsaved one. */
+  note: string;
   page: number;
   per_page: number;
   sort: string;
 }
 
-const FILTER_KEYS = ["q", "status", "role", "action", "provider", "scope", "kind"] as const;
+const FILTER_KEYS = [
+  "q",
+  "status",
+  "role",
+  "action",
+  "provider",
+  "scope",
+  "kind",
+  "collection",
+  "tag",
+  "symbol",
+] as const;
 
 export function useListParams(defaults: Partial<ListParamValues> = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -55,6 +74,10 @@ export function useListParams(defaults: Partial<ListParamValues> = {}) {
       fund: searchParams.get("fund") ?? "",
       list: searchParams.get("list") ?? "",
       kind: searchParams.get("kind") ?? "",
+      collection: searchParams.get("collection") ?? "",
+      tag: searchParams.get("tag") ?? "",
+      symbol: searchParams.get("symbol") ?? "",
+      note: searchParams.get("note") ?? "",
       page: Math.max(1, Number(searchParams.get("page")) || 1),
       per_page: Math.min(100, Math.max(1, Number(searchParams.get("per_page")) || defaultPerPage)),
       sort: searchParams.get("sort") ?? defaultSort,
@@ -74,6 +97,9 @@ export function useListParams(defaults: Partial<ListParamValues> = {}) {
     // an `equity` scope, so sending it alone would be ambiguous.
     if (values.provider && values.scope) params.set("scope", values.scope);
     if (values.kind) params.set("kind", values.kind);
+    if (values.collection) params.set("collection", values.collection);
+    if (values.tag) params.set("tag", values.tag);
+    if (values.symbol) params.set("symbol", values.symbol);
     if (values.page > 1) params.set("page", String(values.page));
     params.set("per_page", String(values.per_page));
     if (values.sort) params.set("sort", values.sort);

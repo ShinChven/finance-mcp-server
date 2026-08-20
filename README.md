@@ -27,6 +27,13 @@ Hono runs inside the Vite dev server; in production, Hono serves the built SPA.
   offline-ingested index of disclosed fund holdings rather than keyword search
   over fund names. China public funds and US ETFs share one index, so asking
   who holds NVDA returns both, tagged with the market each fund trades in.
+- **Notes with full-text search** — a place the assistant writes down what a
+  conversation established (a thesis, a decision, the reasoning behind it) and
+  finds it again later. Notes carry a summary for scanning, tags, links to the
+  symbols they are about, and optional collections; 6 MCP tools read and write
+  them, and the **Notes** page browses and edits the same rows. Search is
+  Postgres full text over a stored `tsvector`, paired with substring matching so
+  Chinese phrases and partial words match too.
 - **Client integration center** — in-dashboard, copy-ready setup guides for
   Claude, Claude Code, Codex, Cursor, Antigravity 2 and generic MCP clients,
   with both OAuth and personal-token instructions.
@@ -220,6 +227,57 @@ value are not the same measurement. Anything that could not be priced comes
 back with `available: false` and a reason, so one bad symbol never costs you the
 rest of the list. The summary weights every item equally; a watchlist records no
 position sizes, so it cannot express a portfolio return.
+#### Note tools
+
+The assistant's long-term memory, and the other half of the **Notes** page.
+Six tools, because storing and finding are different jobs:
+
+| Tool | Purpose |
+|---|---|
+| `noteCollections` | Collections, tag vocabulary and tagged symbols with counts — the orientation call |
+| `notesSearch` | Search and browse: full text, tags, symbols, collection, status, dates |
+| `noteRead` | Full bodies for up to 5 notes, by id |
+| `noteCreate` | Save what a conversation established |
+| `noteUpdate` | Edit, append to, re-tag, file or archive one |
+| `noteDelete` | Remove one note permanently |
+
+**The summary is the load-bearing field.** `notesSearch` returns titles,
+summaries and a snippet — never bodies — so an agent can scan fifty notes for
+the two that matter and spend its context on those, via `noteRead`. The tool
+descriptions ask for a summary on every write for exactly that reason.
+
+**Searching works in both languages.** Bodies are indexed as a generated
+`tsvector` (weighted title > summary > body, `simple` configuration) and matched
+with `websearch_to_tsquery`, OR-ed with a substring match over title, summary,
+body, tags and symbols. The vector finds whole words anywhere in a long body and
+is GIN-indexed; the substring branch is what finds 降息 inside a Chinese
+sentence, which no stock text-search parser will tokenize apart, and what
+catches a half-remembered partial word. Ranking is `ts_rank_cd` plus a bump for a
+title or summary hit, since the substring branch scores zero on its own.
+
+**Filters compose, and the two composition rules differ on purpose.** `tags`
+narrows — a note must carry every tag listed — because adding a tag is how you
+cut a result set down. `symbols` widens — a note matches any symbol listed —
+because "notes about NVDA or AMD" is the question people actually ask; a note is
+rarely about every ticker in a basket.
+
+Symbols use the watchlist's own vocabulary: a bare 6-digit code is a China fund,
+anything else a Yahoo symbol, uppercased. One spelling serves both features, so
+a note about `000834` and a watchlist item for it agree.
+
+Three deliberate limits, mirroring the watchlist rules:
+
+- **An agent cannot delete a collection.** That would unfile everything in it;
+  it lives on the dashboard behind a confirmation. Deleting one *note* — a row
+  it could equally have written — is allowed.
+- **Archiving is the recommended default.** `status: "archived"` keeps a note
+  searchable and out of the listing, and is reversible; deletion is not.
+- **It will not fork a collection from a near-miss name.** An unrecognised name
+  is an error listing the real ones unless `createCollection: true` is passed.
+
+Nothing an agent writes is hidden from the person who owns it: the same rows are
+listed, edited, filed and deleted on `/notes`.
+
 #### Fetching a fund on demand
 
 Naming a fund is request enough for its data. Opening an uncached fund in the
@@ -324,6 +382,20 @@ show which funds are failing.
 summary reports rows the parser could not read. A non-zero value means an
 upstream format drift — the failure mode that once made Tokyo-coded positions
 (`285A`) vanish from QDII portfolios with no error at all.
+
+### Notes page
+
+`/notes` is the dashboard half of the note tools. Collections on the left with
+their counts, the tag and symbol facets under them, results in the middle, and
+one note open in a dialog with a markdown preview. Search text, collection, tag,
+symbol, status, sort, page and the open note all live in URL search params, so a
+filtered view — or a specific note — is a link.
+
+Cards show the summary and, when a search matched further down, a snippet
+windowed around the hit. Bodies are fetched only for the note actually opened,
+which is the same split the MCP tools use. A note written by an assistant is
+marked as such, and deleting a collection keeps its notes: they fall back to
+unfiled rather than disappearing with the folder.
 
 ### Funds dashboard page
 

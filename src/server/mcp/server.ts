@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createLazyFundCache, type FundCache } from "../funds/ondemand.js";
 import { createLazyFundRepo, type FundRepo } from "../funds/repo.js";
 import type { McpAuth } from "../lib/http.js";
+import { createLazyNotesRepo, type NotesRepo } from "../notes/repo.js";
 import { getEdgarClient, type EdgarClient } from "../sec/edgar.js";
 import { createLazyWatchlistRepo, type WatchlistRepo } from "../watchlist/repo.js";
 import { yahooFinanceClient, type YahooFinanceClient } from "./client.js";
@@ -25,6 +26,12 @@ import { registerScreenerTool } from "./tools/screener.js";
 import { registerSearchTool } from "./tools/search.js";
 import { registerSecFilingsTool } from "./tools/sec-filings.js";
 import { registerSecFinancialsTool } from "./tools/sec-financials.js";
+import { registerNoteCollectionsTool } from "./tools/note-collections.js";
+import { registerNoteCreateTool } from "./tools/note-create.js";
+import { registerNoteDeleteTool } from "./tools/note-delete.js";
+import { registerNoteReadTool } from "./tools/note-read.js";
+import { registerNoteUpdateTool } from "./tools/note-update.js";
+import { registerNotesSearchTool } from "./tools/notes-search.js";
 import { registerWatchlistTool } from "./tools/watchlist.js";
 import { registerWatchlistAddTool } from "./tools/watchlist-add.js";
 import { registerWatchlistRemoveTool } from "./tools/watchlist-remove.js";
@@ -44,12 +51,13 @@ export interface McpDeps {
   fundCache?: FundCache;
   edgar?: EdgarClient;
   watchlists?: WatchlistRepo;
+  notes?: NotesRepo;
 }
 
 /**
  * Builds a per-request MCP server while reusing the process-level Yahoo client.
  * Pass `auth: null` to build a metadata-only server for tool introspection —
- * the watchlist tools refuse to run without an identity.
+ * the watchlist and note tools refuse to run without an identity.
  */
 export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpServer {
   const client = deps.client ?? yahooFinanceClient;
@@ -57,12 +65,13 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
   const fundCache = deps.fundCache ?? createLazyFundCache();
   const edgar = deps.edgar ?? getEdgarClient();
   const watchlists = deps.watchlists ?? createLazyWatchlistRepo();
+  const notes = deps.notes ?? createLazyNotesRepo();
 
   const server = new McpServer(
     { name: "finance-mcp-server", version: "0.1.0" },
     {
       instructions:
-        "Four tool families. Yahoo Finance tools return global market data for stocks, ETFs, and indices " +
+        "Five tool families. Yahoo Finance tools return global market data for stocks, ETFs, and indices " +
         "(CN and HK listings included, via suffixes like 600519.SS and 0700.HK); search for a symbol first " +
         "when it is uncertain, and expect delayed or missing data for delisted symbols. " +
         "Fund relationship tools (fundExposure, fundsByStock, fundsBySector, fundsByHoldings, similarFunds, " +
@@ -82,7 +91,15 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
         "Watchlist tools (watchlists, watchlist, watchlistAdd, watchlistRemove) read and edit the " +
         "signed-in user's own saved lists, which span both families — Yahoo symbols and fund " +
         "codes in one list — and are shared with the web dashboard. Read a watchlist before answering " +
-        "questions about what this user is tracking, rather than assuming from the conversation.",
+        "questions about what this user is tracking, rather than assuming from the conversation. " +
+        "Note tools (noteCollections, notesSearch, noteRead, noteCreate, noteUpdate, noteDelete) are " +
+        "this user's long-term memory: theses, decisions and context saved out of earlier " +
+        "conversations, organized in collections, tagged, and linked to the symbols they are about. " +
+        "Search them before answering anything about what the user already thinks, decided or was " +
+        "told — a note beats a guess from the current conversation. notesSearch returns summaries and " +
+        "snippets; call noteRead for the bodies you actually need. When a conversation produces a " +
+        "conclusion worth keeping, save it with noteCreate and write a real summary, because that is " +
+        "what future searches will show. The same notes are readable and editable on the dashboard.",
     },
   );
 
@@ -106,6 +123,13 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
   registerWatchlistTool(server, watchlists, client, auth);
   registerWatchlistAddTool(server, watchlists, auth);
   registerWatchlistRemoveTool(server, watchlists, auth);
+
+  registerNoteCollectionsTool(server, notes, auth);
+  registerNotesSearchTool(server, notes, auth);
+  registerNoteReadTool(server, notes, auth);
+  registerNoteCreateTool(server, notes, auth);
+  registerNoteUpdateTool(server, notes, auth);
+  registerNoteDeleteTool(server, notes, auth);
 
   registerFundExposureTool(server, repo, fundCache);
   registerFundsByStockTool(server, repo);
