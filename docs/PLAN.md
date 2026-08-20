@@ -267,9 +267,16 @@ report sums to roughly 60% of net assets and an iShares daily file to 100%, so
 ranking across the two without saying so measures reporting rules rather than
 portfolios. `funds/present.ts` builds the caveat every tool response carries.
 - System tool: `whoami` returns the authenticated user and auth method.
-- Yahoo Finance tools: `search`, `quote`, `quoteSummary`, `chart`, `screener`,
-  `trendingSymbols`, `options`, `insights`, `recommendationsBySymbol`,
+- Yahoo Finance tools: `search`, `companyNews`, `quote`, `quoteSummary`, `chart`,
+  `screener`, `trendingSymbols`, `options`, `insights`, `recommendationsBySymbol`,
   `fundamentalsTimeSeries`, and `earningsAnalysis`.
+- Crypto: priced by `quote` and `chart` through Yahoo pair symbols (`BTC-USD`).
+  Yahoo publishes no directory of them, so `cryptoTickers` reads CoinGecko's
+  public tier — the one source of discovery — via `crypto/coingecko.ts`, which
+  mirrors the EDGAR client: HTTP, throttling and a URL-keyed TTL cache here,
+  shape knowledge in `parseMarkets`. The free tier allows only a few requests a
+  minute, so pages are cached for minutes and one tool call costs one request.
+  No key is required; `COINGECKO_API_KEY` is optional and only raises the limit.
 - Watchlist tools: `watchlists`, `watchlist`, `watchlistAdd` and `watchlistRemove`
   are the only tools that write. They are scoped to `auth.user.id` — never to a
   user id in the arguments — and go through `watchlist/repo.ts`, which takes the

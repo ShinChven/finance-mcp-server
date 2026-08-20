@@ -60,6 +60,7 @@ describe("finance MCP server", () => {
       expect(result.tools.map((tool) => tool.name)).toEqual([
         "whoami",
         "search",
+      "companyNews",
         "quote",
         "quoteSummary",
         "chart",
@@ -70,6 +71,7 @@ describe("finance MCP server", () => {
         "recommendationsBySymbol",
         "fundamentalsTimeSeries",
         "earningsAnalysis",
+      "cryptoTickers",
         "secFilings",
         "secFinancials",
         "watchlists",

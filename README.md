@@ -97,6 +97,7 @@ configuration files, authentication steps and troubleshooting.
 | Tool | Purpose |
 |---|---|
 | `search` | Find symbols, companies and related news |
+| `companyNews` | Recent headlines for a company, symbol or topic, newest first |
 | `quote` | Current or near-current quotes for up to 50 symbols |
 | `quoteSummary` | Selected company, price, ownership, filing and fund modules |
 | `chart` | Historical/intraday OHLCV data and market events |
@@ -107,12 +108,20 @@ configuration files, authentication steps and troubleshooting.
 | `recommendationsBySymbol` | Related and similar instruments |
 | `fundamentalsTimeSeries` | Financial statement data over time |
 | `earningsAnalysis` | Beats/misses, estimate revisions and the next report date, in one call |
+| `cryptoTickers` | The crypto universe by market cap, with the Yahoo symbol for each asset |
 
 `earningsAnalysis` stitches together four `quoteSummary` modules and does the
 arithmetic, so answering "did they beat, and are estimates moving up or down"
 takes one call instead of four plus manual work. It reports estimate
 *revisions*, not just a current snapshot — a single estimate says nothing about
 direction.
+
+Crypto needs no separate price tools: Yahoo quotes and charts pair symbols like
+`BTC-USD` through `quote` and `chart`. What it does not publish is a directory,
+so `cryptoTickers` fills that one gap — it lists the universe by market cap from
+CoinGecko's public tier and hands back the Yahoo symbol for each asset to chain
+into the tools above. No API key: `COINGECKO_API_KEY` is optional and only
+raises the rate limit.
 
 Yahoo covers CN and HK listings through symbol suffixes (`600519.SS`,
 `0700.HK`), so the tools above already span the A-share, Hong Kong and US

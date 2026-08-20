@@ -19,6 +19,7 @@ describe("mcp tool catalog", () => {
     expect(catalog.tools.map((tool) => tool.name)).toEqual([
       "whoami",
       "search",
+      "companyNews",
       "quote",
       "quoteSummary",
       "chart",
@@ -29,6 +30,7 @@ describe("mcp tool catalog", () => {
       "recommendationsBySymbol",
       "fundamentalsTimeSeries",
       "earningsAnalysis",
+      "cryptoTickers",
       "secFilings",
       "secFinancials",
       "watchlists",
