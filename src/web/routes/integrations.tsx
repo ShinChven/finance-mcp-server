@@ -464,11 +464,9 @@ function VsCodeGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
 }
 
 function AntigravityGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
-  const oauthQuickAdd = `python3 -c "import json, pathlib; p = pathlib.Path.home() / '.gemini/config/mcp_config.json'; p.parent.mkdir(parents=True, exist_ok=True); data = json.loads(p.read_text()) if p.exists() else {'mcpServers': {}}; data.setdefault('mcpServers', {})['mcp-server'] = {'serverUrl': '${mcpUrl}'}; p.write_text(json.dumps(data, indent=2)); print('✓ Configured mcp-server in', p)"`;
-
-  const tokenQuickAdd = `python3 -c "import json, pathlib; p = pathlib.Path.home() / '.gemini/config/mcp_config.json'; p.parent.mkdir(parents=True, exist_ok=True); data = json.loads(p.read_text()) if p.exists() else {'mcpServers': {}}; data.setdefault('mcpServers', {})['mcp-server'] = {'serverUrl': '${mcpUrl}', 'headers': {'Authorization': 'Bearer ${token ?? "YOUR_PERSONAL_ACCESS_TOKEN"}'}}; p.write_text(json.dumps(data, indent=2)); print('✓ Configured mcp-server with token in', p)"`;
-
-  const agentPrompt = `Add the remote MCP server "mcp-server" with serverUrl "${mcpUrl}" to my global Antigravity MCP config (~/.gemini/config/mcp_config.json).`;
+  const cliCommand = "agy";
+  const cliMcpSlash = "/mcp";
+  const cliQuickAdd = `python3 -c "import json, pathlib; p = pathlib.Path.home() / '.gemini/config/mcp_config.json'; p.parent.mkdir(parents=True, exist_ok=True); data = json.loads(p.read_text()) if p.exists() else {'mcpServers': {}}; data.setdefault('mcpServers', {})['mcp-server'] = {'serverUrl': '${mcpUrl}'${token ? `, 'headers': {'Authorization': 'Bearer ${token}'}` : ""}}; p.write_text(json.dumps(data, indent=2)); print('✓ Configured mcp-server in', p)"`;
 
   const oauthJson = JSON.stringify({ mcpServers: { "mcp-server": { serverUrl: mcpUrl } } }, null, 2);
   const tokenJson = JSON.stringify(
@@ -489,46 +487,78 @@ function AntigravityGuide({ mcpUrl, token }: { mcpUrl: string; token?: string })
       <GuideHeader
         client="antigravity"
         title="Google Antigravity 2 & Gemini Spark"
-        description="Antigravity 2.0, Antigravity IDE, CLI and Gemini Spark persistent cloud agents share the same remote MCP schema. Remote servers must use the serverUrl field."
+        description="Connect Antigravity 2.0 desktop app, Antigravity IDE, Gemini Spark, and Antigravity CLI (agy) using the remote MCP schema."
       />
       {!token && <AuthSummary />}
 
-      <Step number={1} title="Quick setup (1-click terminal command)">
-        <p>
-          Run this command in your terminal to automatically create or merge <code>mcp-server</code> into your global{" "}
-          <code>~/.gemini/config/mcp_config.json</code> without opening an editor:
+      <Step number={1} title="Antigravity 2.0 & IDE (UI Setup)">
+        <p>Configure the server directly in the Antigravity user interface:</p>
+        <ol className="list-decimal space-y-1.5 pl-5 text-sm">
+          <li>
+            Open <strong>Settings</strong> (<code>⌘+,</code> / <code>Ctrl+,</code>) → <strong>Customizations</strong> → <strong>Installed MCP Servers</strong>.
+          </li>
+          <li>
+            Click <strong>Add MCP Server</strong> (or <strong>+</strong>).
+          </li>
+          <li>
+            Set Name to <code>mcp-server</code> and enter the remote URL:
+          </li>
+        </ol>
+        <div className="mt-2">
+          <CopyField value={mcpUrl} />
+        </div>
+        <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+          {token
+            ? `In the Headers section, add header Authorization with value Bearer ${token}.`
+            : "Click Authenticate next to the server to complete browser sign-in. Antigravity refreshes credentials automatically."}
         </p>
-        <CodeCopyBlock
-          label={token ? "Terminal · Quick add with Bearer token" : "Terminal · Quick add with OAuth"}
-          value={token ? tokenQuickAdd : oauthQuickAdd}
-        />
       </Step>
 
-      <Step number={2} title="Or ask Antigravity / Gemini Spark to add it">
-        <p>
-          You can also paste this prompt directly into Antigravity Chat, Antigravity IDE, or Gemini Spark:
-        </p>
-        <CodeCopyBlock label="Agent prompt · Copy & paste into chat" value={agentPrompt} />
+      <Step number={2} title="Gemini Spark (Web UI Setup)">
+        <p>In Gemini Spark, connect custom MCP servers through the web settings interface:</p>
+        <ol className="list-decimal space-y-1.5 pl-5 text-sm">
+          <li>
+            Go to <strong>gemini.google.com</strong> and open <strong>Settings & help</strong> (or profile menu) → <strong>Connected Apps</strong>.
+          </li>
+          <li>
+            Under <strong>Custom apps for Spark</strong>, click <strong>Add MCP server</strong>.
+          </li>
+          <li>
+            Paste the endpoint URL and complete authorization:
+          </li>
+        </ol>
+        <div className="mt-2">
+          <CopyField value={mcpUrl} />
+        </div>
       </Step>
 
-      <Step number={3} title={token ? "Verify tools in Antigravity" : "Authenticate & verify"}>
-        {token ? (
-          <p>
-            In Antigravity 2 or the IDE, open <strong>Settings → Customizations → Installed MCP Servers</strong>, or run{" "}
-            <code>agy</code> and type <code>/mcp</code> to verify that <code>mcp-server</code> tools are active.
-          </p>
-        ) : (
-          <p>
-            In Antigravity 2, open <strong>Settings → Customizations → Installed MCP Servers</strong> and click{" "}
-            <strong>Authenticate</strong> next to <code>mcp-server</code>. Complete sign-in in your browser; Antigravity refreshes OAuth tokens automatically. In the CLI (<code>agy</code>), type <code>/mcp</code> to manage authorization.
-          </p>
-        )}
+      <Step number={3} title="Antigravity CLI (agy) Commands">
+        <p>
+          In the terminal, you can manage MCP servers with interactive CLI commands or a single setup one-liner:
+        </p>
+        <div className="space-y-3">
+          <div>
+            <div className="mb-1 text-xs font-medium text-zinc-600 dark:text-zinc-300">
+              Interactive TUI: launch <code>agy</code> and run <code>/mcp</code> to manage status and authorization:
+            </div>
+            <CodeCopyBlock label="CLI · Interactive command" value={`${cliCommand}\n${cliMcpSlash}`} />
+          </div>
+          <div>
+            <div className="mb-1 text-xs font-medium text-zinc-600 dark:text-zinc-300">
+              One-line terminal quick add (automatically updates <code>~/.gemini/config/mcp_config.json</code>):
+            </div>
+            <CodeCopyBlock
+              label={token ? "CLI · Quick add with Bearer token" : "CLI · Quick add with OAuth"}
+              value={cliQuickAdd}
+            />
+          </div>
+        </div>
       </Step>
 
       <Step number={4} title="Manual configuration reference (optional)">
         <p>
-          If you prefer editing <code>~/.gemini/config/mcp_config.json</code> (global) or{" "}
-          <code>.agents/mcp_config.json</code> (workspace) manually, merge this snippet under <code>mcpServers</code>:
+          If you prefer inspecting or editing <code>~/.gemini/config/mcp_config.json</code> (global) or{" "}
+          <code>.agents/mcp_config.json</code> (workspace) directly, merge this object under <code>mcpServers</code>:
         </p>
         <CodeCopyBlock
           label={token ? "mcp_config.json · Bearer token" : "mcp_config.json · OAuth"}
@@ -537,7 +567,7 @@ function AntigravityGuide({ mcpUrl, token }: { mcpUrl: string; token?: string })
       </Step>
 
       <Notice className="mt-4">
-        Antigravity and Gemini Spark use <code>serverUrl</code>. The keys <code>url</code> and <code>httpUrl</code> are not valid for its remote MCP configuration.
+        Antigravity and Gemini Spark use <code>serverUrl</code>. The legacy keys <code>url</code> and <code>httpUrl</code> are not valid for remote MCP configurations.
       </Notice>
     </>
   );
