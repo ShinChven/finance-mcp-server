@@ -8,6 +8,7 @@ const WRITE_TOOLS = new Set([
   "noteCreate",
   "noteUpdate",
   "noteDelete",
+  "skillSave",
 ]);
 
 describe("mcp tool catalog", () => {
@@ -43,6 +44,9 @@ describe("mcp tool catalog", () => {
       "noteCreate",
       "noteUpdate",
       "noteDelete",
+      "skills",
+      "skillRead",
+      "skillSave",
       "fundExposure",
       "fundsByStock",
       "fundsBySector",
@@ -56,7 +60,7 @@ describe("mcp tool catalog", () => {
       expect(tool.title, tool.name).toBeTruthy();
       expect(tool.description, tool.name).toBeTruthy();
       expect(tool.inputSchema.type, tool.name).toBe("object");
-      // Only the watchlist and note writers may declare themselves mutating;
+      // Only the watchlist, note and skill writers may declare themselves mutating;
       // anything else that stops being read-only is a tool that grew side effects.
       expect(tool.annotations?.readOnlyHint, tool.name).toBe(!WRITE_TOOLS.has(tool.name));
     }

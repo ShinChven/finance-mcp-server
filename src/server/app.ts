@@ -13,6 +13,7 @@ import { clientRoutes } from "./routes/clients.js";
 import { fundRoutes, syncRoutes } from "./routes/funds.js";
 import { meRoutes } from "./routes/me.js";
 import { noteCollectionRoutes, noteRoutes } from "./routes/notes.js";
+import { skillRoutes } from "./routes/skills.js";
 import { overviewRoutes } from "./routes/overview.js";
 import { tokenRoutes } from "./routes/tokens.js";
 import { toolRoutes } from "./routes/tools.js";
@@ -62,6 +63,7 @@ export function createApp(): Hono<AppEnv> {
   api.route("/watchlists", watchlistRoutes);
   api.route("/notes", noteRoutes);
   api.route("/note-collections", noteCollectionRoutes);
+  api.route("/skills", skillRoutes);
   app.route("/api", api);
 
   app.onError((err, c) => {

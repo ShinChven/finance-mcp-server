@@ -4,6 +4,7 @@ import { createLazyFundRepo, type FundRepo } from "../funds/repo.js";
 import { getCoinGeckoClient, type CoinGeckoClient } from "../crypto/coingecko.js";
 import type { McpAuth } from "../lib/http.js";
 import { createLazyNotesRepo, type NotesRepo } from "../notes/repo.js";
+import { createLazySkillsRepo, type SkillsRepo } from "../skills/repo.js";
 import { getEdgarClient, type EdgarClient } from "../sec/edgar.js";
 import { createLazyWatchlistRepo, type WatchlistRepo } from "../watchlist/repo.js";
 import { yahooFinanceClient, type YahooFinanceClient } from "./client.js";
@@ -35,6 +36,10 @@ import { registerNoteDeleteTool } from "./tools/note-delete.js";
 import { registerNoteReadTool } from "./tools/note-read.js";
 import { registerNoteUpdateTool } from "./tools/note-update.js";
 import { registerNotesSearchTool } from "./tools/notes-search.js";
+import { registerSkillReadTool } from "./tools/skill-read.js";
+import { registerSkillSaveTool } from "./tools/skill-save.js";
+import { registerSkillsTool } from "./tools/skills-search.js";
+import { registerSkillResources } from "./resources/skills.js";
 import { registerWatchlistTool } from "./tools/watchlist.js";
 import { registerWatchlistAddTool } from "./tools/watchlist-add.js";
 import { registerWatchlistRemoveTool } from "./tools/watchlist-remove.js";
@@ -56,6 +61,7 @@ export interface McpDeps {
   crypto?: CoinGeckoClient;
   watchlists?: WatchlistRepo;
   notes?: NotesRepo;
+  skills?: SkillsRepo;
 }
 
 /**
@@ -71,12 +77,13 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
   const crypto = deps.crypto ?? getCoinGeckoClient();
   const watchlists = deps.watchlists ?? createLazyWatchlistRepo();
   const notes = deps.notes ?? createLazyNotesRepo();
+  const skills = deps.skills ?? createLazySkillsRepo();
 
   const server = new McpServer(
     { name: "finance-mcp-server", version: "0.1.0" },
     {
       instructions:
-        "Five tool families. Yahoo Finance tools return global market data for stocks, ETFs, and indices " +
+        "Six tool families. Yahoo Finance tools return global market data for stocks, ETFs, and indices " +
         "(CN and HK listings included, via suffixes like 600519.SS and 0700.HK); search for a symbol first " +
         "when it is uncertain, and expect delayed or missing data for delisted symbols. companyNews is the " +
         "one to reach for when the question is what happened rather than what a number is. Crypto is priced " +
@@ -108,7 +115,16 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
         "told — a note beats a guess from the current conversation. notesSearch returns summaries and " +
         "snippets; call noteRead for the bodies you actually need. When a conversation produces a " +
         "conclusion worth keeping, save it with noteCreate and write a real summary, because that is " +
-        "what future searches will show. The same notes are readable and editable on the dashboard.",
+        "what future searches will show. The same notes are readable and editable on the dashboard. " +
+        "Skill tools (skills, skillRead, skillSave) hold procedures this user wrote for doing a task " +
+        "their way. Nothing about them is loaded until you ask: when the user names a skill, call " +
+        "skillRead with the name they used and follow what it says; when they gesture at one without " +
+        "naming it, or ask what they have, call skills first. Do not go looking for a skill on every " +
+        "task — the user calls them explicitly. skillSave writes a draft the user must publish on the " +
+        "dashboard before it can be used. The same skills are also served as `skill://<name>/SKILL.md` " +
+        "resources, so a client that reads resources can fetch one that way instead; only skills the user " +
+        "marked discoverable are enumerated, and every active skill stays readable at its own URI whether " +
+        "or not it was listed.",
     },
   );
 
@@ -141,6 +157,11 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
   registerNoteCreateTool(server, notes, auth);
   registerNoteUpdateTool(server, notes, auth);
   registerNoteDeleteTool(server, notes, auth);
+
+  registerSkillsTool(server, skills, auth);
+  registerSkillReadTool(server, skills, auth);
+  registerSkillSaveTool(server, skills, auth);
+  registerSkillResources(server, skills, auth);
 
   registerFundExposureTool(server, repo, fundCache);
   registerFundsByStockTool(server, repo);

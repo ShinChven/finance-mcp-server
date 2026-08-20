@@ -29,6 +29,20 @@
       "when": 1787205594931,
       "tag": "0003_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1787215638397,
+      "tag": "0004_skills",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787223163963,
+      "tag": "0005_skill_auto_discover",
+      "breakpoints": true
     }
   ]
 }

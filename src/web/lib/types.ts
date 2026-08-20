@@ -1,5 +1,6 @@
 import type { HoldingsCompleteness, ProviderId } from "../../shared/funds.js";
 import type { NoteSource, NoteStatus } from "../../shared/notes.js";
+import type { SkillSource, SkillStatus } from "../../shared/skills.js";
 import type { WatchlistItemKind } from "../../shared/watchlist.js";
 
 import type { JsonSchemaNode } from "./json-schema.js";
@@ -349,4 +350,36 @@ export interface NoteDetail extends NoteCard {
 export interface NoteFacets {
   tags: { tag: string; count: number }[];
   symbols: { kind: WatchlistItemKind; ref: string; count: number }[];
+}
+
+/* ---------------------------------------------------------------- *
+ * Skills
+ * ---------------------------------------------------------------- */
+
+/** A skill as a listing sees it: the description, never the procedure. */
+export interface SkillCard {
+  id: string;
+  slug: string;
+  name: string;
+  whenToUse: string;
+  status: SkillStatus;
+  source: SkillSource;
+  autoDiscover: boolean;
+  bodyChars: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SkillDetail extends SkillCard {
+  body: string;
+  sourceRef: string | null;
+}
+
+export interface SkillRevision {
+  id: string;
+  name: string;
+  whenToUse: string;
+  body: string;
+  source: SkillSource;
+  createdAt: string;
 }

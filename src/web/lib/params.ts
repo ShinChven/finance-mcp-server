@@ -36,6 +36,8 @@ export interface ListParamValues {
   symbol: string;
   /** Open note on the Notes page; `new` for the unsaved one. */
   note: string;
+  /** Open skill on the Skills page; `new` for the unsaved one. */
+  skill: string;
   page: number;
   per_page: number;
   sort: string;
@@ -78,6 +80,7 @@ export function useListParams(defaults: Partial<ListParamValues> = {}) {
       tag: searchParams.get("tag") ?? "",
       symbol: searchParams.get("symbol") ?? "",
       note: searchParams.get("note") ?? "",
+      skill: searchParams.get("skill") ?? "",
       page: Math.max(1, Number(searchParams.get("page")) || 1),
       per_page: Math.min(100, Math.max(1, Number(searchParams.get("per_page")) || defaultPerPage)),
       sort: searchParams.get("sort") ?? defaultSort,
