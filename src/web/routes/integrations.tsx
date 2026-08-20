@@ -1,21 +1,23 @@
 import type { ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
-  Bot,
   CheckCircle2,
-  Code2,
   ExternalLink,
-  FileCode2,
   FolderTree,
   KeyRound,
-  Laptop,
-  Orbit,
   ShieldCheck,
-  Sparkles,
-  TerminalSquare,
-  Wrench,
-  type LucideIcon,
 } from "lucide-react";
+import {
+  AntigravityIcon,
+  ClaudeCodeIcon,
+  ClaudeIcon,
+  CodexIcon,
+  CursorIcon,
+  GeminiIcon,
+  McpIcon,
+  VsCodeIcon,
+  type BrandIconComponent,
+} from "../components/brand-icons.js";
 import { Card, CodeCopyBlock, CopyField, PageHeader } from "../components/ui.js";
 
 export type ClientId =
@@ -32,18 +34,18 @@ interface ClientOption {
   id: ClientId;
   label: string;
   description: string;
-  icon: LucideIcon;
+  icon: BrandIconComponent;
 }
 
 const CLIENTS: ClientOption[] = [
-  { id: "claude", label: "Claude", description: "Web, Desktop & Cowork", icon: Bot },
-  { id: "claude-code", label: "Claude Code", description: "CLI and IDE", icon: TerminalSquare },
-  { id: "codex", label: "Codex", description: "App, CLI and IDE", icon: Code2 },
-  { id: "cursor", label: "Cursor", description: "Editor and Agent CLI", icon: Laptop },
-  { id: "vscode", label: "VS Code", description: "Copilot agent mode", icon: FileCode2 },
-  { id: "antigravity", label: "Antigravity 2", description: "App, IDE and CLI", icon: Orbit },
-  { id: "gemini", label: "Gemini Spark", description: "Web & Cloud Agents", icon: Sparkles },
-  { id: "generic", label: "Common MCP", description: "Any HTTP client", icon: Wrench },
+  { id: "claude", label: "Claude", description: "Web, Desktop & Cowork", icon: ClaudeIcon },
+  { id: "claude-code", label: "Claude Code", description: "CLI and IDE", icon: ClaudeCodeIcon },
+  { id: "codex", label: "Codex", description: "App, CLI and IDE", icon: CodexIcon },
+  { id: "cursor", label: "Cursor", description: "Editor and Agent CLI", icon: CursorIcon },
+  { id: "vscode", label: "VS Code", description: "Copilot agent mode", icon: VsCodeIcon },
+  { id: "antigravity", label: "Antigravity 2", description: "App, IDE and CLI", icon: AntigravityIcon },
+  { id: "gemini", label: "Gemini Spark", description: "Web & Cloud Agents", icon: GeminiIcon },
+  { id: "generic", label: "Common MCP", description: "Any HTTP client", icon: McpIcon },
 ];
 
 const CLIENT_IDS = new Set<ClientId>(CLIENTS.map((client) => client.id));
