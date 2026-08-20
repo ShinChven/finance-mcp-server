@@ -30,11 +30,16 @@ import { refreshAllFundIndexes } from "../funds/universe.js";
 import { activeJobId, cancelJob, JobInProgressError, startJob } from "../funds/jobs.js";
 import { createLazyFundCache } from "../funds/ondemand.js";
 import { getProvider } from "../funds/providers/index.js";
-import { toCanonicalSymbol } from "../funds/symbols.js";
 import { audit } from "../lib/audit.js";
 import { clientIp, type AppEnv } from "../lib/http.js";
 import { escapeLike, listQuerySchema, listResponse, parseSort } from "../lib/listing.js";
 import { requireAdmin, requireAuth } from "../middleware/session.js";
+import {
+  currentlyHolds,
+  holdingsCoverage,
+  matchedHoldings,
+  type MatchedHolding,
+} from "./funds-holdings.js";
 
 const fundListQuerySchema = listQuerySchema.extend({
   provider: z.enum(PROVIDER_IDS).optional(),
@@ -43,15 +48,7 @@ const fundListQuerySchema = listQuerySchema.extend({
   scope: z.string().min(1).optional(),
 });
 
-/** Holdings count per fund, joined into the list so the page can show coverage. */
-const holdingsCount = db
-  .select({
-    fundCode: fundHoldings.fundCode,
-    n: count().as("n"),
-  })
-  .from(fundHoldings)
-  .groupBy(fundHoldings.fundCode)
-  .as("holdings_count");
+const holdingsCount = holdingsCoverage(db);
 
 const fundCache = createLazyFundCache();
 
@@ -133,38 +130,16 @@ export const fundRoutes = new Hono<AppEnv>()
     if (query.q) {
       const raw = query.q.trim();
       const like = `%${escapeLike(raw)}%`;
-      const canonical = toCanonicalSymbol(raw);
 
-      const holdingMatches: SQL[] = [
-        ilike(fundHoldings.symbol, like),
-        ilike(fundHoldings.name, like),
-      ];
-      if (canonical) {
-        holdingMatches.push(eq(fundHoldings.symbol, canonical));
-      }
-
-      const holdsStock = sql`exists (
-        select 1 from ${fundHoldings}
-        where ${fundHoldings.fundCode} = ${funds.code}
-          and (
-            ${or(
-              ...holdingMatches,
-              sql`exists (
-                select 1 from ${instruments}
-                where ${instruments.symbol} = ${fundHoldings.symbol}
-                  and ${ilike(instruments.name, like)}
-              )`,
-            )}
-          )
-      )`;
-
+      // A fund's own identity, plus what it currently holds — the reverse
+      // lookup the holdings cache exists for, and the first thing a user types.
       filters.push(
         or(
           ilike(funds.code, like),
           ilike(funds.name, like),
           ilike(funds.company, like),
           ilike(funds.trackingIndex, like),
-          holdsStock,
+          currentlyHolds(raw),
         )!,
       );
     }
@@ -214,6 +189,7 @@ export const fundRoutes = new Hono<AppEnv>()
         navSyncedAt: funds.navSyncedAt,
         lastSyncError: funds.lastSyncError,
         holdingsCount: sql<number>`coalesce(${holdingsCount.n}, 0)`.mapWith(Number),
+        latestReport: holdingsCount.reportDate,
       })
       .from(funds)
       .leftJoin(holdingsCount, eq(holdingsCount.fundCode, funds.code))
@@ -222,7 +198,24 @@ export const fundRoutes = new Hono<AppEnv>()
       .limit(query.per_page)
       .offset((query.page - 1) * query.per_page);
 
-    return c.json(listResponse(rows, totalRow?.n ?? 0, query));
+    // Why each row came back, when the match was a holding rather than the
+    // fund's own name: without it a search for "NVDA" returns a page of fund
+    // names with no visible connection to what was typed.
+    const matched = query.q
+      ? await matchedHoldings(
+          db,
+          rows.map((row) => row.code),
+          query.q.trim(),
+        )
+      : new Map<string, MatchedHolding>();
+
+    return c.json(
+      listResponse(
+        rows.map((row) => ({ ...row, matchedHolding: matched.get(row.code) ?? null })),
+        totalRow?.n ?? 0,
+        query,
+      ),
+    );
   })
 
   /**
