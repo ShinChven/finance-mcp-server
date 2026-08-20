@@ -158,6 +158,9 @@ export interface ProviderStats {
   cached: number;
   failing: number;
   byScope: Record<string, { total: number; cached: number }>;
+  /** State of the provider's fund index — the listing every count is a count
+   *  of. `lastError` is why the numbers beside it are zero. */
+  index: { funds: number; syncedAt: string | null; lastError: string | null };
 }
 
 export interface FundCacheStats {

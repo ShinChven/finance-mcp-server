@@ -23,6 +23,20 @@ export function isProviderId(value: string): value is ProviderId {
 }
 
 /**
+ * The one spelling of a fund code the cache is keyed by.
+ *
+ * `funds.code` holds a China 6-digit code or a listing ticker, and the ticker
+ * is stored exactly as the provider publishes it — uppercase. Every lookup is
+ * an equality match on that column, so `ivv` from a URL path or a hand-typed
+ * tool argument found nothing at all and reported the fund as absent from the
+ * index. Normalizing at the edges is what makes `ivv`, `IVV ` and `IVV` the
+ * same fund; digits are unaffected, so no provider needs to know this exists.
+ */
+export function normalizeFundCode(code: string): string {
+  return code.trim().toUpperCase();
+}
+
+/**
  * How much of a fund's portfolio its disclosures actually cover.
  *
  * This is not a quality score — it is the unit the weights are denominated in,

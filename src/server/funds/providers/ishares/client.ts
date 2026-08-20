@@ -41,6 +41,22 @@ export const defaultEndpoints: IsharesEndpoints = {
 
 export type Fetcher = typeof globalThis.fetch;
 
+/** Strips the UTF-8 byte-order mark these files are served with. */
+function stripBom(body: string): string {
+  return body.charCodeAt(0) === 0xfeff ? body.slice(1) : body;
+}
+
+function looksLikeHtml(body: string): boolean {
+  const head = body.slice(0, 512).trimStart().toLowerCase();
+  return head.startsWith("<!doctype html") || head.startsWith("<html") || head.startsWith("<head");
+}
+
+/** Enough of a body to recognize it in an error, and no more. */
+function describeBody(body: string): string {
+  const preview = body.slice(0, 120).replace(/\s+/g, " ").trim();
+  return `${body.length} bytes, starts "${preview}"`;
+}
+
 export interface IsharesClientOptions {
   fetchImpl?: Fetcher;
   endpoints?: IsharesEndpoints;
@@ -65,25 +81,53 @@ export class IsharesClient {
     this.lastRequestAt = Date.now();
   }
 
-  private async get(url: string): Promise<string> {
+  private async get(url: string, accept: string): Promise<string> {
     await this.throttle();
     const response = await this.fetchImpl(url, {
       headers: {
         "User-Agent": USER_AGENT,
         Referer: `${ORIGIN}/us/products/etf-investments`,
-        Accept: "*/*",
+        Accept: accept,
       },
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     if (!response.ok) {
       throw new Error(`iShares request failed (${response.status}): ${url}`);
     }
-    return response.text();
+    // The BOM is why this is not just `response.text()`: these files are served
+    // UTF-8 with one, and it rides along on the first cell — enough to make
+    // `JSON.parse` throw and to hide a header column behind a character that
+    // does not print.
+    const body = stripBom(await response.text());
+    if (looksLikeHtml(body)) {
+      // A challenge page is served with a 200 and an HTML body, so the only
+      // thing separating it from data is what came back. Left to the parsers it
+      // was indistinguishable from a source with nothing in it: they read no
+      // products and no positions, and the pipeline stored that as the answer.
+      throw new Error(
+        `iShares returned an HTML page rather than data (${describeBody(body)}) — the request was ` +
+          `most likely blocked by bot protection: ${url}`,
+      );
+    }
+    return body;
   }
 
   /** The whole US lineup — one request, and the seed for everything else. */
   async fetchProducts(): Promise<IsharesProduct[]> {
-    return parseProductScreener(await this.get(this.endpoints.productScreener));
+    const body = await this.get(this.endpoints.productScreener, "application/json, text/plain, */*");
+    const products = parseProductScreener(body);
+    if (products.length === 0) {
+      // `parseProductScreener` answers an unreadable payload with an empty list
+      // by design — it is a pure function and has no business throwing on one
+      // fund. But *no* products is never a true statement about iShares, so the
+      // one caller that can tell the difference raises it here, where the
+      // response is still around to describe.
+      throw new Error(
+        `iShares product screener returned no products (${describeBody(body)}) — its response ` +
+          `format has changed, or the request was rejected.`,
+      );
+    }
+    return products;
   }
 
   /**
@@ -100,8 +144,19 @@ export class IsharesClient {
     if (product.productPageUrl === null) {
       throw new Error(`no product page known for ${product.ticker}`);
     }
-    const body = await this.get(this.endpoints.holdings(product.productPageUrl, product.ticker));
-    return parseHoldingsCsv(body, fallbackDate);
+    const body = await this.get(
+      this.endpoints.holdings(product.productPageUrl, product.ticker),
+      "text/csv, */*",
+    );
+    const result = parseHoldingsCsv(body, fallbackDate);
+    if (result.headerFound) return result;
+    // No header row means the download was not a holdings file at all — an
+    // error page, a redirect, an empty body. Distinguished from a file whose
+    // rows were all skipped, which is a real (if odd) answer and is left to the
+    // drop counters.
+    throw new Error(
+      `iShares holdings file for ${product.ticker} carried no positions table (${describeBody(body)}).`,
+    );
   }
 }
 

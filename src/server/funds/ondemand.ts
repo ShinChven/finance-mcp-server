@@ -23,7 +23,7 @@
  */
 
 import { eq, inArray } from "drizzle-orm";
-import { isFresh, type SyncStep } from "../../shared/funds.js";
+import { isFresh, normalizeFundCode, type SyncStep } from "../../shared/funds.js";
 import type { db as Database } from "../db/index.js";
 import { fundHoldings, funds } from "../db/schema.js";
 import type { YahooFinanceClient } from "../mcp/client.js";
@@ -37,6 +37,7 @@ import {
   recomputeExposure,
 } from "./ingest.js";
 import { getProvider } from "./providers/index.js";
+import { seedEmptyFundIndexes } from "./universe.js";
 
 type Db = typeof Database;
 
@@ -44,6 +45,10 @@ type Db = typeof Database;
 const MAX_PENDING = 8;
 /** Ceiling on the serial Yahoo walk that classifies a new fund's holdings. */
 const CLASSIFY_BUDGET_MS = 8_000;
+/** How often an unrecognized code may trigger a listing call. */
+const INDEX_SEED_INTERVAL_MS = 5 * 60 * 1000;
+/** `funds.last_sync_error` is a display column, not a log. */
+const MAX_ERROR_LENGTH = 300;
 
 export type EnsureStatus =
   /** Already inside its freshness window; nothing was fetched. */
@@ -83,11 +88,44 @@ export interface FundCache {
 
 const ALL_STEPS: SyncStep[] = ["details", "holdings", "nav"];
 
+/** The watermark each step writes, read back off a fund row. */
+function watermarkOf(
+  row: { detailsSyncedAt: Date | null; holdingsSyncedAt: Date | null; navSyncedAt: Date | null },
+  step: SyncStep,
+): Date | null {
+  if (step === "details") return row.detailsSyncedAt;
+  if (step === "holdings") return row.holdingsSyncedAt;
+  return row.navSyncedAt;
+}
+
 export function createFundCache(db: Db, yahoo: YahooFinanceClient): FundCache {
   // Keyed by code, not by (code, options): a second caller wanting more steps
   // than the one in flight is rare, and waiting for a slightly narrower fetch
   // beats issuing a duplicate one.
   const inFlight = new Map<string, Promise<EnsureResult>>();
+  let lastIndexSeedAt = 0;
+
+  /**
+   * The fund row, loading the provider indexes first if none has ever landed.
+   *
+   * Without this an unloaded index is a dead end that looks like a bad code:
+   * the answer to "cache IVV" was "not in the fund universe index", the
+   * suggested remedy — a universe refresh — was the very thing that had been
+   * failing, and nothing in the reply said so.
+   */
+  async function findFund(code: string): Promise<typeof funds.$inferSelect | undefined> {
+    const [fund] = await db.select().from(funds).where(eq(funds.code, code)).limit(1);
+    if (fund) return fund;
+
+    const now = Date.now();
+    if (now - lastIndexSeedAt < INDEX_SEED_INTERVAL_MS) return undefined;
+    lastIndexSeedAt = now;
+    const seeded = await seedEmptyFundIndexes(db);
+    if (seeded.length === 0) return undefined;
+
+    const [retried] = await db.select().from(funds).where(eq(funds.code, code)).limit(1);
+    return retried;
+  }
 
   async function run(code: string, options: EnsureOptions): Promise<EnsureResult> {
     const steps = options.steps ?? ALL_STEPS;
@@ -100,7 +138,7 @@ export function createFundCache(db: Db, yahoo: YahooFinanceClient): FundCache {
       message: "",
     };
 
-    const [fund] = await db.select().from(funds).where(eq(funds.code, code)).limit(1);
+    const fund = await findFund(code);
     if (!fund) {
       // `fund_holdings.fund_code` is a foreign key into `funds`, so fetching a
       // code the universe has never seen would fail on a bare constraint
@@ -137,12 +175,12 @@ export function createFundCache(db: Db, yahoo: YahooFinanceClient): FundCache {
     // upstream without having to care which market the fund is from.
     const provider = getProvider(fund.provider);
     const summary = emptySummary();
+    const startedAt = new Date();
 
     try {
       if (wanted.includes("details")) await ingestFundDetails(db, provider, [code], summary);
       if (wanted.includes("holdings")) await ingestHoldings(db, provider, [code], summary);
       if (wanted.includes("nav")) await ingestNav(db, provider, [code], summary);
-      result.fetched = wanted;
     } catch (error) {
       return {
         ...result,
@@ -152,7 +190,55 @@ export function createFundCache(db: Db, yahoo: YahooFinanceClient): FundCache {
       };
     }
 
-    if (wanted.includes("holdings") && options.classify !== false) {
+    // What actually landed, read from the watermarks rather than assumed.
+    //
+    // The ingest steps collect per-fund failures into the summary instead of
+    // throwing — that is what lets a category run survive one dead fund — so
+    // every upstream error on this path used to be dropped on the floor here,
+    // and a fund whose holdings file 403'd came back as "Cached fund IVV
+    // (details, holdings, nav) on demand." with an empty portfolio behind it.
+    // A watermark is the honest test: only a step that stored something moves
+    // it, and a fetch that legitimately found nothing to store still counts as
+    // done. Message-matching would not do — `ingestHoldings` reports dropped
+    // rows as an error on a fetch that otherwise succeeded.
+    const [after] = await db
+      .select({
+        detailsSyncedAt: funds.detailsSyncedAt,
+        holdingsSyncedAt: funds.holdingsSyncedAt,
+        navSyncedAt: funds.navSyncedAt,
+      })
+      .from(funds)
+      .where(eq(funds.code, code))
+      .limit(1);
+
+    const landed = after
+      ? wanted.filter((step) => {
+          const watermark = watermarkOf(after, step);
+          return watermark !== null && watermark.getTime() >= startedAt.getTime();
+        })
+      : [];
+    result.fetched = landed;
+
+    const failure = summary.errors.length > 0 ? summary.errors.join("; ") : null;
+    // Mirrored onto the fund row for the same reason a batch run does it: the
+    // console's "failing" filter, and the next caller, should see why this fund
+    // is empty without having to reproduce the request.
+    await db
+      .update(funds)
+      .set({ lastSyncError: failure === null ? null : failure.slice(0, MAX_ERROR_LENGTH) })
+      .where(eq(funds.code, code));
+
+    if (landed.length === 0) {
+      const reason = failure ?? "the upstream returned nothing";
+      return {
+        ...result,
+        status: "failed",
+        error: reason,
+        message: `Could not cache fund ${code}: ${reason}`,
+      };
+    }
+
+    if (landed.includes("holdings") && options.classify !== false) {
       const symbols = await db
         .selectDistinct({ symbol: fundHoldings.symbol })
         .from(fundHoldings)
@@ -172,23 +258,26 @@ export function createFundCache(db: Db, yahoo: YahooFinanceClient): FundCache {
       result.unclassified = await countStaleInstrumentProfiles(db, pending);
     }
 
-    // Whatever the steps did or did not manage, the fund's own error column is
-    // the honest record of it.
-    const [after] = await db
-      .select({ error: funds.lastSyncError })
-      .from(funds)
-      .where(eq(funds.code, code))
-      .limit(1);
-
+    // A partial success says so rather than reporting the steps that failed as
+    // fetched: the caller can then tell an empty portfolio caused by an
+    // upstream failure from one the fund genuinely has.
+    const missed = wanted.filter((step) => !landed.includes(step));
     return {
       ...result,
-      ...(after?.error ? { error: after.error } : {}),
-      message: `Cached fund ${code} (${wanted.join(", ")}) on demand.`,
+      ...(failure === null ? {} : { error: failure }),
+      message:
+        `Cached fund ${code} (${landed.join(", ")}) on demand.` +
+        (missed.length === 0 ? "" : ` ${missed.join(", ")} failed: ${failure ?? "unknown error"}.`),
     };
   }
 
   return {
-    async ensure(code, options = {}) {
+    async ensure(raw, options = {}) {
+      // One spelling per fund, at the edge: the map below and every query
+      // inside `run` are exact matches on `funds.code`, so `ivv` from a URL
+      // path would both miss the in-flight de-duplication and be reported as a
+      // fund that does not exist.
+      const code = normalizeFundCode(raw);
       const existing = inFlight.get(code);
       if (existing !== undefined) return existing;
 

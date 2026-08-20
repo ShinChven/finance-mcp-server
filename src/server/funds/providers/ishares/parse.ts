@@ -56,6 +56,41 @@ function asNumber(value: unknown): number | null {
   return null;
 }
 
+/** A product row is anything carrying the two fields that identify a fund. */
+function isProductRow(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  return "localExchangeTicker" in row || "fundName" in row;
+}
+
+/**
+ * The product rows, wherever this response happens to keep them.
+ *
+ * The screener answers with one object keyed by product id, and that is what
+ * this reads first. The fallbacks are cheap insurance against the two shapes
+ * that would otherwise read as "iShares publishes no funds": an array, and a
+ * payload wrapped one level deep under a container key. Rows are recognized by
+ * their fields rather than by position, so a sibling key holding configuration
+ * — which the screener does carry — is skipped instead of parsed.
+ */
+function productRows(data: object): [string, Record<string, unknown>][] {
+  const entries = Array.isArray(data)
+    ? data.map((row, index) => [String(index), row] as [string, unknown])
+    : Object.entries(data as Record<string, unknown>);
+
+  const direct = entries.filter((entry): entry is [string, Record<string, unknown>] =>
+    isProductRow(entry[1]),
+  );
+  if (direct.length > 0) return direct;
+
+  for (const [, value] of entries) {
+    if (value === null || typeof value !== "object") continue;
+    const nested = productRows(value);
+    if (nested.length > 0) return nested;
+  }
+  return [];
+}
+
 /**
  * The screener returns one object keyed by product id, not an array.
  *
@@ -67,18 +102,18 @@ export function parseProductScreener(payload: string | unknown): IsharesProduct[
   let data: unknown = payload;
   if (typeof payload === "string") {
     try {
-      data = JSON.parse(payload);
+      // The leading BOM these files carry is not valid JSON, and dropping the
+      // whole response over one invisible character is not a trade worth making.
+      data = JSON.parse(payload.replace(/^\uFEFF/, ""));
     } catch {
       return [];
     }
   }
   if (data === null || typeof data !== "object") return [];
 
+  const rows = productRows(data);
   const products: IsharesProduct[] = [];
-  for (const [productId, value] of Object.entries(data as Record<string, unknown>)) {
-    if (value === null || typeof value !== "object") continue;
-    const row = value as Record<string, unknown>;
-
+  for (const [productId, row] of rows) {
     const ticker = asString(row["localExchangeTicker"]);
     const name = asString(row["fundName"]);
     if (ticker === null || name === null) continue;
@@ -129,6 +164,15 @@ export interface IsharesHoldingsResult {
   stats: IsharesHoldingStats;
   /** The file's "as of" date, ISO. Null when the preamble did not carry one. */
   asOf: string | null;
+  /**
+   * Whether the positions table was found at all.
+   *
+   * The difference between "this file has no header row" and "this fund holds
+   * nothing" is the difference between a broken download and an answer, and
+   * both used to arrive here as an empty entry list. The client raises the
+   * first; nothing downstream has to guess.
+   */
+  headerFound: boolean;
 }
 
 export function totalDrops(stats: IsharesHoldingStats): number {
@@ -254,23 +298,43 @@ const VENUE_RULES: readonly VenueRule[] = [
  */
 const AMBIGUOUS_VENUES: readonly string[] = ["korea exchange"];
 
+/**
+ * Values that say "this line does not trade anywhere", which iShares writes for
+ * rights, when-issued lines and derived entries.
+ *
+ * They belong with cash and futures in `excluded`, not with the drops. Counted
+ * as drift they put a non-zero drop count on essentially every US fund, and a
+ * count that is always non-zero stops being read — which is precisely how a
+ * real format change goes unnoticed.
+ */
+const NON_MARKET_VENUES: readonly string[] = [
+  "no market",
+  "non-nms",
+  "nnqs",
+  "not applicable",
+  "n/a",
+];
+
 export type VenueLookup =
   | { kind: "known"; suffix: string }
   /** The family is recognized but the board is not identified. */
   | { kind: "ambiguous" }
+  /** The source says the line trades nowhere. Not a position, not drift. */
+  | { kind: "none" }
   /** No rule matched — a venue the table has never seen. */
   | { kind: "unknown" };
 
 export function lookupVenue(exchange: string | undefined): VenueLookup {
   if (exchange === undefined) return { kind: "unknown" };
   const needle = exchange.toLowerCase().replace(/\s+/g, " ").trim();
-  if (needle === "" || needle === "-") return { kind: "unknown" };
+  if (needle === "" || needle === "-") return { kind: "none" };
 
   for (const rule of VENUE_RULES) {
     if (rule.match.some((fragment) => needle.includes(fragment))) {
       return { kind: "known", suffix: rule.suffix };
     }
   }
+  if (NON_MARKET_VENUES.some((value) => needle.includes(value))) return { kind: "none" };
   if (AMBIGUOUS_VENUES.some((family) => needle.includes(family))) return { kind: "ambiguous" };
   return { kind: "unknown" };
 }
@@ -356,7 +420,9 @@ export function parseHoldingsCsv(source: string, fallbackDate: string): IsharesH
     noWeight: 0,
     excluded: 0,
   };
-  const lines = source.split(/\r?\n/);
+  // Same BOM as the screener's: it lands on the first cell of the first line,
+  // which is where the "as of" date lives.
+  const lines = source.replace(/^\uFEFF/, "").split(/\r?\n/);
 
   let asOf: string | null = null;
   let headerIndex = -1;
@@ -372,7 +438,7 @@ export function parseHoldingsCsv(source: string, fallbackDate: string): IsharesH
       break;
     }
   }
-  if (headerIndex === -1) return { entries: [], stats, asOf };
+  if (headerIndex === -1) return { entries: [], stats, asOf, headerFound: false };
 
   const header = splitCsvLine(lines[headerIndex] ?? "").map((cellName) =>
     cellName.toLowerCase().replace(/\s+/g, " ").trim(),
@@ -433,6 +499,10 @@ export function parseHoldingsCsv(source: string, fallbackDate: string): IsharesH
     }
 
     const venue = lookupVenue(exchangeAt === -1 ? undefined : cells[exchangeAt]);
+    if (venue.kind === "none") {
+      stats.excluded += 1;
+      continue;
+    }
     if (venue.kind === "ambiguous") {
       stats.ambiguousExchange += 1;
       continue;
@@ -467,5 +537,5 @@ export function parseHoldingsCsv(source: string, fallbackDate: string): IsharesH
     });
   }
 
-  return { entries, stats, asOf };
+  return { entries, stats, asOf, headerFound: true };
 }

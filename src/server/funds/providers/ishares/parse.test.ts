@@ -71,6 +71,27 @@ describe("parseProductScreener", () => {
     expect(parseProductScreener("<html>maintenance</html>")).toEqual([]);
     expect(parseProductScreener(null)).toEqual([]);
   });
+
+  it("survives a byte-order mark", () => {
+    // Served UTF-8 with a BOM, `JSON.parse` throws on the first character and
+    // the whole lineup reads as empty — which the pipeline stored as an index
+    // holding no funds.
+    expect(parseProductScreener(`\uFEFF${SCREENER}`)).toHaveLength(2);
+  });
+
+  it("finds the rows when the payload is wrapped or listed", () => {
+    // Recognized by their fields rather than by where they sit, so a container
+    // key or an array is read instead of counted as "no funds published".
+    const rows = JSON.parse(SCREENER) as Record<string, unknown>;
+    expect(parseProductScreener(JSON.stringify({ data: rows }))).toHaveLength(2);
+    expect(parseProductScreener(JSON.stringify(Object.values(rows)))).toHaveLength(2);
+  });
+
+  it("skips a sibling key that is not a product", () => {
+    const rows = JSON.parse(SCREENER) as Record<string, unknown>;
+    const withConfig = { config: { columns: ["fundName"] }, ...rows };
+    expect(parseProductScreener(JSON.stringify(withConfig))).toHaveLength(2);
+  });
 });
 
 describe("splitCsvLine", () => {
@@ -228,8 +249,37 @@ describe("lookupVenue", () => {
     // means the table needs a new rule.
     expect(lookupVenue("Korea Exchange")).toEqual({ kind: "ambiguous" });
     expect(lookupVenue("Interstellar Exchange")).toEqual({ kind: "unknown" });
-    expect(lookupVenue("-")).toEqual({ kind: "unknown" });
     expect(lookupVenue(undefined)).toEqual({ kind: "unknown" });
+  });
+
+  it("reads the source saying a line trades nowhere as an exclusion", () => {
+    // Rights, when-issued lines and derived entries are labelled this way and
+    // are not positions in a listed instrument. Counting them as drift would
+    // put a non-zero drop count on nearly every US fund, which is how a drop
+    // count stops meaning anything.
+    expect(lookupVenue("-")).toEqual({ kind: "none" });
+    expect(lookupVenue("No Market (Derived Other)")).toEqual({ kind: "none" });
+    expect(lookupVenue("Non-Nms Quotation Service (Nnqs)")).toEqual({ kind: "none" });
+  });
+});
+
+describe("parseHoldingsCsv on a body that is not a holdings file", () => {
+  it("reports that the positions table was never found", () => {
+    // Distinct from a file whose rows were all skipped: one is a broken
+    // download, the other is an answer.
+    const result = parseHoldingsCsv("Sorry, temporarily unavailable.", "2026-01-01");
+    expect(result.headerFound).toBe(false);
+    expect(result.entries).toEqual([]);
+  });
+
+  it("marks a real file as found even when every row is excluded", () => {
+    const cashOnly = `iShares Fund
+Ticker,Name,Asset Class,Weight (%),Exchange
+XTSLA,BLK CSH FND,Cash and/or Derivatives,100.00,-
+`;
+    const result = parseHoldingsCsv(cashOnly, "2026-01-01");
+    expect(result.headerFound).toBe(true);
+    expect(totalDrops(result.stats)).toBe(0);
   });
 });
 

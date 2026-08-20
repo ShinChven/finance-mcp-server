@@ -5,6 +5,7 @@
  *   npm run ingest -- --provider=ishares --scope=all
  *   npm run ingest -- --provider=eastmoney --codes=162411,270042 --skip-universe
  *   npm run ingest -- --provider=ishares --scope=international --dry-run
+ *   npm run ingest -- --provider=ishares --probe
  *
  * Bundled by `scripts/build-server.mjs` into `dist/server/funds/ingest-cli.js`
  * so the container can run it from cron without a TypeScript toolchain.
@@ -21,6 +22,7 @@ import {
 import { db, pool, waitForDb } from "../db/index.js";
 import { yahooFinanceClient } from "../mcp/client.js";
 import { previewSync, runIngest } from "./ingest.js";
+import { describeProbe, probeProvider } from "./probe.js";
 import { getProvider } from "./providers/index.js";
 
 function flag(name: string): string | undefined {
@@ -71,6 +73,18 @@ async function main(): Promise<void> {
       : codes !== undefined && codes.length > 0
         ? "codes"
         : provider.descriptor.defaultScope;
+
+  // `--probe` answers "is this source reachable and still shaped the way the
+  // parsers expect?" with four requests and no writes, so it needs neither a
+  // database nor a scope. First thing to reach for when a provider caches
+  // nothing: the pipeline is built to swallow exactly the failures it prints.
+  if (hasFlag("probe")) {
+    const report = await probeProvider(provider, codes?.[0]);
+    console.log(describeProbe(report));
+    console.log(JSON.stringify(report, null, 2));
+    if (!report.ok) process.exitCode = 1;
+    return;
+  }
 
   await waitForDb();
 
