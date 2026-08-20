@@ -86,8 +86,8 @@ export default function Shell() {
           <NavLink to="/assistant" className={navItemClass}>
             <Bot className="size-4" /> Assistant
           </NavLink>
-          <NavLink to="/integrations" className={navItemClass}>
-            <BookOpen className="size-4" /> Integrations
+          <NavLink to="/connector-setup" className={navItemClass}>
+            <BookOpen className="size-4" /> Connector Setup
           </NavLink>
           <NavLink to="/tools" className={navItemClass}>
             <Wrench className="size-4" /> Tools
