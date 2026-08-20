@@ -36,6 +36,7 @@ import { registerNotesSearchTool } from "./tools/notes-search.js";
 import { registerSkillReadTool } from "./tools/skill-read.js";
 import { registerSkillSaveTool } from "./tools/skill-save.js";
 import { registerSkillsTool } from "./tools/skills-search.js";
+import { registerSkillResources } from "./resources/skills.js";
 import { registerWatchlistTool } from "./tools/watchlist.js";
 import { registerWatchlistAddTool } from "./tools/watchlist-add.js";
 import { registerWatchlistRemoveTool } from "./tools/watchlist-remove.js";
@@ -111,7 +112,10 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
         "skillRead with the name they used and follow what it says; when they gesture at one without " +
         "naming it, or ask what they have, call skills first. Do not go looking for a skill on every " +
         "task — the user calls them explicitly. skillSave writes a draft the user must publish on the " +
-        "dashboard before it can be used.",
+        "dashboard before it can be used. The same skills are also served as `skill://<name>/SKILL.md` " +
+        "resources, so a client that reads resources can fetch one that way instead; only skills the user " +
+        "marked discoverable are enumerated, and every active skill stays readable at its own URI whether " +
+        "or not it was listed.",
     },
   );
 
@@ -146,6 +150,7 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
   registerSkillsTool(server, skills, auth);
   registerSkillReadTool(server, skills, auth);
   registerSkillSaveTool(server, skills, auth);
+  registerSkillResources(server, skills, auth);
 
   registerFundExposureTool(server, repo, fundCache);
   registerFundsByStockTool(server, repo);

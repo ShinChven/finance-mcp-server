@@ -66,6 +66,7 @@ function toCard(skill: SkillRecord) {
     whenToUse: skill.whenToUse,
     status: skill.status,
     source: skill.source,
+    autoDiscover: skill.autoDiscover,
     bodyChars: skill.body.length,
     createdAt: skill.createdAt,
     updatedAt: skill.updatedAt,
@@ -107,6 +108,7 @@ export const skillRoutes = new Hono<AppEnv>()
         whenToUse: body.whenToUse,
         body: body.body ?? "",
         ...(body.status !== undefined && { status: body.status }),
+        ...(body.autoDiscover !== undefined && { autoDiscover: body.autoDiscover }),
         source: "web",
         sourceRef: body.sourceRef ?? null,
       });
@@ -144,6 +146,7 @@ export const skillRoutes = new Hono<AppEnv>()
         ...(body.whenToUse !== undefined && { whenToUse: body.whenToUse }),
         ...(body.body !== undefined && { body: body.body }),
         ...(body.status !== undefined && { status: body.status }),
+        ...(body.autoDiscover !== undefined && { autoDiscover: body.autoDiscover }),
         ...(body.sourceRef !== undefined && { sourceRef: body.sourceRef }),
       });
       if (skill === null) return c.json({ error: "skill not found" }, 404);

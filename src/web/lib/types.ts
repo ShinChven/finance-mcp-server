@@ -364,6 +364,7 @@ export interface SkillCard {
   whenToUse: string;
   status: SkillStatus;
   source: SkillSource;
+  autoDiscover: boolean;
   bodyChars: number;
   createdAt: string;
   updatedAt: string;

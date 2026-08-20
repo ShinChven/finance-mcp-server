@@ -1,0 +1,1 @@
+ALTER TABLE "skills" ADD COLUMN "auto_discover" boolean DEFAULT false NOT NULL;

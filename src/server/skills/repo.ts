@@ -33,6 +33,8 @@ export type SkillRecord = Omit<Skill, "searchVector"> & {
 export interface SkillQuery {
   q?: string;
   status?: SkillStatus | "any";
+  /** Only skills advertised in `resources/list`. */
+  listedOnly?: boolean;
   sort?: SkillSort;
   limit?: number;
   offset?: number;
@@ -44,6 +46,7 @@ export interface CreateSkillInput {
   whenToUse: string;
   body?: string;
   status?: SkillStatus;
+  autoDiscover?: boolean;
   source: SkillSource;
   sourceRef?: string | null;
 }
@@ -54,6 +57,7 @@ export interface UpdateSkillPatch {
   whenToUse?: string;
   body?: string;
   status?: SkillStatus;
+  autoDiscover?: boolean;
   sourceRef?: string | null;
 }
 
@@ -127,6 +131,7 @@ const skillColumns = {
   status: skills.status,
   source: skills.source,
   sourceRef: skills.sourceRef,
+  autoDiscover: skills.autoDiscover,
   createdAt: skills.createdAt,
   updatedAt: skills.updatedAt,
 };
@@ -147,6 +152,7 @@ export function createSkillsRepo(db: Db): SkillsRepo {
 
     const status = query.status ?? "active";
     if (status !== "any") clauses.push(eq(skills.status, status));
+    if (query.listedOnly === true) clauses.push(eq(skills.autoDiscover, true));
 
     const text = query.q?.trim();
     if (text !== undefined && text !== "") {
@@ -289,6 +295,7 @@ export function createSkillsRepo(db: Db): SkillsRepo {
             whenToUse: input.whenToUse,
             body: input.body ?? "",
             status: input.status ?? "active",
+            autoDiscover: input.autoDiscover ?? false,
             source: input.source,
             sourceRef: input.sourceRef ?? null,
           })
@@ -318,6 +325,7 @@ export function createSkillsRepo(db: Db): SkillsRepo {
       if (patch.whenToUse !== undefined) values["whenToUse"] = patch.whenToUse;
       if (patch.body !== undefined) values["body"] = patch.body;
       if (patch.status !== undefined) values["status"] = patch.status;
+      if (patch.autoDiscover !== undefined) values["autoDiscover"] = patch.autoDiscover;
       if (patch.sourceRef !== undefined) values["sourceRef"] = patch.sourceRef;
 
       try {

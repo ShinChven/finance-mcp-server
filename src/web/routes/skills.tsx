@@ -53,6 +53,7 @@ import {
   MAX_WHEN_TO_USE_LENGTH,
   normalizeSlug,
   SKILL_SORTS,
+  skillUri,
   STATUS_LABELS,
   suggestSlug,
   type SkillStatus,
@@ -78,6 +79,7 @@ interface SkillFormValues {
   whenToUse: string;
   body: string;
   status: SkillStatus;
+  autoDiscover: boolean;
 }
 
 export default function SkillsPage() {
@@ -356,6 +358,7 @@ function SkillEditor({
   const [whenToUse, setWhenToUse] = useState(skill?.whenToUse ?? "");
   const [body, setBody] = useState(skill?.body ?? "");
   const [status, setStatus] = useState<SkillStatus>(skill?.status ?? "active");
+  const [autoDiscover, setAutoDiscover] = useState(skill?.autoDiscover ?? false);
   const [preview, setPreview] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
@@ -368,6 +371,7 @@ function SkillEditor({
     setWhenToUse(skill.whenToUse);
     setBody(skill.body);
     setStatus(skill.status);
+    setAutoDiscover(skill.autoDiscover);
   }, [skill]);
 
   const revisions = useQuery({
@@ -385,7 +389,7 @@ function SkillEditor({
 
   function submit() {
     if (!canSave) return;
-    onSubmit({ slug, name: name.trim(), whenToUse: whenToUse.trim(), body, status });
+    onSubmit({ slug, name: name.trim(), whenToUse: whenToUse.trim(), body, status, autoDiscover });
   }
 
   return (
@@ -520,6 +524,24 @@ function SkillEditor({
           )}
         </div>
       )}
+
+      <label className="mt-4 flex cursor-pointer items-start gap-2.5 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+        <input
+          type="checkbox"
+          checked={autoDiscover}
+          onChange={(e) => setAutoDiscover(e.target.checked)}
+          className="mt-0.5 size-4 cursor-pointer accent-indigo-600"
+        />
+        <span className="text-sm">
+          <span className="font-medium">List this skill to connected clients</span>
+          <span className="mt-0.5 block text-xs text-zinc-500 dark:text-zinc-400">
+            Advertises it in <code className="font-mono">resources/list</code> as{" "}
+            <code className="font-mono">{skillUri(slug === "" ? "name" : slug)}</code>. Leave it off
+            and the skill still works — it just has to be called by name rather than shown in a
+            browser.
+          </span>
+        </span>
+      </label>
 
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">

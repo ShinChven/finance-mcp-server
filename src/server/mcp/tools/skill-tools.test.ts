@@ -1,6 +1,10 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolResultSchema,
+  ListResourcesResultSchema,
+  ReadResourceResultSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import { describe, expect, it, vi } from "vitest";
 import type { McpAuth } from "../../lib/http.js";
 import {
@@ -44,6 +48,7 @@ function skill(partial: Partial<SkillRecord> & { slug: string }): SkillRecord {
     status: "active",
     source: "web",
     sourceRef: null,
+    autoDiscover: false,
     createdAt: new Date("2026-08-01T00:00:00Z"),
     updatedAt: new Date("2026-08-02T00:00:00Z"),
     ...partial,
@@ -69,6 +74,7 @@ function memoryRepo(seed: SkillRecord[] = []) {
       const matched = rows.filter((row) => {
         if (row.userId !== userId) return false;
         if (status !== "any" && row.status !== status) return false;
+        if (query.listedOnly === true && !row.autoDiscover) return false;
         if (text === "") return true;
         return [row.slug, row.name, row.whenToUse, row.body].some((field) =>
           field.toLowerCase().includes(text),
@@ -104,6 +110,7 @@ function memoryRepo(seed: SkillRecord[] = []) {
         whenToUse: input.whenToUse,
         body: input.body ?? "",
         status: input.status ?? "active",
+        autoDiscover: input.autoDiscover ?? false,
         source: input.source,
         sourceRef: input.sourceRef ?? null,
       });
@@ -385,6 +392,114 @@ describe("skillSave", () => {
       });
       expect(isError).toBe(true);
       expect(text).toContain("not a usable name");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+});
+
+/**
+ * Skills served as `skill://` resources — SEP-2640's convention rather than a
+ * new primitive. These assertions pin the two properties that make the
+ * convention safe here: a listing advertises only what the user opted in, and a
+ * read never serves a draft.
+ */
+describe("skill:// resources", () => {
+  it("lists only the skills the user marked discoverable", async () => {
+    const { repo } = memoryRepo([
+      skill({ slug: "fund-screen", autoDiscover: true, name: "Fund screening" }),
+      skill({ slug: "earnings-review" }),
+      skill({ slug: "draft-one", status: "draft", autoDiscover: true }),
+    ]);
+    const { server, client } = await connect(repo);
+
+    try {
+      const result = await client.request({ method: "resources/list" }, ListResourcesResultSchema);
+      expect(result.resources.map((entry) => entry.uri)).toEqual([
+        "skill://fund-screen/SKILL.md",
+      ]);
+      expect(result.resources[0]).toMatchObject({
+        name: "fund-screen",
+        description: "use for fund-screen",
+        mimeType: "text/markdown",
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  /**
+   * The spec is explicit that enumeration is optional and that clients must not
+   * read an empty listing as "no skills here". An unlisted skill is therefore
+   * still readable at its URI — that is what makes `autoDiscover` an
+   * advertising choice rather than an access control.
+   */
+  it("reads a skill that was never listed", async () => {
+    const { repo } = memoryRepo([skill({ slug: "earnings-review", body: "Check the surprise." })]);
+    const { server, client } = await connect(repo);
+
+    try {
+      const result = await client.request(
+        { method: "resources/read", params: { uri: "skill://earnings-review/SKILL.md" } },
+        ReadResourceResultSchema,
+      );
+      const content = result.contents[0];
+      if (content === undefined || !("text" in content)) throw new Error("expected text content");
+      const text = content.text;
+      expect(text).toContain("name: earnings-review");
+      expect(text).toContain('description: "use for earnings-review"');
+      expect(text).toContain("Check the surprise.");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("refuses to serve a draft", async () => {
+    const { repo } = memoryRepo([
+      skill({ slug: "draft-one", status: "draft", body: "unreviewed" }),
+    ]);
+    const { server, client } = await connect(repo);
+
+    try {
+      await expect(
+        client.request(
+          { method: "resources/read", params: { uri: "skill://draft-one/SKILL.md" } },
+          ReadResourceResultSchema,
+        ),
+      ).rejects.toThrow();
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("does not serve another account's skill", async () => {
+    const { repo } = memoryRepo([skill({ slug: "fund-screen", userId: "user-2" })]);
+    const { server, client } = await connect(repo);
+
+    try {
+      await expect(
+        client.request(
+          { method: "resources/read", params: { uri: "skill://fund-screen/SKILL.md" } },
+          ReadResourceResultSchema,
+        ),
+      ).rejects.toThrow();
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("lists nothing without an authenticated identity", async () => {
+    const { repo } = memoryRepo([skill({ slug: "fund-screen", autoDiscover: true })]);
+    const { server, client } = await connect(repo, null);
+
+    try {
+      const result = await client.request({ method: "resources/list" }, ListResourcesResultSchema);
+      expect(result.resources).toEqual([]);
     } finally {
       await client.close();
       await server.close();

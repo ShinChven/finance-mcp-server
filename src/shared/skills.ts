@@ -47,8 +47,8 @@ export const MAX_SKILLS_PER_USER = 200;
  * `skillRead` should never cost fifteen thousand tokens of context.
  */
 export const MAX_SKILL_BODY_LENGTH = 20_000;
-/** Matches the Agent Skills frontmatter cap on `description`, so these rows can
- *  be served as `skill://` resources later without a migration. */
+/** Matches the Agent Skills frontmatter cap on `description`, which is what a
+ *  row's `whenToUse` becomes when it is served as a `skill://` resource. */
 export const MAX_WHEN_TO_USE_LENGTH = 1_024;
 export const MAX_SKILL_NAME_LENGTH = 120;
 /** The Agent Skills `name` rule; also what keeps a slug quotable in chat. */
@@ -121,6 +121,7 @@ export const createSkillSchema = z.object({
   whenToUse: whenToUseSchema,
   body: skillBodySchema.optional(),
   status: z.enum(SKILL_STATUSES).optional(),
+  autoDiscover: z.boolean().optional(),
   sourceRef: sourceRefSchema.nullable().optional(),
 });
 
@@ -130,8 +131,54 @@ export const updateSkillSchema = z.object({
   whenToUse: whenToUseSchema.optional(),
   body: skillBodySchema.optional(),
   status: z.enum(SKILL_STATUSES).optional(),
+  autoDiscover: z.boolean().optional(),
   sourceRef: sourceRefSchema.nullable().optional(),
 });
 
 export const SKILL_SORTS = ["relevance", "updated", "created", "name"] as const;
 export type SkillSort = (typeof SKILL_SORTS)[number];
+
+/* ------------------------------------------------------------------ *
+ * Serving a row as a `skill://` resource (SEP-2640)
+ *
+ * The working group settled on convention over a new primitive: skills are
+ * resources, and "MCP doesn't need to understand what a skill is". That is what
+ * lets this database be the whole story — the SKILL.md a client reads is a
+ * string built from a row at request time. Nothing is checked out, synced, or
+ * stored on a disk.
+ * ------------------------------------------------------------------ */
+
+/**
+ * `skill://<slug>/SKILL.md`.
+ *
+ * The last path segment before the filename must equal the frontmatter `name`,
+ * per the URI scheme — which our slug already satisfies, because both follow
+ * the same Agent Skills rule.
+ */
+export function skillUri(slug: string): string {
+  return `skill://${slug}/SKILL.md`;
+}
+
+/** Pulls the slug back out of a `skill://` URI; null if it is not one of ours. */
+export function slugFromSkillUri(uri: string): string | null {
+  const match = /^skill:\/\/([^/]+)\/SKILL\.md$/.exec(uri);
+  const slug = match?.[1];
+  return slug !== undefined && isValidSlug(slug) ? slug : null;
+}
+
+/**
+ * The row, rendered as the file a client expects.
+ *
+ * `description` is JSON-encoded rather than pasted between quotes: a user's
+ * `whenToUse` can contain a colon, a quote or a newline, any of which would
+ * turn valid frontmatter into a parse error on the client. YAML's
+ * double-quoted scalar is JSON's string syntax, so this is both correct and
+ * boring.
+ */
+export function renderSkillMarkdown(skill: {
+  slug: string;
+  whenToUse: string;
+  body: string;
+}): string {
+  return `---\nname: ${skill.slug}\ndescription: ${JSON.stringify(skill.whenToUse)}\n---\n\n${skill.body}\n`;
+}

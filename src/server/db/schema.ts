@@ -477,6 +477,19 @@ export const skills = pgTable(
     /** Free-text provenance — a chat id, a client name. Same contract as
      *  `notes.source_ref`; not a foreign key for the same reason. */
     sourceRef: text("source_ref"),
+    /**
+     * Whether this skill is advertised in `resources/list`.
+     *
+     * SEP-2640 makes enumeration optional and tells clients not to read an
+     * empty listing as "this server has no skills" — a `skill://` URI is
+     * readable whether or not it was ever listed. That is what makes this flag
+     * meaningful rather than decorative: an unlisted skill is still callable by
+     * name, it simply is not paraded in front of a client that browses.
+     *
+     * Defaults to off, because a listing is the one part of this feature that
+     * can reach a model without being asked for.
+     */
+    autoDiscover: boolean("auto_discover").notNull().default(false),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
     /**
