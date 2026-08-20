@@ -16,6 +16,9 @@ const envSchema = z.object({
   // SEC EDGAR requires a descriptive User-Agent with a contact email on every
   // request, or it starts rejecting them: https://www.sec.gov/os/webmaster-faq#developers
   SEC_EDGAR_CONTACT_EMAIL: z.string().min(1).default("shinchven@gmail.com"),
+  // CoinGecko's public tier needs no key; one only raises the rate limit, so
+  // `cryptoTickers` works with this unset.
+  COINGECKO_API_KEY: z.string().optional(),
 });
 
 function load() {
