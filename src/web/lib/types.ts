@@ -135,7 +135,17 @@ export interface FundItem {
   holdingsSyncedAt: string | null;
   navSyncedAt: string | null;
   lastSyncError: string | null;
+  /** Names disclosed in the fund's latest report, not across every cached one. */
   holdingsCount: number;
+  /** Report those holdings were disclosed in; null when nothing is cached. */
+  latestReport: string | null;
+  /** Set when the search term matched a holding rather than the fund itself. */
+  matchedHolding: {
+    symbol: string;
+    name: string | null;
+    weight: number;
+    reportDate: string;
+  } | null;
 }
 
 /** Coverage for one provider, with a breakdown by its own scopes. */
