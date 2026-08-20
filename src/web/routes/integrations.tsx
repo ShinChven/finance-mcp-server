@@ -66,14 +66,22 @@ function Step({ number, title, children }: { number: number; title: string; chil
   );
 }
 
-function Notice({ kind = "info", children }: { kind?: "info" | "warning"; children: ReactNode }) {
+function Notice({
+  kind = "info",
+  className = "",
+  children,
+}: {
+  kind?: "info" | "warning";
+  className?: string;
+  children: ReactNode;
+}) {
   return (
     <div
       className={`rounded-lg border px-3.5 py-3 text-sm leading-6 ${
         kind === "warning"
           ? "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
           : "border-indigo-200 bg-indigo-50 text-indigo-900 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-200"
-      }`}
+      } ${className}`}
     >
       {children}
     </div>
@@ -147,32 +155,30 @@ function ClaudeGuide({ mcpUrl, isLocal }: { mcpUrl: string; isLocal: boolean }) 
         description="Add this server as a remote custom connector. The connector is linked to your Claude account and can be enabled per conversation."
       />
       {isLocal && (
-        <Notice kind="warning">
+        <Notice kind="warning" className="mb-5">
           Claude remote connectors run from Anthropic's cloud and cannot reach <code>localhost</code>. Deploy this app at a public HTTPS URL first, or use the Claude Code guide for local testing.
         </Notice>
       )}
-      <div className="mt-5">
-        <Step number={1} title="Open connector settings">
-          <p>
-            For an individual account, open <strong>Customize → Connectors</strong>, select <strong>+</strong>, then choose{" "}
-            <strong>Add custom connector</strong>. Team and Enterprise owners use <strong>Organization settings → Connectors → Add → Custom → Web</strong>.
-          </p>
-        </Step>
-        <Step number={2} title="Enter the remote MCP URL">
-          <p>Name the connector “MCP Server” and paste this exact endpoint. Leave advanced OAuth client credentials empty; this server supports automatic client registration.</p>
-          <CopyField value={mcpUrl} />
-        </Step>
-        <Step number={3} title="Connect with OAuth">
-          <p>
-            Select <strong>Connect</strong>, complete the browser sign-in, and approve access. Authentication is per user, so each teammate connects their own account.
-          </p>
-        </Step>
-        <Step number={4} title="Enable it in a conversation">
-          <p>
-            In a Claude conversation, select the <strong>+</strong> menu, open <strong>Connectors</strong>, and enable MCP Server. Ask Claude to list the available tools to verify the connection.
-          </p>
-        </Step>
-      </div>
+      <Step number={1} title="Open connector settings">
+        <p>
+          For an individual account, open <strong>Customize → Connectors</strong>, select <strong>+</strong>, then choose{" "}
+          <strong>Add custom connector</strong>. Team and Enterprise owners use <strong>Organization settings → Connectors → Add → Custom → Web</strong>.
+        </p>
+      </Step>
+      <Step number={2} title="Enter the remote MCP URL">
+        <p>Name the connector “MCP Server” and paste this exact endpoint. Leave advanced OAuth client credentials empty; this server supports automatic client registration.</p>
+        <CopyField value={mcpUrl} />
+      </Step>
+      <Step number={3} title="Connect with OAuth">
+        <p>
+          Select <strong>Connect</strong>, complete the browser sign-in, and approve access. Authentication is per user, so each teammate connects their own account.
+        </p>
+      </Step>
+      <Step number={4} title="Enable it in a conversation">
+        <p>
+          In a Claude conversation, select the <strong>+</strong> menu, open <strong>Connectors</strong>, and enable MCP Server. Ask Claude to list the available tools to verify the connection.
+        </p>
+      </Step>
     </>
   );
 }
@@ -325,7 +331,7 @@ function CursorGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
         }
       />
       {!token && <AuthSummary />}
-      <Notice kind="warning">
+      <Notice kind="warning" className="mb-5">
         Each snippet below is a complete <code>mcp.json</code>. If that file already configures other MCP servers, merge the <code>"mcp-server"</code> entry into your existing <code>mcpServers</code> object — don't paste over the whole file.
       </Notice>
       <Step number={1} title="Choose a configuration scope">
@@ -403,7 +409,7 @@ function VsCodeGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
         description="Copilot agent mode reads MCP servers from a workspace file you can commit, or from your user profile. VS Code names the map servers, not mcpServers."
       />
       {!token && <AuthSummary />}
-      <Notice kind="warning">
+      <Notice kind="warning" className="mb-5">
         VS Code uses <code>servers</code> as the root key. A snippet copied from another client's{" "}
         <code>mcpServers</code> map will not load here.
       </Notice>
@@ -444,7 +450,7 @@ function VsCodeGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
           <strong>Agent</strong> mode, and enable this server's tools in the <strong>Tools</strong> picker.
         </p>
       </Step>
-      <Notice>
+      <Notice className="mt-4">
         Server configurations support variables such as <code>{"${workspaceFolder}"}</code> and{" "}
         <code>{"${input:id}"}</code>. If a server fails to start, use <strong>MCP: List Servers → Show Output</strong>{" "}
         to read its log.
@@ -485,7 +491,7 @@ function GenericGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
         }
       />
       {!token && <AuthSummary />}
-      <Notice kind="warning">
+      <Notice kind="warning" className="mb-5">
         The JSON snippets below illustrate a full config file for clients that use an <code>mcpServers</code> map. If your client's file already lists other servers, merge the <code>"mcp-server"</code> entry into your existing <code>mcpServers</code> object — don't paste over the whole file.
       </Notice>
       <Step number={1} title="Select Streamable HTTP transport">
@@ -529,7 +535,7 @@ function GenericGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
           </table>
         </div>
       </Step>
-      <Notice>
+      <Notice className="mt-4">
         Cloud-hosted clients require a publicly reachable HTTPS endpoint. Local desktop and CLI clients can use <code>http://localhost</code> while this app is running locally.
       </Notice>
     </>
@@ -565,12 +571,10 @@ function ProjectScopeReference() {
           </p>
         </div>
       </div>
-      <div className="mt-4">
-        <Notice kind="warning">
-          A file named <code>mcp.json</code> at the root of your project is not read by any client. Claude Code wants
-          the leading dot in <code>.mcp.json</code>; Cursor and VS Code want their own dot-folders.
-        </Notice>
-      </div>
+      <Notice kind="warning" className="mt-4">
+        A file named <code>mcp.json</code> at the root of your project is not read by any client. Claude Code wants
+        the leading dot in <code>.mcp.json</code>; Cursor and VS Code want their own dot-folders.
+      </Notice>
       <div className="mt-4 overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
         <table className="w-full text-left text-xs">
           <thead className="bg-zinc-50 text-zinc-500 dark:bg-zinc-800/60 dark:text-zinc-400">
@@ -680,7 +684,7 @@ export function IntegrationGuides({
         </div>
       </Card>
 
-      <nav aria-label="MCP client guides" className="mb-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+      <nav aria-label="MCP client guides" className="mb-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {clients.map((client) => {
           const Icon = client.icon;
           const active = selectedClient === client.id;
