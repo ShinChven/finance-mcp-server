@@ -22,6 +22,8 @@ export interface ListParamValues {
   c: string;
   /** Selected MCP tool on the Tools browser. */
   tool: string;
+  /** Category filter on the Tools browser. */
+  category: string;
   /** Fund whose holdings are open on the Funds page. */
   fund: string;
   /** Selected watchlist on the Watchlists page. */
@@ -50,6 +52,7 @@ const FILTER_KEYS = [
   "action",
   "provider",
   "scope",
+  "category",
   "kind",
   "collection",
   "tag",
@@ -73,6 +76,7 @@ export function useListParams(defaults: Partial<ListParamValues> = {}) {
       tab: searchParams.get("tab") ?? defaultTab,
       c: searchParams.get("c") ?? "",
       tool: searchParams.get("tool") ?? "",
+      category: searchParams.get("category") ?? "",
       fund: searchParams.get("fund") ?? "",
       list: searchParams.get("list") ?? "",
       kind: searchParams.get("kind") ?? "",
