@@ -1,0 +1,13 @@
+{
+  "name": "finance-mcp-server-docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev --port 5174",
+    "build": "vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4"
+  }
+}

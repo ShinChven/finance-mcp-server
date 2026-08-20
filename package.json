@@ -13,7 +13,11 @@
     "lint": "oxlint src",
     "ingest": "node dist/server/funds/ingest-cli.js",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "docs:install": "npm --prefix docs-site install",
+    "docs:dev": "npm --prefix docs-site run dev",
+    "docs:build": "npm --prefix docs-site run build",
+    "docs:preview": "npm --prefix docs-site run preview"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
