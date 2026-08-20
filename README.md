@@ -35,7 +35,7 @@ Hono runs inside the Vite dev server; in production, Hono serves the built SPA.
   Postgres full text over a stored `tsvector`, paired with substring matching so
   Chinese phrases and partial words match too.
 - **Client integration center** — in-dashboard, copy-ready setup guides for
-  Claude, Claude Code, Codex, Cursor and generic MCP clients,
+  Claude, Claude Code, Codex, Cursor, VS Code, Antigravity 2, Gemini Spark and generic MCP clients,
   with both OAuth and personal-token instructions.
 - **Admin** — user management (invite/enable/disable/role), all registered OAuth
   clients, full audit log.

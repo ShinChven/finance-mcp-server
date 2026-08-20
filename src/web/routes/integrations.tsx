@@ -9,7 +9,9 @@ import {
   FolderTree,
   KeyRound,
   Laptop,
+  Orbit,
   ShieldCheck,
+  Sparkles,
   TerminalSquare,
   Wrench,
   type LucideIcon,
@@ -22,6 +24,8 @@ export type ClientId =
   | "codex"
   | "cursor"
   | "vscode"
+  | "antigravity"
+  | "gemini"
   | "generic";
 
 interface ClientOption {
@@ -37,11 +41,13 @@ const CLIENTS: ClientOption[] = [
   { id: "codex", label: "Codex", description: "App, CLI and IDE", icon: Code2 },
   { id: "cursor", label: "Cursor", description: "Editor and Agent CLI", icon: Laptop },
   { id: "vscode", label: "VS Code", description: "Copilot agent mode", icon: FileCode2 },
+  { id: "antigravity", label: "Antigravity 2", description: "App, IDE and CLI", icon: Orbit },
+  { id: "gemini", label: "Gemini Spark", description: "Web & Cloud Agents", icon: Sparkles },
   { id: "generic", label: "Common MCP", description: "Any HTTP client", icon: Wrench },
 ];
 
 const CLIENT_IDS = new Set<ClientId>(CLIENTS.map((client) => client.id));
-const TOKEN_CLIENTS = CLIENTS.filter((client) => client.id !== "claude");
+const TOKEN_CLIENTS = CLIENTS.filter((client) => client.id !== "claude" && client.id !== "gemini");
 
 const DOCS: Record<ClientId, string> = {
   claude: "https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp",
@@ -49,18 +55,20 @@ const DOCS: Record<ClientId, string> = {
   codex: "https://developers.openai.com/codex/mcp/",
   cursor: "https://cursor.com/docs/mcp",
   vscode: "https://code.visualstudio.com/docs/agent-customization/mcp-servers",
+  antigravity: "https://antigravity.google/docs/mcp",
+  gemini: "https://support.google.com/gemini/answer/16289947",
   generic: "https://modelcontextprotocol.io/docs/develop/connect-remote-servers",
 };
 
 function Step({ number, title, children }: { number: number; title: string; children: ReactNode }) {
   return (
-    <div className="flex gap-3">
-      <div className="grid size-7 shrink-0 place-items-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
+    <div className="flex gap-2.5 sm:gap-3">
+      <div className="grid size-6 sm:size-7 shrink-0 place-items-center rounded-full bg-indigo-100 text-[11px] sm:text-xs font-semibold text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
         {number}
       </div>
-      <div className="min-w-0 flex-1 pb-5">
-        <h3 className="text-sm font-semibold">{title}</h3>
-        <div className="mt-1.5 space-y-3 text-sm leading-6 text-zinc-600 dark:text-zinc-300">{children}</div>
+      <div className="min-w-0 flex-1 pb-4 sm:pb-5">
+        <h3 className="text-xs sm:text-sm font-semibold leading-snug">{title}</h3>
+        <div className="mt-1.5 space-y-2.5 sm:space-y-3 text-xs sm:text-sm leading-5 sm:leading-6 text-zinc-600 dark:text-zinc-300">{children}</div>
       </div>
     </div>
   );
@@ -77,7 +85,7 @@ function Notice({
 }) {
   return (
     <div
-      className={`rounded-lg border px-3.5 py-3 text-sm leading-6 ${
+      className={`rounded-lg border px-3 py-2.5 sm:px-3.5 sm:py-3 text-xs sm:text-sm leading-5 sm:leading-6 ${
         kind === "warning"
           ? "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
           : "border-indigo-200 bg-indigo-50 text-indigo-900 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-200"
@@ -98,16 +106,16 @@ function GuideHeader({
   client: ClientId;
 }) {
   return (
-    <div className="mb-5 flex flex-wrap items-start justify-between gap-3 border-b border-zinc-200 pb-5 dark:border-zinc-800">
+    <div className="mb-4 sm:mb-5 flex flex-col sm:flex-row sm:items-start justify-between gap-2 sm:gap-3 border-b border-zinc-200 pb-4 sm:pb-5 dark:border-zinc-800">
       <div>
-        <h2 className="text-lg font-semibold">{title}</h2>
-        <p className="mt-1 max-w-2xl text-sm leading-6 text-zinc-500 dark:text-zinc-400">{description}</p>
+        <h2 className="text-base sm:text-lg font-semibold">{title}</h2>
+        <p className="mt-1 max-w-2xl text-xs sm:text-sm leading-5 sm:leading-6 text-zinc-500 dark:text-zinc-400">{description}</p>
       </div>
       <a
         href={DOCS[client]}
         target="_blank"
         rel="noreferrer"
-        className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
+        className="inline-flex shrink-0 items-center gap-1.5 self-start text-xs font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
       >
         Official docs <ExternalLink className="size-3.5" />
       </a>
@@ -121,20 +129,20 @@ function AuthSummary() {
   const tokensLink = client ? `/tokens?client=${encodeURIComponent(client)}` : "/tokens";
 
   return (
-    <div className="mb-5 grid gap-3 sm:grid-cols-2">
-      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-500/25 dark:bg-emerald-500/10">
-        <div className="flex items-center gap-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300">
-          <ShieldCheck className="size-4" /> OAuth 2.1 — recommended
+    <div className="mb-4 sm:mb-5 grid gap-2.5 sm:gap-3 sm:grid-cols-2">
+      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 sm:p-4 dark:border-emerald-500/25 dark:bg-emerald-500/10">
+        <div className="flex items-center gap-2 text-xs sm:text-sm font-semibold text-emerald-800 dark:text-emerald-300">
+          <ShieldCheck className="size-4 shrink-0" /> OAuth 2.1 — recommended
         </div>
-        <p className="mt-1.5 text-xs leading-5 text-emerald-700 dark:text-emerald-200/80">
+        <p className="mt-1 text-xs leading-5 text-emerald-700 dark:text-emerald-200/80">
           Add only the server URL, then sign in in your browser. The client stores and refreshes its own credentials.
         </p>
       </div>
-      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/40">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          <KeyRound className="size-4" /> Personal token — fallback
+      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 sm:p-4 dark:border-zinc-700 dark:bg-zinc-800/40">
+        <div className="flex items-center gap-2 text-xs sm:text-sm font-semibold">
+          <KeyRound className="size-4 shrink-0" /> Personal token — fallback
         </div>
-        <p className="mt-1.5 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
+        <p className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
           Use an Authorization Bearer header when a client cannot complete OAuth. Create and revoke tokens on the{" "}
           <Link to={tokensLink} className="font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">
             Access Tokens
@@ -459,6 +467,130 @@ function VsCodeGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
   );
 }
 
+function AntigravityGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
+  const cliAddCommand = token
+    ? `agy mcp add --header "Authorization: Bearer ${token}" mcp-server ${mcpUrl}`
+    : `agy mcp add mcp-server ${mcpUrl}`;
+  const cliListCommand = "agy mcp list";
+
+  const oauthJson = JSON.stringify({ mcpServers: { "mcp-server": { serverUrl: mcpUrl } } }, null, 2);
+  const tokenJson = JSON.stringify(
+    {
+      mcpServers: {
+        "mcp-server": {
+          serverUrl: mcpUrl,
+          headers: { Authorization: `Bearer ${token ?? "YOUR_PERSONAL_ACCESS_TOKEN"}` },
+        },
+      },
+    },
+    null,
+    2,
+  );
+
+  return (
+    <>
+      <GuideHeader
+        client="antigravity"
+        title="Google Antigravity 2"
+        description="Antigravity 2.0, Antigravity IDE and Antigravity CLI (agy) share the same remote MCP schema. Remote servers must use the serverUrl field."
+      />
+      {!token && <AuthSummary />}
+      <Notice kind="warning" className="mb-5">
+        Each snippet below is a complete <code>mcp_config.json</code>. If that file already configures other MCP servers, merge the <code>"mcp-server"</code> entry into your existing <code>mcpServers</code> object — don't paste over the whole file.
+      </Notice>
+
+      <Step number={1} title="Antigravity 2.0 & IDE (UI Setup)">
+        <p>Configure the server directly in the Antigravity user interface:</p>
+        <ol className="list-decimal space-y-1.5 pl-5 text-sm">
+          <li>
+            Open <strong>Settings</strong> (<code>⌘+,</code> / <code>Ctrl+,</code>) → <strong>Customizations</strong> → <strong>Installed MCP Servers</strong>.
+          </li>
+          <li>
+            Click <strong>Add MCP Server</strong> (or <strong>+</strong>).
+          </li>
+          <li>
+            Set Name to <code>mcp-server</code> and enter the remote URL:
+          </li>
+        </ol>
+        <div className="mt-2">
+          <CopyField value={mcpUrl} />
+        </div>
+        <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+          {token
+            ? `In the Headers section, add header Authorization with value Bearer ${token}.`
+            : "Click Authenticate next to the server to complete browser sign-in. Antigravity refreshes credentials automatically."}
+        </p>
+      </Step>
+
+      <Step number={2} title="Antigravity CLI (agy commands)">
+        <p>
+          Configure and inspect the server using native <code>agy mcp</code> commands:
+        </p>
+        <div className="space-y-3">
+          <CodeCopyBlock label="CLI · Add MCP server" value={cliAddCommand} />
+          <CodeCopyBlock label="CLI · List configured servers" value={cliListCommand} />
+        </div>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          You can also run <code>agy</code> and type <code>/mcp</code> inside the interactive session to manage servers.
+        </p>
+      </Step>
+
+      <Step number={3} title="Manual configuration reference (optional)">
+        <p>
+          The global file is <code>~/.gemini/config/mcp_config.json</code>; the workspace file is <code>.agents/mcp_config.json</code>. Merge this object under <code>mcpServers</code>:
+        </p>
+        <CodeCopyBlock
+          label={token ? "mcp_config.json · Bearer token" : "mcp_config.json · OAuth"}
+          value={token ? tokenJson : oauthJson}
+        />
+      </Step>
+
+      <Notice className="mt-4">
+        Antigravity uses <code>serverUrl</code>. The legacy keys <code>url</code> and <code>httpUrl</code> are not valid for remote MCP configurations.
+      </Notice>
+    </>
+  );
+}
+
+function GeminiGuide({ mcpUrl, isLocal }: { mcpUrl: string; isLocal: boolean }) {
+  return (
+    <>
+      <GuideHeader
+        client="gemini"
+        title="Google Gemini & Gemini Spark"
+        description="Connect this MCP server to Gemini Spark via Connected Apps in the Gemini web interface."
+      />
+      {isLocal && (
+        <Notice kind="warning" className="mb-5">
+          Gemini Spark runs from Google Cloud and cannot connect to <code>localhost</code>. Deploy this app at a public HTTPS URL first, or use Antigravity 2 / CLI for local testing.
+        </Notice>
+      )}
+      <Step number={1} title="Open Connected Apps in Gemini">
+        <p>
+          Navigate to <strong>gemini.google.com</strong> on your computer. Open <strong>Settings & help</strong> (or your profile icon) at the bottom left, then select <strong>Connected Apps</strong>.
+        </p>
+      </Step>
+      <Step number={2} title="Add custom MCP app for Spark">
+        <p>
+          In the Connected Apps panel, locate the <strong>Custom apps for Spark</strong> section and click <strong>Add MCP server</strong> (or <strong>+</strong>).
+        </p>
+      </Step>
+      <Step number={3} title="Enter the MCP endpoint URL">
+        <p>Paste the Streamable HTTP endpoint URL for this server:</p>
+        <CopyField value={mcpUrl} />
+      </Step>
+      <Step number={4} title="Authorize and use in Spark">
+        <p>
+          Complete the connection authorization prompt. Once connected, Gemini Spark can discover and execute these finance tools in conversations, scheduled tasks, and persistent background workflows.
+        </p>
+      </Step>
+      <Notice className="mt-4">
+        Ensure <strong>Keep Activity</strong> is turned on in your Google Account settings, as Gemini Spark requires activity history to maintain connected custom MCP apps.
+      </Notice>
+    </>
+  );
+}
+
 function GenericGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
   const oauthJson = JSON.stringify(
     { mcpServers: { "mcp-server": { type: "streamable-http", url: mcpUrl } } },
@@ -517,8 +649,8 @@ function GenericGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
         <CodeCopyBlock label="Generic JSON · Bearer token" value={tokenJson} />
       </Step>
       <Step number={token ? 3 : 4} title="Map the schema to your client">
-        <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
-          <table className="w-full text-left text-xs">
+        <div className="-mx-1 sm:mx-0 overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
+          <table className="w-full text-left text-xs min-w-[360px]">
             <thead className="bg-zinc-50 text-zinc-500 dark:bg-zinc-800/60 dark:text-zinc-400">
               <tr>
                 <th className="px-3 py-2 font-medium">Client family</th>
@@ -527,10 +659,12 @@ function GenericGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-              <tr><td className="px-3 py-2">Claude Code</td><td className="px-3 py-2"><code>url</code></td><td className="px-3 py-2"><code>type: http</code></td></tr>
-              <tr><td className="px-3 py-2">Codex</td><td className="px-3 py-2"><code>url</code></td><td className="px-3 py-2">Inferred</td></tr>
-              <tr><td className="px-3 py-2">Cursor</td><td className="px-3 py-2"><code>url</code></td><td className="px-3 py-2">Inferred</td></tr>
-              <tr><td className="px-3 py-2">VS Code</td><td className="px-3 py-2"><code>url</code> under <code>servers</code></td><td className="px-3 py-2"><code>type: http</code></td></tr>
+              <tr><td className="px-3 py-2 font-medium">Claude Code</td><td className="px-3 py-2"><code>url</code></td><td className="px-3 py-2"><code>type: http</code></td></tr>
+              <tr><td className="px-3 py-2 font-medium">Codex</td><td className="px-3 py-2"><code>url</code></td><td className="px-3 py-2">Inferred</td></tr>
+              <tr><td className="px-3 py-2 font-medium">Cursor</td><td className="px-3 py-2"><code>url</code></td><td className="px-3 py-2">Inferred</td></tr>
+              <tr><td className="px-3 py-2 font-medium">VS Code</td><td className="px-3 py-2"><code>url</code> under <code>servers</code></td><td className="px-3 py-2"><code>type: http</code></td></tr>
+              <tr><td className="px-3 py-2 font-medium">Antigravity 2</td><td className="px-3 py-2"><code>serverUrl</code></td><td className="px-3 py-2">Inferred</td></tr>
+              <tr><td className="px-3 py-2 font-medium">Gemini Spark</td><td className="px-3 py-2">URL endpoint</td><td className="px-3 py-2">Streamable HTTP</td></tr>
             </tbody>
           </table>
         </div>
@@ -553,30 +687,32 @@ const PROJECT_SCOPES: ProjectScopeRow[] = [
   { client: "Cursor", path: ".cursor/mcp.json", note: "Overrides the same server name in ~/.cursor/mcp.json." },
   { client: "VS Code", path: ".vscode/mcp.json", note: "Root key is servers, not mcpServers." },
   { client: "Codex", path: ".codex/config.toml", note: "TOML, and only for projects you have trusted." },
+  { client: "Antigravity 2", path: ".agents/mcp_config.json", note: "Workspace file alongside global ~/.gemini/config/mcp_config.json." },
+  { client: "Gemini Spark", path: "—", note: "Account-level Connected Apps; no project file." },
   { client: "Claude Web, Desktop, Cowork", path: "—", note: "Connectors are per account; no project file." },
   { client: "Windsurf, Cline", path: "—", note: "Global configuration only." },
 ];
 
 function ProjectScopeReference() {
   return (
-    <Card className="mt-5 p-5">
+    <Card className="mt-4 sm:mt-5 p-4 sm:p-5">
       <div className="flex items-start gap-2.5">
         <FolderTree className="mt-0.5 size-4 shrink-0 text-indigo-500" />
         <div>
-          <h2 className="text-sm font-semibold">Per-project configuration</h2>
-          <p className="mt-1 text-sm leading-6 text-zinc-500 dark:text-zinc-400">
+          <h2 className="text-xs sm:text-sm font-semibold">Per-project configuration</h2>
+          <p className="mt-1 text-xs sm:text-sm leading-5 sm:leading-6 text-zinc-500 dark:text-zinc-400">
             Most clients can load this server from a file inside a repository instead of your home directory, so a
             checkout carries its own tools. There is no shared format: each client reads one exact filename in one
             exact folder.
           </p>
         </div>
       </div>
-      <Notice kind="warning" className="mt-4">
+      <Notice kind="warning" className="mt-3 sm:mt-4">
         A file named <code>mcp.json</code> at the root of your project is not read by any client. Claude Code wants
         the leading dot in <code>.mcp.json</code>; Cursor and VS Code want their own dot-folders.
       </Notice>
-      <div className="mt-4 overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
-        <table className="w-full text-left text-xs">
+      <div className="mt-3 sm:mt-4 -mx-1 sm:mx-0 overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
+        <table className="w-full text-left text-xs min-w-[480px]">
           <thead className="bg-zinc-50 text-zinc-500 dark:bg-zinc-800/60 dark:text-zinc-400">
             <tr>
               <th className="px-3 py-2 font-medium">Client</th>
@@ -587,7 +723,7 @@ function ProjectScopeReference() {
           <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
             {PROJECT_SCOPES.map((row) => (
               <tr key={row.client}>
-                <td className="px-3 py-2 whitespace-nowrap">{row.client}</td>
+                <td className="px-3 py-2 whitespace-nowrap font-medium">{row.client}</td>
                 <td className="px-3 py-2 whitespace-nowrap">
                   {row.path === "—" ? <span className="text-zinc-400">—</span> : <code>{row.path}</code>}
                 </td>
@@ -627,12 +763,12 @@ function Troubleshooting({ tokenOnly = false }: { tokenOnly?: boolean }) {
       ];
 
   return (
-    <Card className="mt-5 p-5">
-      <h2 className="text-sm font-semibold">Connection checklist</h2>
-      <ul className="mt-3 grid gap-2.5 text-sm text-zinc-600 dark:text-zinc-300 sm:grid-cols-2">
+    <Card className="mt-4 sm:mt-5 p-4 sm:p-5">
+      <h2 className="text-xs sm:text-sm font-semibold">Connection checklist</h2>
+      <ul className="mt-3 grid gap-2 sm:gap-2.5 text-xs sm:text-sm text-zinc-600 dark:text-zinc-300 sm:grid-cols-2">
         {items.map((item) => (
           <li key={item} className="flex gap-2">
-            <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-500" />
+            <CheckCircle2 className="mt-0.5 size-3.5 sm:size-4 shrink-0 text-emerald-500" />
             <span>{item}</span>
           </li>
         ))}
@@ -664,17 +800,17 @@ export function IntegrationGuides({
 
   return (
     <>
-      <Card className="mb-5 p-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+      <Card className="mb-4 sm:mb-5 p-4 sm:p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4">
           <div>
             <div className="text-xs font-medium tracking-wide text-zinc-400 uppercase">Your endpoint</div>
-            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+            <p className="mt-0.5 text-xs sm:text-sm text-zinc-500 dark:text-zinc-400">
               {tokenOnly
                 ? "Streamable HTTP · Personal Bearer token"
                 : "Streamable HTTP · OAuth 2.1 with PKCE · Personal Bearer tokens"}
             </p>
           </div>
-          <div className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">
+          <div className="inline-flex self-start sm:self-auto items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">
             {tokenOnly ? <KeyRound className="size-3.5" /> : <ShieldCheck className="size-3.5" />}
             {tokenOnly ? "Token ready" : "OAuth ready"}
           </div>
@@ -684,7 +820,10 @@ export function IntegrationGuides({
         </div>
       </Card>
 
-      <nav aria-label="MCP client guides" className="mb-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      <nav
+        aria-label="MCP client guides"
+        className="mb-4 sm:mb-5 flex items-center gap-1 sm:gap-1.5 overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-100/80 p-1 sm:p-1.5 dark:border-zinc-800 dark:bg-zinc-900/60"
+      >
         {clients.map((client) => {
           const Icon = client.icon;
           const active = selectedClient === client.id;
@@ -695,30 +834,27 @@ export function IntegrationGuides({
               key={client.id}
               to={`${basePath}?${nextSearchParams.toString()}`}
               aria-current={active ? "page" : undefined}
-              className={`flex items-center gap-3 rounded-xl border p-3.5 transition-colors ${
+              className={`inline-flex shrink-0 items-center gap-1.5 sm:gap-2 rounded-lg px-2.5 py-1.5 sm:px-3.5 sm:py-2 text-xs sm:text-sm font-medium transition-all ${
                 active
-                  ? "border-indigo-400 bg-indigo-50 text-indigo-900 dark:border-indigo-500/60 dark:bg-indigo-500/10 dark:text-indigo-100"
-                  : "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700 dark:hover:bg-zinc-800/60"
+                  ? "bg-white text-zinc-950 shadow-sm dark:bg-zinc-800 dark:text-white"
+                  : "text-zinc-600 hover:bg-white/50 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100"
               }`}
             >
-              <div className={`grid size-9 shrink-0 place-items-center rounded-lg ${active ? "bg-indigo-600 text-white" : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"}`}>
-                <Icon className="size-4.5" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-sm font-semibold">{client.label}</div>
-                <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">{client.description}</div>
-              </div>
+              <Icon className="size-3.5 sm:size-4 shrink-0" />
+              <span>{client.label}</span>
             </Link>
           );
         })}
       </nav>
 
-      <Card className="p-5 sm:p-6">
+      <Card className="p-4 sm:p-6">
         {!tokenOnly && selectedClient === "claude" && <ClaudeGuide mcpUrl={mcpUrl} isLocal={isLocal} />}
         {selectedClient === "claude-code" && <ClaudeCodeGuide mcpUrl={mcpUrl} token={token} />}
         {selectedClient === "codex" && <CodexGuide mcpUrl={mcpUrl} token={token} />}
         {selectedClient === "cursor" && <CursorGuide mcpUrl={mcpUrl} token={token} />}
         {selectedClient === "vscode" && <VsCodeGuide mcpUrl={mcpUrl} token={token} />}
+        {selectedClient === "antigravity" && <AntigravityGuide mcpUrl={mcpUrl} token={token} />}
+        {!tokenOnly && selectedClient === "gemini" && <GeminiGuide mcpUrl={mcpUrl} isLocal={isLocal} />}
         {selectedClient === "generic" && <GenericGuide mcpUrl={mcpUrl} token={token} />}
       </Card>
 
