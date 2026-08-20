@@ -9,6 +9,7 @@ import {
   FolderTree,
   KeyRound,
   Laptop,
+  Orbit,
   ShieldCheck,
   TerminalSquare,
   Wrench,
@@ -22,6 +23,7 @@ export type ClientId =
   | "codex"
   | "cursor"
   | "vscode"
+  | "antigravity"
   | "generic";
 
 interface ClientOption {
@@ -37,6 +39,7 @@ const CLIENTS: ClientOption[] = [
   { id: "codex", label: "Codex", description: "App, CLI and IDE", icon: Code2 },
   { id: "cursor", label: "Cursor", description: "Editor and Agent CLI", icon: Laptop },
   { id: "vscode", label: "VS Code", description: "Copilot agent mode", icon: FileCode2 },
+  { id: "antigravity", label: "Antigravity 2", description: "App, IDE, CLI & Gemini Spark", icon: Orbit },
   { id: "generic", label: "Common MCP", description: "Any HTTP client", icon: Wrench },
 ];
 
@@ -49,6 +52,7 @@ const DOCS: Record<ClientId, string> = {
   codex: "https://developers.openai.com/codex/mcp/",
   cursor: "https://cursor.com/docs/mcp",
   vscode: "https://code.visualstudio.com/docs/agent-customization/mcp-servers",
+  antigravity: "https://antigravity.google/docs/mcp",
   generic: "https://modelcontextprotocol.io/docs/develop/connect-remote-servers",
 };
 
@@ -459,6 +463,68 @@ function VsCodeGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
   );
 }
 
+function AntigravityGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
+  const oauthJson = JSON.stringify({ mcpServers: { "mcp-server": { serverUrl: mcpUrl } } }, null, 2);
+  const tokenJson = JSON.stringify(
+    {
+      mcpServers: {
+        "mcp-server": {
+          serverUrl: mcpUrl,
+          headers: { Authorization: `Bearer ${token ?? "YOUR_PERSONAL_ACCESS_TOKEN"}` },
+        },
+      },
+    },
+    null,
+    2,
+  );
+
+  return (
+    <>
+      <GuideHeader
+        client="antigravity"
+        title="Google Antigravity 2 & Gemini Spark"
+        description="Antigravity 2.0, Antigravity IDE, CLI and Gemini Spark persistent cloud agents share the same remote MCP schema. Remote servers must use the serverUrl field."
+      />
+      {!token && <AuthSummary />}
+      <Notice kind="warning" className="mb-5">
+        Each snippet below is a complete <code>mcp_config.json</code>. If that file already configures other MCP servers, merge the <code>"mcp-server"</code> entry into your existing <code>mcpServers</code> object — don't paste over the whole file.
+      </Notice>
+      <Step number={1} title="Open the MCP configuration">
+        <p>
+          In Antigravity 2, open <strong>Settings → Customizations → Installed MCP Servers</strong>. In the IDE, open the agent menu, choose <strong>MCP Servers → Manage MCP Servers → View raw config</strong>. Gemini Spark persistent agents and the CLI automatically discover global and workspace configurations.
+        </p>
+        <p>
+          The global file is <code>~/.gemini/config/mcp_config.json</code>; the workspace file is <code>.agents/mcp_config.json</code>.
+        </p>
+      </Step>
+      {!token && (
+        <>
+          <Step number={2} title="Add the OAuth configuration">
+            <p>This server supports dynamic client registration, so no OAuth client ID or secret is required.</p>
+            <CodeCopyBlock label="mcp_config.json · OAuth" value={oauthJson} />
+          </Step>
+          <Step number={3} title="Authenticate">
+            <p>
+              Return to <strong>Installed MCP Servers</strong>, select <strong>Authenticate</strong>, finish sign-in in the browser, and paste the authorization result back if prompted. Antigravity refreshes OAuth tokens automatically.
+            </p>
+          </Step>
+        </>
+      )}
+      <Step number={token ? 2 : 4} title={token ? "Add your access token" : "Personal token fallback"}>
+        <p>
+          {token
+            ? "Your new token is already filled into this configuration. It is stored in the JSON file, so keep that file private and never commit it."
+            : "Use a personal token only if OAuth cannot be completed. This form stores the token in the JSON file, so keep that file private and never commit it."}
+        </p>
+        <CodeCopyBlock label="mcp_config.json · Bearer token" value={tokenJson} />
+      </Step>
+      <Notice className="mt-4">
+        Antigravity and Gemini Spark use <code>serverUrl</code>. The keys <code>url</code> and <code>httpUrl</code> are not valid for its remote MCP configuration.
+      </Notice>
+    </>
+  );
+}
+
 function GenericGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
   const oauthJson = JSON.stringify(
     { mcpServers: { "mcp-server": { type: "streamable-http", url: mcpUrl } } },
@@ -531,6 +597,7 @@ function GenericGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
               <tr><td className="px-3 py-2">Codex</td><td className="px-3 py-2"><code>url</code></td><td className="px-3 py-2">Inferred</td></tr>
               <tr><td className="px-3 py-2">Cursor</td><td className="px-3 py-2"><code>url</code></td><td className="px-3 py-2">Inferred</td></tr>
               <tr><td className="px-3 py-2">VS Code</td><td className="px-3 py-2"><code>url</code> under <code>servers</code></td><td className="px-3 py-2"><code>type: http</code></td></tr>
+              <tr><td className="px-3 py-2">Antigravity 2 & Gemini Spark</td><td className="px-3 py-2"><code>serverUrl</code></td><td className="px-3 py-2">Inferred</td></tr>
             </tbody>
           </table>
         </div>
@@ -553,6 +620,7 @@ const PROJECT_SCOPES: ProjectScopeRow[] = [
   { client: "Cursor", path: ".cursor/mcp.json", note: "Overrides the same server name in ~/.cursor/mcp.json." },
   { client: "VS Code", path: ".vscode/mcp.json", note: "Root key is servers, not mcpServers." },
   { client: "Codex", path: ".codex/config.toml", note: "TOML, and only for projects you have trusted." },
+  { client: "Antigravity 2 / Gemini Spark", path: ".agents/mcp_config.json", note: "Workspace file alongside the global ~/.gemini/config/mcp_config.json." },
   { client: "Claude Web, Desktop, Cowork", path: "—", note: "Connectors are per account; no project file." },
   { client: "Windsurf, Cline", path: "—", note: "Global configuration only." },
 ];
@@ -719,6 +787,7 @@ export function IntegrationGuides({
         {selectedClient === "codex" && <CodexGuide mcpUrl={mcpUrl} token={token} />}
         {selectedClient === "cursor" && <CursorGuide mcpUrl={mcpUrl} token={token} />}
         {selectedClient === "vscode" && <VsCodeGuide mcpUrl={mcpUrl} token={token} />}
+        {selectedClient === "antigravity" && <AntigravityGuide mcpUrl={mcpUrl} token={token} />}
         {selectedClient === "generic" && <GenericGuide mcpUrl={mcpUrl} token={token} />}
       </Card>
 
