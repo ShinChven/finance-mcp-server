@@ -62,13 +62,13 @@ const DOCS: Record<ClientId, string> = {
 
 function Step({ number, title, children }: { number: number; title: string; children: ReactNode }) {
   return (
-    <div className="flex gap-3">
-      <div className="grid size-7 shrink-0 place-items-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
+    <div className="flex gap-2.5 sm:gap-3">
+      <div className="grid size-6 sm:size-7 shrink-0 place-items-center rounded-full bg-indigo-100 text-[11px] sm:text-xs font-semibold text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
         {number}
       </div>
-      <div className="min-w-0 flex-1 pb-5">
-        <h3 className="text-sm font-semibold">{title}</h3>
-        <div className="mt-1.5 space-y-3 text-sm leading-6 text-zinc-600 dark:text-zinc-300">{children}</div>
+      <div className="min-w-0 flex-1 pb-4 sm:pb-5">
+        <h3 className="text-xs sm:text-sm font-semibold leading-snug">{title}</h3>
+        <div className="mt-1.5 space-y-2.5 sm:space-y-3 text-xs sm:text-sm leading-5 sm:leading-6 text-zinc-600 dark:text-zinc-300">{children}</div>
       </div>
     </div>
   );
@@ -85,7 +85,7 @@ function Notice({
 }) {
   return (
     <div
-      className={`rounded-lg border px-3.5 py-3 text-sm leading-6 ${
+      className={`rounded-lg border px-3 py-2.5 sm:px-3.5 sm:py-3 text-xs sm:text-sm leading-5 sm:leading-6 ${
         kind === "warning"
           ? "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
           : "border-indigo-200 bg-indigo-50 text-indigo-900 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-200"
@@ -106,16 +106,16 @@ function GuideHeader({
   client: ClientId;
 }) {
   return (
-    <div className="mb-5 flex flex-wrap items-start justify-between gap-3 border-b border-zinc-200 pb-5 dark:border-zinc-800">
+    <div className="mb-4 sm:mb-5 flex flex-col sm:flex-row sm:items-start justify-between gap-2 sm:gap-3 border-b border-zinc-200 pb-4 sm:pb-5 dark:border-zinc-800">
       <div>
-        <h2 className="text-lg font-semibold">{title}</h2>
-        <p className="mt-1 max-w-2xl text-sm leading-6 text-zinc-500 dark:text-zinc-400">{description}</p>
+        <h2 className="text-base sm:text-lg font-semibold">{title}</h2>
+        <p className="mt-1 max-w-2xl text-xs sm:text-sm leading-5 sm:leading-6 text-zinc-500 dark:text-zinc-400">{description}</p>
       </div>
       <a
         href={DOCS[client]}
         target="_blank"
         rel="noreferrer"
-        className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
+        className="inline-flex shrink-0 items-center gap-1.5 self-start text-xs font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
       >
         Official docs <ExternalLink className="size-3.5" />
       </a>
@@ -129,20 +129,20 @@ function AuthSummary() {
   const tokensLink = client ? `/tokens?client=${encodeURIComponent(client)}` : "/tokens";
 
   return (
-    <div className="mb-5 grid gap-3 sm:grid-cols-2">
-      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-500/25 dark:bg-emerald-500/10">
-        <div className="flex items-center gap-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300">
-          <ShieldCheck className="size-4" /> OAuth 2.1 — recommended
+    <div className="mb-4 sm:mb-5 grid gap-2.5 sm:gap-3 sm:grid-cols-2">
+      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 sm:p-4 dark:border-emerald-500/25 dark:bg-emerald-500/10">
+        <div className="flex items-center gap-2 text-xs sm:text-sm font-semibold text-emerald-800 dark:text-emerald-300">
+          <ShieldCheck className="size-4 shrink-0" /> OAuth 2.1 — recommended
         </div>
-        <p className="mt-1.5 text-xs leading-5 text-emerald-700 dark:text-emerald-200/80">
+        <p className="mt-1 text-xs leading-5 text-emerald-700 dark:text-emerald-200/80">
           Add only the server URL, then sign in in your browser. The client stores and refreshes its own credentials.
         </p>
       </div>
-      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/40">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          <KeyRound className="size-4" /> Personal token — fallback
+      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 sm:p-4 dark:border-zinc-700 dark:bg-zinc-800/40">
+        <div className="flex items-center gap-2 text-xs sm:text-sm font-semibold">
+          <KeyRound className="size-4 shrink-0" /> Personal token — fallback
         </div>
-        <p className="mt-1.5 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
+        <p className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
           Use an Authorization Bearer header when a client cannot complete OAuth. Create and revoke tokens on the{" "}
           <Link to={tokensLink} className="font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">
             Access Tokens
@@ -649,8 +649,8 @@ function GenericGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
         <CodeCopyBlock label="Generic JSON · Bearer token" value={tokenJson} />
       </Step>
       <Step number={token ? 3 : 4} title="Map the schema to your client">
-        <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
-          <table className="w-full text-left text-xs">
+        <div className="-mx-1 sm:mx-0 overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
+          <table className="w-full text-left text-xs min-w-[360px]">
             <thead className="bg-zinc-50 text-zinc-500 dark:bg-zinc-800/60 dark:text-zinc-400">
               <tr>
                 <th className="px-3 py-2 font-medium">Client family</th>
@@ -659,12 +659,12 @@ function GenericGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-              <tr><td className="px-3 py-2">Claude Code</td><td className="px-3 py-2"><code>url</code></td><td className="px-3 py-2"><code>type: http</code></td></tr>
-              <tr><td className="px-3 py-2">Codex</td><td className="px-3 py-2"><code>url</code></td><td className="px-3 py-2">Inferred</td></tr>
-              <tr><td className="px-3 py-2">Cursor</td><td className="px-3 py-2"><code>url</code></td><td className="px-3 py-2">Inferred</td></tr>
-              <tr><td className="px-3 py-2">VS Code</td><td className="px-3 py-2"><code>url</code> under <code>servers</code></td><td className="px-3 py-2"><code>type: http</code></td></tr>
-              <tr><td className="px-3 py-2">Antigravity 2</td><td className="px-3 py-2"><code>serverUrl</code></td><td className="px-3 py-2">Inferred</td></tr>
-              <tr><td className="px-3 py-2">Gemini Spark</td><td className="px-3 py-2">URL endpoint</td><td className="px-3 py-2">Streamable HTTP</td></tr>
+              <tr><td className="px-3 py-2 font-medium">Claude Code</td><td className="px-3 py-2"><code>url</code></td><td className="px-3 py-2"><code>type: http</code></td></tr>
+              <tr><td className="px-3 py-2 font-medium">Codex</td><td className="px-3 py-2"><code>url</code></td><td className="px-3 py-2">Inferred</td></tr>
+              <tr><td className="px-3 py-2 font-medium">Cursor</td><td className="px-3 py-2"><code>url</code></td><td className="px-3 py-2">Inferred</td></tr>
+              <tr><td className="px-3 py-2 font-medium">VS Code</td><td className="px-3 py-2"><code>url</code> under <code>servers</code></td><td className="px-3 py-2"><code>type: http</code></td></tr>
+              <tr><td className="px-3 py-2 font-medium">Antigravity 2</td><td className="px-3 py-2"><code>serverUrl</code></td><td className="px-3 py-2">Inferred</td></tr>
+              <tr><td className="px-3 py-2 font-medium">Gemini Spark</td><td className="px-3 py-2">URL endpoint</td><td className="px-3 py-2">Streamable HTTP</td></tr>
             </tbody>
           </table>
         </div>
@@ -695,24 +695,24 @@ const PROJECT_SCOPES: ProjectScopeRow[] = [
 
 function ProjectScopeReference() {
   return (
-    <Card className="mt-5 p-5">
+    <Card className="mt-4 sm:mt-5 p-4 sm:p-5">
       <div className="flex items-start gap-2.5">
         <FolderTree className="mt-0.5 size-4 shrink-0 text-indigo-500" />
         <div>
-          <h2 className="text-sm font-semibold">Per-project configuration</h2>
-          <p className="mt-1 text-sm leading-6 text-zinc-500 dark:text-zinc-400">
+          <h2 className="text-xs sm:text-sm font-semibold">Per-project configuration</h2>
+          <p className="mt-1 text-xs sm:text-sm leading-5 sm:leading-6 text-zinc-500 dark:text-zinc-400">
             Most clients can load this server from a file inside a repository instead of your home directory, so a
             checkout carries its own tools. There is no shared format: each client reads one exact filename in one
             exact folder.
           </p>
         </div>
       </div>
-      <Notice kind="warning" className="mt-4">
+      <Notice kind="warning" className="mt-3 sm:mt-4">
         A file named <code>mcp.json</code> at the root of your project is not read by any client. Claude Code wants
         the leading dot in <code>.mcp.json</code>; Cursor and VS Code want their own dot-folders.
       </Notice>
-      <div className="mt-4 overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
-        <table className="w-full text-left text-xs">
+      <div className="mt-3 sm:mt-4 -mx-1 sm:mx-0 overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
+        <table className="w-full text-left text-xs min-w-[480px]">
           <thead className="bg-zinc-50 text-zinc-500 dark:bg-zinc-800/60 dark:text-zinc-400">
             <tr>
               <th className="px-3 py-2 font-medium">Client</th>
@@ -723,7 +723,7 @@ function ProjectScopeReference() {
           <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
             {PROJECT_SCOPES.map((row) => (
               <tr key={row.client}>
-                <td className="px-3 py-2 whitespace-nowrap">{row.client}</td>
+                <td className="px-3 py-2 whitespace-nowrap font-medium">{row.client}</td>
                 <td className="px-3 py-2 whitespace-nowrap">
                   {row.path === "—" ? <span className="text-zinc-400">—</span> : <code>{row.path}</code>}
                 </td>
@@ -763,12 +763,12 @@ function Troubleshooting({ tokenOnly = false }: { tokenOnly?: boolean }) {
       ];
 
   return (
-    <Card className="mt-5 p-5">
-      <h2 className="text-sm font-semibold">Connection checklist</h2>
-      <ul className="mt-3 grid gap-2.5 text-sm text-zinc-600 dark:text-zinc-300 sm:grid-cols-2">
+    <Card className="mt-4 sm:mt-5 p-4 sm:p-5">
+      <h2 className="text-xs sm:text-sm font-semibold">Connection checklist</h2>
+      <ul className="mt-3 grid gap-2 sm:gap-2.5 text-xs sm:text-sm text-zinc-600 dark:text-zinc-300 sm:grid-cols-2">
         {items.map((item) => (
           <li key={item} className="flex gap-2">
-            <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-500" />
+            <CheckCircle2 className="mt-0.5 size-3.5 sm:size-4 shrink-0 text-emerald-500" />
             <span>{item}</span>
           </li>
         ))}
@@ -800,17 +800,17 @@ export function IntegrationGuides({
 
   return (
     <>
-      <Card className="mb-5 p-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+      <Card className="mb-4 sm:mb-5 p-4 sm:p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4">
           <div>
             <div className="text-xs font-medium tracking-wide text-zinc-400 uppercase">Your endpoint</div>
-            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+            <p className="mt-0.5 text-xs sm:text-sm text-zinc-500 dark:text-zinc-400">
               {tokenOnly
                 ? "Streamable HTTP · Personal Bearer token"
                 : "Streamable HTTP · OAuth 2.1 with PKCE · Personal Bearer tokens"}
             </p>
           </div>
-          <div className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">
+          <div className="inline-flex self-start sm:self-auto items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">
             {tokenOnly ? <KeyRound className="size-3.5" /> : <ShieldCheck className="size-3.5" />}
             {tokenOnly ? "Token ready" : "OAuth ready"}
           </div>
@@ -822,7 +822,7 @@ export function IntegrationGuides({
 
       <nav
         aria-label="MCP client guides"
-        className="mb-5 flex items-center gap-1.5 overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-100/80 p-1.5 dark:border-zinc-800 dark:bg-zinc-900/60"
+        className="mb-4 sm:mb-5 flex items-center gap-1 sm:gap-1.5 overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-100/80 p-1 sm:p-1.5 dark:border-zinc-800 dark:bg-zinc-900/60"
       >
         {clients.map((client) => {
           const Icon = client.icon;
@@ -834,20 +834,20 @@ export function IntegrationGuides({
               key={client.id}
               to={`${basePath}?${nextSearchParams.toString()}`}
               aria-current={active ? "page" : undefined}
-              className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition-all ${
+              className={`inline-flex shrink-0 items-center gap-1.5 sm:gap-2 rounded-lg px-2.5 py-1.5 sm:px-3.5 sm:py-2 text-xs sm:text-sm font-medium transition-all ${
                 active
                   ? "bg-white text-zinc-950 shadow-sm dark:bg-zinc-800 dark:text-white"
                   : "text-zinc-600 hover:bg-white/50 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100"
               }`}
             >
-              <Icon className="size-4 shrink-0" />
+              <Icon className="size-3.5 sm:size-4 shrink-0" />
               <span>{client.label}</span>
             </Link>
           );
         })}
       </nav>
 
-      <Card className="p-5 sm:p-6">
+      <Card className="p-4 sm:p-6">
         {!tokenOnly && selectedClient === "claude" && <ClaudeGuide mcpUrl={mcpUrl} isLocal={isLocal} />}
         {selectedClient === "claude-code" && <ClaudeCodeGuide mcpUrl={mcpUrl} token={token} />}
         {selectedClient === "codex" && <CodexGuide mcpUrl={mcpUrl} token={token} />}
