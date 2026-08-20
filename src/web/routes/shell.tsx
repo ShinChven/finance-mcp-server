@@ -13,6 +13,7 @@ import {
   Plug,
   ScrollText,
   Server,
+  Sparkles,
   Settings,
   Star,
   Users,
@@ -96,6 +97,9 @@ export default function Shell() {
           </NavLink>
           <NavLink to="/notes" className={navItemClass}>
             <NotebookPen className="size-4" /> Notes
+          </NavLink>
+          <NavLink to="/skills" className={navItemClass}>
+            <Sparkles className="size-4" /> Skills
           </NavLink>
           <NavLink to="/funds" className={navItemClass}>
             <Database className="size-4" /> Funds

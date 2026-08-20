@@ -16,6 +16,7 @@ import {
 import type { HoldingsCompleteness, ProviderId } from "../../shared/funds.js";
 import type { UserPreferences } from "../../shared/preferences.js";
 import { NOTE_SOURCES, NOTE_STATUSES } from "../../shared/notes.js";
+import { SKILL_SOURCES, SKILL_STATUSES } from "../../shared/skills.js";
 import { WATCHLIST_ITEM_KINDS } from "../../shared/watchlist.js";
 
 export const userRole = pgEnum("user_role", ["admin", "user"]);
@@ -432,6 +433,98 @@ export type NoteCollection = typeof noteCollections.$inferSelect;
 export type Note = typeof notes.$inferSelect;
 export type NoteTagRow = typeof noteTags.$inferSelect;
 export type NoteSymbolRow = typeof noteSymbols.$inferSelect;
+
+/* ------------------------------------------------------------------ *
+ * Skills — user-authored procedures, addressed by name.
+ *
+ * Deliberately not a flag on `notes`. A note is recalled fuzzily out of
+ * thousands; a skill is called by a stable name out of a couple of hundred, and
+ * its `when_to_use` is not a human summary but the text retrieval matches on.
+ * The tables that look alike here would have diverged on the first index.
+ * ------------------------------------------------------------------ */
+
+export const skillStatus = pgEnum("skill_status", SKILL_STATUSES);
+export const skillSource = pgEnum("skill_source", SKILL_SOURCES);
+
+export const skills = pgTable(
+  "skills",
+  {
+    id: id(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /**
+     * The stable identifier an agent addresses, and what the user types to call
+     * the skill. Normalized on write by `shared/skills.ts`, so the unique index
+     * below needs no `lower()` wrapper — unlike watchlists and note
+     * collections, which preserve the user's own capitalisation.
+     */
+    slug: text("slug").notNull(),
+    /** Human title for the dashboard. The frontmatter-style identity is the
+     *  slug; these two are allowed to differ. */
+    name: text("name").notNull(),
+    /**
+     * Retrieval hangs entirely on this line. It is what `skills` search matches
+     * and what the agent reads to decide the skill applies, which is why it is
+     * `not null` while a note's summary is optional: a skill nobody can find is
+     * not a cheaper skill, it is a missing one.
+     */
+    whenToUse: text("when_to_use").notNull(),
+    /** The procedure itself. Returned by `skillRead` and nothing else. */
+    body: text("body").notNull().default(""),
+    status: skillStatus("status").notNull().default("active"),
+    source: skillSource("source").notNull().default("web"),
+    /** Free-text provenance — a chat id, a client name. Same contract as
+     *  `notes.source_ref`; not a foreign key for the same reason. */
+    sourceRef: text("source_ref"),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    /**
+     * `simple` and weighted, for the reasons spelled out on `notes.search_vector`.
+     * Slug and name share the top weight because a near-miss on a name the user
+     * half-remembers is the query this index exists to serve; the body ranks
+     * last so an incidental mention never outranks the skill actually about it.
+     */
+    searchVector: tsvector("search_vector").generatedAlwaysAs(
+      (): SQL =>
+        sql`setweight(to_tsvector('simple', coalesce(${skills.slug}, '') || ' ' || coalesce(${skills.name}, '')), 'A') || setweight(to_tsvector('simple', coalesce(${skills.whenToUse}, '')), 'B') || setweight(to_tsvector('simple', coalesce(${skills.body}, '')), 'C')`,
+    ),
+  },
+  (t) => [
+    // The hot path. `skillRead("fund-screen")` is one index hit — the whole
+    // point of addressing skills by name instead of searching for them.
+    uniqueIndex("skills_user_slug_idx").on(t.userId, t.slug),
+    index("skills_user_status_idx").on(t.userId, t.status, t.updatedAt),
+    index("skills_search_idx").using("gin", t.searchVector),
+  ],
+);
+
+/**
+ * What a skill said before the last edit.
+ *
+ * A skill is executable intent, so "the agent started doing this differently
+ * and nobody remembers changing anything" is a question that has to be
+ * answerable. One insert per update, bounded by the per-skill trim in the repo.
+ */
+export const skillRevisions = pgTable(
+  "skill_revisions",
+  {
+    id: id(),
+    skillId: text("skill_id")
+      .notNull()
+      .references(() => skills.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    whenToUse: text("when_to_use").notNull(),
+    body: text("body").notNull(),
+    /** Who produced the version being replaced. */
+    source: skillSource("source").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("skill_revisions_skill_idx").on(t.skillId, t.createdAt)],
+);
+
+export type Skill = typeof skills.$inferSelect;
+export type SkillRevision = typeof skillRevisions.$inferSelect;
 
 export const auditLog = pgTable(
   "audit_log",

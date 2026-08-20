@@ -82,6 +82,9 @@ describe("finance MCP server", () => {
         "noteCreate",
         "noteUpdate",
         "noteDelete",
+        "skills",
+        "skillRead",
+        "skillSave",
         "fundExposure",
         "fundsByStock",
         "fundsBySector",
@@ -91,7 +94,9 @@ describe("finance MCP server", () => {
         "compareFunds",
         "fundPerformance",
       ]);
-      // Watchlist and note writes are the only mutating tools; everything else reads.
+      // Watchlist, note and skill writes are the only mutating tools; everything
+      // else reads. skillSave is here and skillRead is not, which is the split
+      // the draft gate depends on.
       const mutating = result.tools
         .filter((tool) => tool.annotations?.readOnlyHint !== true)
         .map((tool) => tool.name);
@@ -101,6 +106,7 @@ describe("finance MCP server", () => {
         "noteCreate",
         "noteUpdate",
         "noteDelete",
+        "skillSave",
       ]);
     } finally {
       await mcpClient.close();
