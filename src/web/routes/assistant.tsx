@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, MessageSquarePlus, SendHorizonal, Trash2 } from "lucide-react";
+import { ArrowLeft, Bot, MessageSquarePlus, SendHorizonal, Trash2 } from "lucide-react";
 import { Markdown } from "../components/markdown.js";
 import { ConfirmDialog } from "../components/modal.js";
 import { SearchInput } from "../components/table.js";
@@ -42,9 +42,11 @@ function MessageBubble({ role, content }: { role: "user" | "assistant"; content:
 function ChatPane({
   conversationId,
   providers,
+  onBack,
 }: {
   conversationId: string;
   providers: ChatProvidersResponse;
+  onBack: () => void;
 }) {
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -98,8 +100,15 @@ function ChatPane({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between gap-3 border-b border-zinc-200 pb-3 dark:border-zinc-800">
-        <h2 className="truncate text-sm font-medium">{data.conversation.title}</h2>
+      <div className="flex items-center gap-2 border-b border-zinc-200 pb-3 dark:border-zinc-800">
+        <button
+          onClick={onBack}
+          aria-label="Back to conversations"
+          className="-ml-1 shrink-0 cursor-pointer rounded-md p-1 text-zinc-500 hover:bg-zinc-100 lg:hidden dark:text-zinc-400 dark:hover:bg-zinc-800"
+        >
+          <ArrowLeft className="size-4" />
+        </button>
+        <h2 className="min-w-0 flex-1 truncate text-sm font-medium">{data.conversation.title}</h2>
         <Select value={modelValue} onChange={(e) => changeModel.mutate(e.target.value)} className="text-xs">
           {providers.providers.map((provider) => (
             <optgroup key={provider.id} label={provider.label}>
@@ -229,8 +238,12 @@ export default function AssistantPage() {
           </Button>
         }
       />
-      <Card className="flex h-[calc(100vh-14rem)] min-h-96 overflow-hidden">
-        <aside className="flex w-64 shrink-0 flex-col border-r border-zinc-200 dark:border-zinc-800">
+      <Card className="flex h-[calc(100dvh-15rem)] min-h-96 overflow-hidden lg:h-[calc(100vh-14rem)]">
+        <aside
+          className={`w-full shrink-0 flex-col border-r border-zinc-200 lg:flex lg:w-64 dark:border-zinc-800 ${
+            selectedId ? "hidden" : "flex"
+          }`}
+        >
           <div className="border-b border-zinc-200 p-3 dark:border-zinc-800">
             <SearchInput params={params} placeholder="Search chats…" />
           </div>
@@ -266,9 +279,14 @@ export default function AssistantPage() {
             ))}
           </div>
         </aside>
-        <main className="min-w-0 flex-1 p-4">
+        <main className={`min-w-0 flex-1 p-4 lg:block ${selectedId ? "block" : "hidden"}`}>
           {selectedId ? (
-            <ChatPane key={selectedId} conversationId={selectedId} providers={providers} />
+            <ChatPane
+              key={selectedId}
+              conversationId={selectedId}
+              providers={providers}
+              onBack={() => params.update({ c: "" })}
+            />
           ) : (
             <div className="grid h-full place-items-center">
               <EmptyState

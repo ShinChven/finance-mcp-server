@@ -83,11 +83,11 @@ export function FilterPills({
 export function Pagination({ params, total, totalPages }: { params: ListParams; total: number; totalPages: number }) {
   if (total === 0) return null;
   return (
-    <div className="flex items-center justify-between border-t border-zinc-200 px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200 px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800">
       <span>
         Page {params.page} of {totalPages} · {total} total
       </span>
-      <div className="flex gap-1.5">
+      <div className="ml-auto flex gap-1.5">
         <Button
           variant="secondary"
           size="sm"
@@ -143,7 +143,7 @@ export function DataTable<T>({
         <EmptyState {...empty} />
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[34rem] text-sm">
             <thead>
               <tr className="border-b border-zinc-200 text-left text-xs text-zinc-500 uppercase dark:border-zinc-800">
                 {columns.map((column) => (

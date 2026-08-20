@@ -359,7 +359,7 @@ function StatTiles({ stats }: { stats: FundCacheStats | undefined }) {
   ];
 
   return (
-    <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
       {tiles.map((tile) => (
         <Card key={tile.label} className="p-4">
           <div className="flex items-center gap-2 text-xs text-zinc-500">
