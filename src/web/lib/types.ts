@@ -136,6 +136,11 @@ export interface FundItem {
   navSyncedAt: string | null;
   lastSyncError: string | null;
   holdingsCount: number;
+  matchedHolding?: {
+    symbol: string;
+    name: string | null;
+    weight: number;
+  } | null;
 }
 
 /** Coverage for one provider, with a breakdown by its own scopes. */

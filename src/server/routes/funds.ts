@@ -12,7 +12,7 @@
  */
 
 import { zValidator } from "@hono/zod-validator";
-import { and, count, desc, eq, ilike, isNotNull, or, sql, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, ilike, inArray, isNotNull, or, sql, type SQL } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import {
@@ -222,7 +222,62 @@ export const fundRoutes = new Hono<AppEnv>()
       .limit(query.per_page)
       .offset((query.page - 1) * query.per_page);
 
-    return c.json(listResponse(rows, totalRow?.n ?? 0, query));
+    let itemsWithMatchedHoldings = rows.map((r) => ({ ...r, matchedHolding: null as { symbol: string; name: string | null; weight: number } | null }));
+    if (query.q && rows.length > 0) {
+      const raw = query.q.trim();
+      const like = `%${escapeLike(raw)}%`;
+      const canonical = toCanonicalSymbol(raw);
+      const fundCodes = rows.map((r) => r.code);
+
+      const holdingMatches: SQL[] = [
+        ilike(fundHoldings.symbol, like),
+        ilike(fundHoldings.name, like),
+      ];
+      if (canonical) {
+        holdingMatches.push(eq(fundHoldings.symbol, canonical));
+      }
+
+      const matchingRows = await db
+        .select({
+          fundCode: fundHoldings.fundCode,
+          symbol: fundHoldings.symbol,
+          name: fundHoldings.name,
+          weight: fundHoldings.weight,
+        })
+        .from(fundHoldings)
+        .where(
+          and(
+            inArray(fundHoldings.fundCode, fundCodes),
+            or(
+              ...holdingMatches,
+              sql`exists (
+                select 1 from ${instruments}
+                where ${instruments.symbol} = ${fundHoldings.symbol}
+                  and ${ilike(instruments.name, like)}
+              )`,
+            ),
+          ),
+        )
+        .orderBy(desc(fundHoldings.reportDate), desc(fundHoldings.weight));
+
+      const matchedMap = new Map<string, { symbol: string; name: string | null; weight: number }>();
+      for (const m of matchingRows) {
+        if (!matchedMap.has(m.fundCode)) {
+          matchedMap.set(m.fundCode, {
+            symbol: m.symbol,
+            name: m.name,
+            weight: m.weight,
+          });
+        }
+      }
+
+      itemsWithMatchedHoldings = rows.map((r) => ({
+        ...r,
+        matchedHolding: matchedMap.get(r.code) ?? null,
+      }));
+    }
+
+    return c.json(listResponse(itemsWithMatchedHoldings, totalRow?.n ?? 0, query));
   })
 
   /**

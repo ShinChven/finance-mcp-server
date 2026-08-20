@@ -10,6 +10,7 @@ export interface Column<T> {
   key: string;
   label: string;
   sortable?: boolean;
+  align?: "left" | "center" | "right";
   render: (row: T) => ReactNode;
   className?: string;
 }
@@ -118,6 +119,7 @@ export function DataTable<T>({
   empty,
   total,
   totalPages,
+  onRowClick,
 }: {
   params: ListParams;
   columns: Column<T>[];
@@ -127,6 +129,7 @@ export function DataTable<T>({
   empty: { title: string; description?: string };
   total: number;
   totalPages: number;
+  onRowClick?: (row: T) => void;
 }) {
   const [sortField, sortDirection] = params.sort.split(".");
 
@@ -145,36 +148,76 @@ export function DataTable<T>({
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-zinc-200 text-left text-xs text-zinc-500 uppercase dark:border-zinc-800">
-                {columns.map((column) => (
-                  <th key={column.key} className={`px-4 py-3 font-medium ${column.className ?? ""}`}>
-                    {column.sortable ? (
-                      <button
-                        className="inline-flex cursor-pointer items-center gap-1 uppercase hover:text-zinc-800 dark:hover:text-zinc-200"
-                        onClick={() => toggleSort(column.key)}
-                      >
-                        {column.label}
-                        {sortField === column.key &&
-                          (sortDirection === "asc" ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />)}
-                      </button>
-                    ) : (
-                      column.label
-                    )}
-                  </th>
-                ))}
+              <tr className="border-b border-zinc-200 text-xs text-zinc-500 uppercase tracking-wider dark:border-zinc-800">
+                {columns.map((column) => {
+                  const alignClass =
+                    column.align === "right"
+                      ? "text-right"
+                      : column.align === "center"
+                        ? "text-center"
+                        : "text-left";
+                  return (
+                    <th
+                      key={column.key}
+                      className={`px-4 py-3 font-medium ${alignClass} ${column.className ?? ""}`}
+                    >
+                      {column.sortable ? (
+                        <button
+                          className={`inline-flex cursor-pointer items-center gap-1 uppercase transition-colors hover:text-zinc-900 dark:hover:text-zinc-100 ${
+                            column.align === "right"
+                              ? "justify-end w-full"
+                              : column.align === "center"
+                                ? "justify-center w-full"
+                                : ""
+                          }`}
+                          onClick={() => toggleSort(column.key)}
+                        >
+                          <span>{column.label}</span>
+                          {sortField === column.key ? (
+                            sortDirection === "asc" ? (
+                              <ArrowUp className="size-3 text-indigo-600 dark:text-indigo-400" />
+                            ) : (
+                              <ArrowDown className="size-3 text-indigo-600 dark:text-indigo-400" />
+                            )
+                          ) : (
+                            <ArrowUp className="size-3 opacity-0 group-hover:opacity-40" />
+                          )}
+                        </button>
+                      ) : (
+                        column.label
+                      )}
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => (
                 <tr
                   key={rowKey(row)}
-                  className="border-b border-zinc-100 last:border-0 hover:bg-zinc-50 dark:border-zinc-800/60 dark:hover:bg-zinc-800/40"
+                  onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  className={`border-b border-zinc-100 last:border-0 transition-colors dark:border-zinc-800/60 ${
+                    onRowClick
+                      ? "cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+                      : "hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30"
+                  }`}
                 >
-                  {columns.map((column) => (
-                    <td key={column.key} className={`px-4 py-3 ${column.className ?? ""}`}>
-                      {column.render(row)}
-                    </td>
-                  ))}
+                  {columns.map((column) => {
+                    const alignClass =
+                      column.align === "right"
+                        ? "text-right"
+                        : column.align === "center"
+                          ? "text-center"
+                          : "text-left";
+                    return (
+                      <td
+                        key={column.key}
+                        className={`px-4 py-3 ${alignClass} ${column.className ?? ""}`}
+                      >
+                        {column.render(row)}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>

@@ -91,12 +91,9 @@ export default function FundsPage() {
       label: "Code",
       sortable: true,
       render: (fund) => (
-        <button
-          onClick={() => params.update({ fund: fund.code })}
-          className="cursor-pointer font-mono text-xs text-indigo-600 hover:underline dark:text-indigo-400"
-        >
+        <span className="font-mono text-xs font-semibold text-indigo-600 dark:text-indigo-400">
           {fund.code}
-        </button>
+        </span>
       ),
     },
     {
@@ -104,16 +101,36 @@ export default function FundsPage() {
       label: "Name",
       sortable: true,
       render: (fund) => (
-        <div className="min-w-0">
-          <button
-            onClick={() => params.update({ fund: fund.code })}
-            className="block max-w-80 cursor-pointer truncate text-left hover:underline"
-            title={fund.name}
-          >
-            {fund.name}
-          </button>
+        <div className="min-w-0 py-0.5">
+          <div className="flex flex-wrap items-center gap-1.5 font-medium text-zinc-900 dark:text-zinc-100">
+            <span className="line-clamp-2" title={fund.name}>
+              {fund.name}
+            </span>
+            {fund.company && (
+              <span className="text-xs text-zinc-400 dark:text-zinc-500 font-normal">
+                · {fund.company}
+              </span>
+            )}
+          </div>
           {fund.trackingIndex && (
-            <span className="text-xs text-zinc-400">tracks {fund.trackingIndex}</span>
+            <div className="text-xs text-zinc-500 dark:text-zinc-400">
+              tracks <span className="font-medium text-zinc-600 dark:text-zinc-300">{fund.trackingIndex}</span>
+            </div>
+          )}
+          {fund.matchedHolding && (
+            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+              <span className="inline-flex items-center gap-1 rounded bg-indigo-50 px-1.5 py-0.5 font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
+                Holds <strong className="font-semibold">{fund.matchedHolding.symbol}</strong>
+                <span className="font-mono font-semibold tabular-nums">
+                  {fund.matchedHolding.weight.toFixed(2)}%
+                </span>
+              </span>
+              {fund.matchedHolding.name && (
+                <span className="truncate text-zinc-400 dark:text-zinc-500 text-[11px]">
+                  {fund.matchedHolding.name}
+                </span>
+              )}
+            </div>
           )}
         </div>
       ),
@@ -125,10 +142,12 @@ export default function FundsPage() {
       label: "Market",
       render: (fund) => (
         <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs text-zinc-600 dark:text-zinc-300">{fund.market}</span>
+          <span className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+            {fund.market}
+          </span>
           {fund.investsOffshore && (
             <span
-              className="text-xs text-zinc-400"
+              className="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
               title="Mandate points outside its own market"
             >
               offshore
@@ -140,14 +159,15 @@ export default function FundsPage() {
     {
       key: "type",
       label: "Type",
-      render: (fund) => <span className="text-xs text-zinc-500">{fund.fundType ?? "—"}</span>,
+      render: (fund) => <span className="text-xs text-zinc-500 dark:text-zinc-400">{fund.fundType ?? "—"}</span>,
     },
     {
       key: "holdings",
       label: "Holdings",
+      align: "right",
       render: (fund) =>
         fund.holdingsCount > 0 ? (
-          <span className="tabular-nums">{fund.holdingsCount}</span>
+          <span className="font-mono text-xs tabular-nums text-zinc-700 dark:text-zinc-300">{fund.holdingsCount}</span>
         ) : (
           <span className="text-zinc-400">—</span>
         ),
@@ -156,6 +176,7 @@ export default function FundsPage() {
       key: "holdings_synced_at",
       label: "Cached",
       sortable: true,
+      align: "right",
       render: (fund) =>
         fund.lastSyncError ? (
           <span
@@ -165,7 +186,7 @@ export default function FundsPage() {
             <AlertTriangle className="size-3.5" /> failed
           </span>
         ) : fund.holdingsSyncedAt ? (
-          <span className="text-xs text-zinc-500" title={formatDate(fund.holdingsSyncedAt)}>
+          <span className="text-xs text-zinc-500 dark:text-zinc-400" title={formatDate(fund.holdingsSyncedAt)}>
             {formatRelative(fund.holdingsSyncedAt)}
           </span>
         ) : (
@@ -234,14 +255,30 @@ export default function FundsPage() {
         </div>
       </div>
 
+      {params.q && (
+        <div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-800/40">
+          <span className="text-zinc-600 dark:text-zinc-300">
+            Showing results matching <strong className="font-semibold text-zinc-900 dark:text-zinc-100">"{params.q}"</strong> ({list.data?.total ?? 0} {list.data?.total === 1 ? "fund" : "funds"} found)
+          </span>
+          <button
+            type="button"
+            onClick={() => params.update({ q: "" })}
+            className="inline-flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100 transition-colors"
+          >
+            <X className="size-3" /> Clear search
+          </button>
+        </div>
+      )}
+
       <DataTable
         params={params}
         columns={columns}
         rows={list.data?.items}
         rowKey={(fund) => fund.code}
+        onRowClick={(fund) => params.update({ fund: fund.code })}
         loading={list.isPending}
         empty={{
-          title: "No funds match",
+          title: params.q ? `No funds match "${params.q}"` : "No funds match",
           description: "Run a category sync to populate the fund index, or clear the filters.",
         }}
         total={list.data?.total ?? 0}
@@ -507,7 +544,6 @@ function Row({ label, value, emphasis }: { label: string; value: string; emphasi
     </div>
   );
 }
-
 /**
  * Opening a fund that has never been synced fetches it there and then.
  *
@@ -516,7 +552,15 @@ function Row({ label, value, emphasis }: { label: string; value: string; emphasi
  * (it has side effects and outbound cost), fired once per open, and the
  * holdings query is invalidated when it lands.
  */
-function HoldingsDialog({ code, onClose }: { code: string; onClose: () => void }) {
+function HoldingsDialog({
+  code,
+  filterQuery,
+  onClose,
+}: {
+  code: string;
+  filterQuery?: string;
+  onClose: () => void;
+}) {
   const queryClient = useQueryClient();
   const [triggered, setTriggered] = useState(false);
 
@@ -560,13 +604,19 @@ function HoldingsDialog({ code, onClose }: { code: string; onClose: () => void }
           {(cacheNow.error as Error).message}
         </p>
       ) : query.data ? (
-        <FundHoldings result={query.data} />
+        <FundHoldings result={query.data} filterQuery={filterQuery} />
       ) : null}
     </Modal>
   );
 }
 
-function FundHoldings({ result }: { result: FundHoldingsResult }) {
+function FundHoldings({
+  result,
+  filterQuery,
+}: {
+  result: FundHoldingsResult;
+  filterQuery?: string;
+}) {
   if (result.items.length === 0) {
     return (
       <EmptyState
@@ -582,6 +632,7 @@ function FundHoldings({ result }: { result: FundHoldingsResult }) {
 
   const full = result.fund.holdingsCompleteness === "full";
   const enriched = result.enrichedPositions;
+  const queryLower = filterQuery?.trim().toLowerCase();
 
   return (
     <>
@@ -595,9 +646,6 @@ function FundHoldings({ result }: { result: FundHoldingsResult }) {
         <span>Cached {formatRelative(result.fund.holdingsSyncedAt)}</span>
       </div>
 
-      {/* What the disclosed weight means depends entirely on the source: ~62%
-          is normal for a top-holdings discloser and alarming for a full one.
-          The sentence follows the fund's own convention rather than assuming. */}
       <p className="mb-3 rounded-lg bg-zinc-50 p-2 text-xs text-zinc-500 dark:bg-zinc-800/50">
         {result.items.length} disclosed position{result.items.length === 1 ? "" : "s"} covering{" "}
         <span className="font-medium tabular-nums">{result.disclosedWeight.toFixed(1)}%</span> of net
@@ -622,7 +670,7 @@ function FundHoldings({ result }: { result: FundHoldingsResult }) {
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-zinc-200 text-left text-xs text-zinc-500 uppercase dark:border-zinc-800">
+            <tr className="border-b border-zinc-200 text-left text-xs text-zinc-500 uppercase tracking-wider dark:border-zinc-800">
               <th className="px-3 py-2 font-medium">Symbol</th>
               <th className="px-3 py-2 font-medium">Name</th>
               <th className="px-3 py-2 font-medium">Country</th>
@@ -631,22 +679,46 @@ function FundHoldings({ result }: { result: FundHoldingsResult }) {
             </tr>
           </thead>
           <tbody>
-            {result.items.map((holding) => (
-              <tr
-                key={holding.symbol}
-                className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60"
-              >
-                <td className="px-3 py-2 font-mono text-xs" title={holding.isin ?? undefined}>
-                  {holding.symbol}
-                </td>
-                <td className="px-3 py-2">{holding.name ?? "—"}</td>
-                <td className="px-3 py-2 text-xs text-zinc-500">{holding.country ?? "—"}</td>
-                <td className="px-3 py-2 text-right text-xs tabular-nums text-zinc-500">
-                  {formatUsdCompact(holding.marketCapUsd)}
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums">{holding.weight.toFixed(2)}%</td>
-              </tr>
-            ))}
+            {result.items.map((holding) => {
+              const isMatch = Boolean(
+                queryLower &&
+                  (holding.symbol.toLowerCase().includes(queryLower) ||
+                    holding.name?.toLowerCase().includes(queryLower)),
+              );
+              return (
+                <tr
+                  key={holding.symbol}
+                  className={`border-b border-zinc-100 last:border-0 transition-colors dark:border-zinc-800/60 ${
+                    isMatch
+                      ? "bg-indigo-50/75 dark:bg-indigo-500/15 font-medium"
+                      : "hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30"
+                  }`}
+                >
+                  <td className="px-3 py-2 font-mono text-xs" title={holding.isin ?? undefined}>
+                    <div className="flex items-center gap-1.5">
+                      <span className={isMatch ? "text-indigo-700 dark:text-indigo-300 font-bold" : ""}>
+                        {holding.symbol}
+                      </span>
+                      {isMatch && (
+                        <span className="rounded bg-indigo-100 px-1 py-0.5 text-[10px] font-semibold uppercase text-indigo-700 dark:bg-indigo-500/30 dark:text-indigo-200">
+                          Match
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className={`px-3 py-2 ${isMatch ? "text-indigo-950 dark:text-indigo-100" : ""}`}>
+                    {holding.name ?? "—"}
+                  </td>
+                  <td className="px-3 py-2 text-xs text-zinc-500">{holding.country ?? "—"}</td>
+                  <td className="px-3 py-2 text-right text-xs tabular-nums text-zinc-500">
+                    {formatUsdCompact(holding.marketCapUsd)}
+                  </td>
+                  <td className={`px-3 py-2 text-right tabular-nums ${isMatch ? "font-bold text-indigo-700 dark:text-indigo-300" : ""}`}>
+                    {holding.weight.toFixed(2)}%
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
