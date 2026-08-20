@@ -464,9 +464,10 @@ function VsCodeGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
 }
 
 function AntigravityGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
-  const cliCommand = "agy";
-  const cliMcpSlash = "/mcp";
-  const cliQuickAdd = `python3 -c "import json, pathlib; p = pathlib.Path.home() / '.gemini/config/mcp_config.json'; p.parent.mkdir(parents=True, exist_ok=True); data = json.loads(p.read_text()) if p.exists() else {'mcpServers': {}}; data.setdefault('mcpServers', {})['mcp-server'] = {'serverUrl': '${mcpUrl}'${token ? `, 'headers': {'Authorization': 'Bearer ${token}'}` : ""}}; p.write_text(json.dumps(data, indent=2)); print('✓ Configured mcp-server in', p)"`;
+  const cliAddCommand = token
+    ? `agy mcp add --header "Authorization: Bearer ${token}" mcp-server ${mcpUrl}`
+    : `agy mcp add mcp-server ${mcpUrl}`;
+  const cliListCommand = "agy mcp list";
 
   const oauthJson = JSON.stringify({ mcpServers: { "mcp-server": { serverUrl: mcpUrl } } }, null, 2);
   const tokenJson = JSON.stringify(
@@ -532,27 +533,17 @@ function AntigravityGuide({ mcpUrl, token }: { mcpUrl: string; token?: string })
         </div>
       </Step>
 
-      <Step number={3} title="Antigravity CLI (agy) Commands">
+      <Step number={3} title="Antigravity CLI (agy commands)">
         <p>
-          In the terminal, you can manage MCP servers with interactive CLI commands or a single setup one-liner:
+          Configure and inspect the server using native <code>agy mcp</code> commands:
         </p>
         <div className="space-y-3">
-          <div>
-            <div className="mb-1 text-xs font-medium text-zinc-600 dark:text-zinc-300">
-              Interactive TUI: launch <code>agy</code> and run <code>/mcp</code> to manage status and authorization:
-            </div>
-            <CodeCopyBlock label="CLI · Interactive command" value={`${cliCommand}\n${cliMcpSlash}`} />
-          </div>
-          <div>
-            <div className="mb-1 text-xs font-medium text-zinc-600 dark:text-zinc-300">
-              One-line terminal quick add (automatically updates <code>~/.gemini/config/mcp_config.json</code>):
-            </div>
-            <CodeCopyBlock
-              label={token ? "CLI · Quick add with Bearer token" : "CLI · Quick add with OAuth"}
-              value={cliQuickAdd}
-            />
-          </div>
+          <CodeCopyBlock label="CLI · Add MCP server" value={cliAddCommand} />
+          <CodeCopyBlock label="CLI · List configured servers" value={cliListCommand} />
         </div>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          You can also run <code>agy</code> and type <code>/mcp</code> inside the interactive session to manage servers.
+        </p>
       </Step>
 
       <Step number={4} title="Manual configuration reference (optional)">
