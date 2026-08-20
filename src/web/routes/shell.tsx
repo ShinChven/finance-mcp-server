@@ -9,6 +9,7 @@ import {
   KeyRound,
   LayoutDashboard,
   LogOut,
+  Menu,
   NotebookPen,
   Plug,
   ScrollText,
@@ -18,6 +19,7 @@ import {
   Star,
   Users,
   Wrench,
+  X,
 } from "lucide-react";
 import { api, ApiError } from "../lib/api.js";
 import type { Me } from "../lib/types.js";
@@ -59,8 +61,20 @@ export default function Shell() {
   const me = useMe();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
 
   useEffect(() => applyTheme(me.preferences.theme), [me.preferences.theme]);
+
+  // The drawer overlays the page on small screens, so the page behind it must
+  // not scroll away underneath.
+  useEffect(() => {
+    if (!navOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [navOpen]);
 
   async function logout() {
     await api("/auth/logout", { method: "POST" });
@@ -70,13 +84,46 @@ export default function Shell() {
   const displayName = me.displayName || me.name || me.email;
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="fixed inset-y-0 flex w-60 flex-col border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="flex min-h-screen flex-col lg:flex-row">
+      <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-zinc-200 bg-white px-4 py-3 lg:hidden dark:border-zinc-800 dark:bg-zinc-900">
+        <button
+          onClick={() => setNavOpen(true)}
+          aria-label="Open navigation"
+          className="-ml-1 cursor-pointer rounded-lg p-1.5 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          <Menu className="size-5" />
+        </button>
+        <Server className="size-5 text-indigo-600 dark:text-indigo-400" />
+        <span className="font-semibold">MCP Server</span>
+      </header>
+
+      {navOpen && (
+        <div
+          onClick={() => setNavOpen(false)}
+          className="fixed inset-0 z-40 bg-zinc-900/50 lg:hidden"
+          aria-hidden="true"
+        />
+      )}
+
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex w-60 flex-col border-r border-zinc-200 bg-white transition-transform duration-200 lg:translate-x-0 dark:border-zinc-800 dark:bg-zinc-900 ${
+          navOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
         <div className="flex items-center gap-2 px-5 py-5">
           <Server className="size-5 text-indigo-600 dark:text-indigo-400" />
           <span className="font-semibold">MCP Server</span>
+          <button
+            onClick={() => setNavOpen(false)}
+            aria-label="Close navigation"
+            className="ml-auto cursor-pointer rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-100 lg:hidden dark:text-zinc-400 dark:hover:bg-zinc-800"
+          >
+            <X className="size-4" />
+          </button>
         </div>
-        <nav className="flex flex-1 flex-col gap-1 px-3">
+        {/* Any click inside the nav dismisses the drawer, including a link back
+            to the route already open, which no location change would catch. */}
+        <nav onClick={() => setNavOpen(false)} className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 pb-3">
           <NavLink to="/" end className={navItemClass}>
             <LayoutDashboard className="size-4" /> Overview
           </NavLink>
@@ -157,7 +204,7 @@ export default function Shell() {
           </button>
         </div>
       </aside>
-      <main className="ml-60 min-w-0 flex-1 px-6 py-6 lg:px-8 lg:py-8">
+      <main className="min-w-0 flex-1 px-4 py-5 sm:px-6 sm:py-6 lg:ml-60 lg:px-8 lg:py-8">
         <Outlet />
       </main>
     </div>
