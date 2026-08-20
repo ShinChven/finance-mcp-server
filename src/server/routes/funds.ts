@@ -30,6 +30,7 @@ import { refreshAllFundIndexes } from "../funds/universe.js";
 import { activeJobId, cancelJob, JobInProgressError, startJob } from "../funds/jobs.js";
 import { createLazyFundCache } from "../funds/ondemand.js";
 import { getProvider } from "../funds/providers/index.js";
+import { toCanonicalSymbol } from "../funds/symbols.js";
 import { audit } from "../lib/audit.js";
 import { clientIp, type AppEnv } from "../lib/http.js";
 import { escapeLike, listQuerySchema, listResponse, parseSort } from "../lib/listing.js";
@@ -130,13 +131,40 @@ export const fundRoutes = new Hono<AppEnv>()
     const filters: SQL[] = [];
 
     if (query.q) {
-      const like = `%${escapeLike(query.q)}%`;
+      const raw = query.q.trim();
+      const like = `%${escapeLike(raw)}%`;
+      const canonical = toCanonicalSymbol(raw);
+
+      const holdingMatches: SQL[] = [
+        ilike(fundHoldings.symbol, like),
+        ilike(fundHoldings.name, like),
+      ];
+      if (canonical) {
+        holdingMatches.push(eq(fundHoldings.symbol, canonical));
+      }
+
+      const holdsStock = sql`exists (
+        select 1 from ${fundHoldings}
+        where ${fundHoldings.fundCode} = ${funds.code}
+          and (
+            ${or(
+              ...holdingMatches,
+              sql`exists (
+                select 1 from ${instruments}
+                where ${instruments.symbol} = ${fundHoldings.symbol}
+                  and ${ilike(instruments.name, like)}
+              )`,
+            )}
+          )
+      )`;
+
       filters.push(
         or(
           ilike(funds.code, like),
           ilike(funds.name, like),
           ilike(funds.company, like),
           ilike(funds.trackingIndex, like),
+          holdsStock,
         )!,
       );
     }
