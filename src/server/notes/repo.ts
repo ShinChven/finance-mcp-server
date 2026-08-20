@@ -23,6 +23,7 @@ import {
   type NoteCollection,
 } from "../db/schema.js";
 import { escapeLike } from "../lib/listing.js";
+import { isUniqueViolation } from "../lib/pg-errors.js";
 import {
   MAX_COLLECTIONS_PER_USER,
   MAX_NOTES_PER_USER,
@@ -152,10 +153,6 @@ export interface NotesRepo {
 type Db = typeof Database;
 /** The handle drizzle hands a `db.transaction` callback. */
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
-
-function isUniqueViolation(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
-}
 
 /** Everything but `search_vector`, which is large and never read. */
 const noteColumns = {
