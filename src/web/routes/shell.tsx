@@ -9,6 +9,7 @@ import {
   KeyRound,
   LayoutDashboard,
   LogOut,
+  NotebookPen,
   Plug,
   ScrollText,
   Server,
@@ -92,6 +93,9 @@ export default function Shell() {
           </NavLink>
           <NavLink to="/watchlist" className={navItemClass}>
             <Star className="size-4" /> Watchlists
+          </NavLink>
+          <NavLink to="/notes" className={navItemClass}>
+            <NotebookPen className="size-4" /> Notes
           </NavLink>
           <NavLink to="/funds" className={navItemClass}>
             <Database className="size-4" /> Funds

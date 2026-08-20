@@ -1,6 +1,7 @@
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import {
   boolean,
+  customType,
   date,
   doublePrecision,
   index,
@@ -14,6 +15,7 @@ import {
 } from "drizzle-orm/pg-core";
 import type { HoldingsCompleteness, ProviderId } from "../../shared/funds.js";
 import type { UserPreferences } from "../../shared/preferences.js";
+import { NOTE_SOURCES, NOTE_STATUSES } from "../../shared/notes.js";
 import { WATCHLIST_ITEM_KINDS } from "../../shared/watchlist.js";
 
 export const userRole = pgEnum("user_role", ["admin", "user"]);
@@ -266,6 +268,170 @@ export const watchlistItems = pgTable(
 
 export type Watchlist = typeof watchlists.$inferSelect;
 export type WatchlistItem = typeof watchlistItems.$inferSelect;
+
+/* ------------------------------------------------------------------ *
+ * Notes
+ *
+ * Long-lived memory for the assistant, and a place a person can read and
+ * correct it. The MCP tools write what a conversation established; the Notes
+ * page shows the same rows, so nothing an agent stores is invisible to the
+ * user who owns it.
+ *
+ * Three things make a note findable, and they are stored differently on
+ * purpose. `summary` is the one-paragraph gist an agent reads while scanning a
+ * list — it exists so that finding the right note does not require pulling
+ * every body. Tags and symbols are normalized into their own tables because
+ * both are filters ("everything tagged rate-cut", "everything about NVDA"), and
+ * a filter over a JSON array is a sequential scan. The body is searched by
+ * Postgres full text, indexed once as a stored vector rather than recomputed
+ * per query.
+ * ------------------------------------------------------------------ */
+
+export const noteStatus = pgEnum("note_status", NOTE_STATUSES);
+export const noteSource = pgEnum("note_source", NOTE_SOURCES);
+
+/**
+ * `tsvector` has no drizzle-native column type; only the DDL and the operators
+ * matter, and both are plain SQL.
+ */
+const tsvector = customType<{ data: string; driverData: string }>({
+  dataType() {
+    return "tsvector";
+  },
+});
+
+export const noteCollections = pgTable(
+  "note_collections",
+  {
+    id: id(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // Case-insensitive for the same reason watchlists are: MCP callers address
+    // a collection by name, and "Macro" vs "macro" would be a coin flip.
+    uniqueIndex("note_collections_user_name_idx").on(t.userId, sql`lower(${t.name})`),
+    index("note_collections_user_updated_idx").on(t.userId, t.updatedAt),
+  ],
+);
+
+export const notes = pgTable(
+  "notes",
+  {
+    id: id(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /**
+     * Nullable: an uncollected note is the normal case, not an error. An agent
+     * capturing something mid-conversation should not have to invent a filing
+     * decision first, and deleting a collection files its notes back here
+     * rather than destroying them.
+     */
+    collectionId: text("collection_id").references(() => noteCollections.id, {
+      onDelete: "set null",
+    }),
+    title: text("title").notNull(),
+    /**
+     * The scannable gist. Listing tools return this and never the body, which
+     * is what keeps "find the note about the Fed" one cheap call instead of a
+     * download of everything the user ever saved.
+     */
+    summary: text("summary"),
+    body: text("body").notNull().default(""),
+    status: noteStatus("status").notNull().default("active"),
+    source: noteSource("source").notNull().default("web"),
+    /** Free-text provenance — a chat id, a client name, a URL. Not a foreign
+     *  key: the conversation an agent captured usually lives in that agent's
+     *  own client, not in this database. */
+    sourceRef: text("source_ref"),
+    pinned: boolean("pinned").notNull().default(false),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    /**
+     * Stored, not computed per query, and weighted so a title hit outranks a
+     * body hit.
+     *
+     * `simple` rather than `english`: the corpus is mixed Chinese and English,
+     * and English stemming buys a little recall on one half while the parser
+     * does nothing useful for the other. Stemming is not what makes this
+     * feature work — the search path pairs this index with a substring match,
+     * which is what actually finds 降息 inside a sentence.
+     */
+    searchVector: tsvector("search_vector").generatedAlwaysAs(
+      (): SQL =>
+        sql`setweight(to_tsvector('simple', coalesce(${notes.title}, '')), 'A') || setweight(to_tsvector('simple', coalesce(${notes.summary}, '')), 'B') || setweight(to_tsvector('simple', coalesce(${notes.body}, '')), 'C')`,
+    ),
+  },
+  (t) => [
+    // The default listing: this user's notes, newest first.
+    index("notes_user_updated_idx").on(t.userId, t.updatedAt),
+    // The same scan with the archived rows excluded, which is what the page and
+    // the tools ask for unless told otherwise.
+    index("notes_user_status_idx").on(t.userId, t.status, t.updatedAt),
+    index("notes_collection_idx").on(t.collectionId, t.updatedAt),
+    index("notes_search_idx").using("gin", t.searchVector),
+  ],
+);
+
+/**
+ * Tags, one row per (note, tag).
+ *
+ * No `user_id` here or on `note_symbols`: ownership is a property of the note,
+ * and duplicating it would create a second copy to keep true. Facet counts join
+ * back to `notes`, which is cheap against a per-user note cap of a few
+ * thousand.
+ */
+export const noteTags = pgTable(
+  "note_tags",
+  {
+    noteId: text("note_id")
+      .notNull()
+      .references(() => notes.id, { onDelete: "cascade" }),
+    /** Already normalized by `shared/notes.ts` — lowercase, hyphenated. */
+    tag: text("tag").notNull(),
+  },
+  (t) => [
+    uniqueIndex("note_tags_unique_idx").on(t.noteId, t.tag),
+    // Reverse index: "everything tagged X" without touching the notes table
+    // until the ids are known.
+    index("note_tags_tag_idx").on(t.tag),
+  ],
+);
+
+/**
+ * Instruments a note is about.
+ *
+ * Deliberately a loose reference rather than a foreign key to `instruments`: a
+ * note may be about a symbol this server has never cached, and losing the link
+ * because the ingest has not reached it would defeat the point. `kind` is the
+ * watchlist's own vocabulary, so one spelling serves both features.
+ */
+export const noteSymbols = pgTable(
+  "note_symbols",
+  {
+    noteId: text("note_id")
+      .notNull()
+      .references(() => notes.id, { onDelete: "cascade" }),
+    kind: watchlistItemKind("kind").notNull(),
+    ref: text("ref").notNull(),
+  },
+  (t) => [
+    uniqueIndex("note_symbols_unique_idx").on(t.noteId, t.kind, t.ref),
+    // "What do I know about NVDA" is the reverse lookup this exists for.
+    index("note_symbols_ref_idx").on(t.ref),
+  ],
+);
+
+export type NoteCollection = typeof noteCollections.$inferSelect;
+export type Note = typeof notes.$inferSelect;
+export type NoteTagRow = typeof noteTags.$inferSelect;
+export type NoteSymbolRow = typeof noteSymbols.$inferSelect;
 
 export const auditLog = pgTable(
   "audit_log",

@@ -76,6 +76,12 @@ describe("finance MCP server", () => {
         "watchlist",
         "watchlistAdd",
         "watchlistRemove",
+        "noteCollections",
+        "notesSearch",
+        "noteRead",
+        "noteCreate",
+        "noteUpdate",
+        "noteDelete",
         "fundExposure",
         "fundsByStock",
         "fundsBySector",
@@ -85,11 +91,17 @@ describe("finance MCP server", () => {
         "compareFunds",
         "fundPerformance",
       ]);
-      // Watchlist writes are the only mutating tools; everything else reads.
+      // Watchlist and note writes are the only mutating tools; everything else reads.
       const mutating = result.tools
         .filter((tool) => tool.annotations?.readOnlyHint !== true)
         .map((tool) => tool.name);
-      expect(mutating).toEqual(["watchlistAdd", "watchlistRemove"]);
+      expect(mutating).toEqual([
+        "watchlistAdd",
+        "watchlistRemove",
+        "noteCreate",
+        "noteUpdate",
+        "noteDelete",
+      ]);
     } finally {
       await mcpClient.close();
       await server.close();
