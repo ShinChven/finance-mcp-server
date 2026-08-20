@@ -13,7 +13,7 @@ export interface ListParamValues {
   status: string;
   role: string;
   action: string;
-  /** Fund provider on the Funds page (`eastmoney`, `ishares`). */
+  /** Fund provider on the Funds page (`ishares`, `eastmoney`). */
   provider: string;
   /** Category within the selected provider (`qdii`, `equity`, `international`). */
   scope: string;

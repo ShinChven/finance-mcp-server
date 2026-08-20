@@ -15,7 +15,7 @@
 
 import { z } from "zod";
 
-export const PROVIDER_IDS = ["eastmoney", "ishares"] as const;
+export const PROVIDER_IDS = ["ishares", "eastmoney"] as const;
 export type ProviderId = (typeof PROVIDER_IDS)[number];
 
 export function isProviderId(value: string): value is ProviderId {
@@ -114,31 +114,6 @@ export interface ProviderDescriptor {
 }
 
 export const PROVIDERS: Record<ProviderId, ProviderDescriptor> = {
-  eastmoney: {
-    id: "eastmoney",
-    label: "China public funds",
-    domicile: "CN",
-    currency: "CNY",
-    // Quarterly reports carry the top ten equity positions only; the annual and
-    // interim reports are complete, but the quarterly cadence is what the cache
-    // is usually holding.
-    completeness: "top_holdings",
-    scopes: [
-      { id: "qdii", label: "QDII (overseas mandate)", selectable: true },
-      { id: "index", label: "Index-tracking", selectable: true },
-      { id: "equity", label: "Equity & balanced", selectable: true },
-      { id: "all", label: "Entire universe", selectable: true },
-      CODES_SCOPE,
-    ],
-    defaultScope: "qdii",
-    freshness: {
-      details: 30 * DAY,
-      // Disclosed quarterly; re-checked weekly so a new quarter lands within
-      // days of publication rather than up to a quarter late.
-      holdings: 7 * DAY,
-      nav: 1 * DAY,
-    },
-  },
   ishares: {
     id: "ishares",
     label: "iShares ETFs (US)",
@@ -161,6 +136,31 @@ export const PROVIDERS: Record<ProviderId, ProviderDescriptor> = {
     freshness: {
       details: 30 * DAY,
       holdings: 1 * DAY,
+      nav: 1 * DAY,
+    },
+  },
+  eastmoney: {
+    id: "eastmoney",
+    label: "China public funds",
+    domicile: "CN",
+    currency: "CNY",
+    // Quarterly reports carry the top ten equity positions only; the annual and
+    // interim reports are complete, but the quarterly cadence is what the cache
+    // is usually holding.
+    completeness: "top_holdings",
+    scopes: [
+      { id: "qdii", label: "QDII (overseas mandate)", selectable: true },
+      { id: "index", label: "Index-tracking", selectable: true },
+      { id: "equity", label: "Equity & balanced", selectable: true },
+      { id: "all", label: "Entire universe", selectable: true },
+      CODES_SCOPE,
+    ],
+    defaultScope: "qdii",
+    freshness: {
+      details: 30 * DAY,
+      // Disclosed quarterly; re-checked weekly so a new quarter lands within
+      // days of publication rather than up to a quarter late.
+      holdings: 7 * DAY,
       nav: 1 * DAY,
     },
   },
