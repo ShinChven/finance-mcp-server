@@ -464,6 +464,12 @@ function VsCodeGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
 }
 
 function AntigravityGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
+  const oauthQuickAdd = `python3 -c "import json, pathlib; p = pathlib.Path.home() / '.gemini/config/mcp_config.json'; p.parent.mkdir(parents=True, exist_ok=True); data = json.loads(p.read_text()) if p.exists() else {'mcpServers': {}}; data.setdefault('mcpServers', {})['mcp-server'] = {'serverUrl': '${mcpUrl}'}; p.write_text(json.dumps(data, indent=2)); print('✓ Configured mcp-server in', p)"`;
+
+  const tokenQuickAdd = `python3 -c "import json, pathlib; p = pathlib.Path.home() / '.gemini/config/mcp_config.json'; p.parent.mkdir(parents=True, exist_ok=True); data = json.loads(p.read_text()) if p.exists() else {'mcpServers': {}}; data.setdefault('mcpServers', {})['mcp-server'] = {'serverUrl': '${mcpUrl}', 'headers': {'Authorization': 'Bearer ${token ?? "YOUR_PERSONAL_ACCESS_TOKEN"}'}}; p.write_text(json.dumps(data, indent=2)); print('✓ Configured mcp-server with token in', p)"`;
+
+  const agentPrompt = `Add the remote MCP server "mcp-server" with serverUrl "${mcpUrl}" to my global Antigravity MCP config (~/.gemini/config/mcp_config.json).`;
+
   const oauthJson = JSON.stringify({ mcpServers: { "mcp-server": { serverUrl: mcpUrl } } }, null, 2);
   const tokenJson = JSON.stringify(
     {
@@ -486,38 +492,50 @@ function AntigravityGuide({ mcpUrl, token }: { mcpUrl: string; token?: string })
         description="Antigravity 2.0, Antigravity IDE, CLI and Gemini Spark persistent cloud agents share the same remote MCP schema. Remote servers must use the serverUrl field."
       />
       {!token && <AuthSummary />}
-      <Notice kind="warning" className="mb-5">
-        Each snippet below is a complete <code>mcp_config.json</code>. If that file already configures other MCP servers, merge the <code>"mcp-server"</code> entry into your existing <code>mcpServers</code> object — don't paste over the whole file.
-      </Notice>
-      <Step number={1} title="Open the MCP configuration">
+
+      <Step number={1} title="Quick setup (1-click terminal command)">
         <p>
-          In Antigravity 2, open <strong>Settings → Customizations → Installed MCP Servers</strong>. In the IDE, open the agent menu, choose <strong>MCP Servers → Manage MCP Servers → View raw config</strong>. Gemini Spark persistent agents and the CLI automatically discover global and workspace configurations.
+          Run this command in your terminal to automatically create or merge <code>mcp-server</code> into your global{" "}
+          <code>~/.gemini/config/mcp_config.json</code> without opening an editor:
         </p>
-        <p>
-          The global file is <code>~/.gemini/config/mcp_config.json</code>; the workspace file is <code>.agents/mcp_config.json</code>.
-        </p>
+        <CodeCopyBlock
+          label={token ? "Terminal · Quick add with Bearer token" : "Terminal · Quick add with OAuth"}
+          value={token ? tokenQuickAdd : oauthQuickAdd}
+        />
       </Step>
-      {!token && (
-        <>
-          <Step number={2} title="Add the OAuth configuration">
-            <p>This server supports dynamic client registration, so no OAuth client ID or secret is required.</p>
-            <CodeCopyBlock label="mcp_config.json · OAuth" value={oauthJson} />
-          </Step>
-          <Step number={3} title="Authenticate">
-            <p>
-              Return to <strong>Installed MCP Servers</strong>, select <strong>Authenticate</strong>, finish sign-in in the browser, and paste the authorization result back if prompted. Antigravity refreshes OAuth tokens automatically.
-            </p>
-          </Step>
-        </>
-      )}
-      <Step number={token ? 2 : 4} title={token ? "Add your access token" : "Personal token fallback"}>
+
+      <Step number={2} title="Or ask Antigravity / Gemini Spark to add it">
         <p>
-          {token
-            ? "Your new token is already filled into this configuration. It is stored in the JSON file, so keep that file private and never commit it."
-            : "Use a personal token only if OAuth cannot be completed. This form stores the token in the JSON file, so keep that file private and never commit it."}
+          You can also paste this prompt directly into Antigravity Chat, Antigravity IDE, or Gemini Spark:
         </p>
-        <CodeCopyBlock label="mcp_config.json · Bearer token" value={tokenJson} />
+        <CodeCopyBlock label="Agent prompt · Copy & paste into chat" value={agentPrompt} />
       </Step>
+
+      <Step number={3} title={token ? "Verify tools in Antigravity" : "Authenticate & verify"}>
+        {token ? (
+          <p>
+            In Antigravity 2 or the IDE, open <strong>Settings → Customizations → Installed MCP Servers</strong>, or run{" "}
+            <code>agy</code> and type <code>/mcp</code> to verify that <code>mcp-server</code> tools are active.
+          </p>
+        ) : (
+          <p>
+            In Antigravity 2, open <strong>Settings → Customizations → Installed MCP Servers</strong> and click{" "}
+            <strong>Authenticate</strong> next to <code>mcp-server</code>. Complete sign-in in your browser; Antigravity refreshes OAuth tokens automatically. In the CLI (<code>agy</code>), type <code>/mcp</code> to manage authorization.
+          </p>
+        )}
+      </Step>
+
+      <Step number={4} title="Manual configuration reference (optional)">
+        <p>
+          If you prefer editing <code>~/.gemini/config/mcp_config.json</code> (global) or{" "}
+          <code>.agents/mcp_config.json</code> (workspace) manually, merge this snippet under <code>mcpServers</code>:
+        </p>
+        <CodeCopyBlock
+          label={token ? "mcp_config.json · Bearer token" : "mcp_config.json · OAuth"}
+          value={token ? tokenJson : oauthJson}
+        />
+      </Step>
+
       <Notice className="mt-4">
         Antigravity and Gemini Spark use <code>serverUrl</code>. The keys <code>url</code> and <code>httpUrl</code> are not valid for its remote MCP configuration.
       </Notice>
