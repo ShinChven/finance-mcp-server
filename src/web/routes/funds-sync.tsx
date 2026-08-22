@@ -1,23 +1,23 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Database, Download, Layers, RefreshCw, X } from "lucide-react";
 import {
-  completenessNote,
   PROVIDERS,
   scopeLabel,
   selectableScopes,
   type ProviderId,
 } from "../../shared/funds.js";
+import { HoldingsDialog } from "../components/fund-holdings.js";
+import { fundColumns } from "../components/fund-table.js";
 import { Modal } from "../components/modal.js";
-import { DataTable, FilterPills, SearchInput, type Column } from "../components/table.js";
+import { DataTable, FilterPills, SearchInput } from "../components/table.js";
 import { useToast } from "../components/toast.js";
-import { Badge, Button, Card, EmptyState, PageHeader, Spinner } from "../components/ui.js";
+import { Badge, Button, Card, Spinner } from "../components/ui.js";
 import { api, ApiError } from "../lib/api.js";
 import { formatDate, formatRelative } from "../lib/format.js";
 import { useListParams } from "../lib/params.js";
 import type {
   FundCacheStats,
-  FundHoldingsResult,
   FundItem,
   IngestJobItem,
   JobsResult,
@@ -26,9 +26,6 @@ import type {
   SyncPreview,
 } from "../lib/types.js";
 import { useMe } from "./shell.js";
-
-const CACHE_DESCRIPTION =
-  "Holdings are downloaded here so the stock- and sector-level tools can answer. Every source serves fund → holdings only, so the reverse lookups exist for the funds cached below — across all markets at once.";
 
 const STATUS_FILTERS = [
   { value: "cached", label: "Cached" },
@@ -52,30 +49,22 @@ function isProviderId(value: string): value is ProviderId {
 }
 
 /**
- * The fund cache console.
+ * The batch sync tab of the Funds page — administrators only.
  *
- * Admin-only, and admin-only on the server too: a category sync is hours of
- * outbound requests against hosts that rate limit, and the cache it fills is
- * shared by every user. Ordinary accounts never manage it — they read what it
- * produced, through the MCP fund tools and the watchlist pages.
+ * It sits inside Funds rather than off in an admin section because it is the
+ * same subject seen from the operator's side: the tab beside it browses what
+ * this one fills. Only the filling is restricted. A category run is hours of
+ * outbound requests against hosts that rate limit, it fills a cache every user
+ * shares, and it is single-flight across the whole process, so one person
+ * starting one blocks everyone else's — which is why it is an administrator's
+ * call, while opening a single fund is nobody's to approve.
+ *
+ * The page header lives on the container; this renders the console alone. The
+ * real boundary is server-side regardless: `/api/sync/*` and the cache
+ * statistics are admin-only there, so hiding the tab is a courtesy, not the
+ * check.
  */
-export default function AdminFundsPage() {
-  const me = useMe();
-  if (me.role !== "admin") {
-    return (
-      <>
-        <PageHeader title="Fund Cache" description={CACHE_DESCRIPTION} />
-        <EmptyState
-          title="Admins only"
-          description="Filling the fund cache is an administrator task. The data it produces is available to you through the fund tools over MCP and on your watchlists."
-        />
-      </>
-    );
-  }
-  return <FundCacheConsole />;
-}
-
-function FundCacheConsole() {
+export function SyncConsole() {
   const me = useMe();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -112,126 +101,13 @@ function FundCacheConsole() {
     onError: (error: Error) => toast("error", error.message),
   });
 
-  const columns: Column<FundItem>[] = [
-    {
-      key: "code",
-      label: "Code",
-      sortable: true,
-      render: (fund) => (
-        <button
-          onClick={() => params.update({ fund: fund.code })}
-          className="cursor-pointer font-mono text-xs text-indigo-600 hover:underline dark:text-indigo-400"
-        >
-          {fund.code}
-        </button>
-      ),
-    },
-    {
-      key: "name",
-      label: "Name",
-      sortable: true,
-      render: (fund) => (
-        <div className="min-w-0">
-          <button
-            onClick={() => params.update({ fund: fund.code })}
-            className="block max-w-80 cursor-pointer truncate text-left hover:underline"
-            title={fund.name}
-          >
-            {fund.name}
-          </button>
-          {fund.matchedHolding ? (
-            // Says why this row matched — a search for "NVDA" otherwise returns
-            // a page of fund names with no visible connection to it.
-            <span className="text-xs text-emerald-600 dark:text-emerald-400">
-              holds {fund.matchedHolding.symbol}
-              {fund.matchedHolding.name ? ` ${fund.matchedHolding.name}` : ""} ·{" "}
-              {fund.matchedHolding.weight.toFixed(2)}%
-            </span>
-          ) : (
-            fund.trackingIndex && (
-              <span className="text-xs text-zinc-400">tracks {fund.trackingIndex}</span>
-            )
-          )}
-        </div>
-      ),
-    },
-    {
-      // Which market a fund trades in decides whether a reader can buy it at
-      // all, so it earns a column rather than living in the drill-down.
-      key: "market",
-      label: "Market",
-      render: (fund) => (
-        <div className="flex items-center gap-1.5">
-          <span className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-            {fund.market}
-          </span>
-          {fund.investsOffshore && (
-            <span
-              className="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
-              title="Mandate points outside its own market"
-            >
-              offshore
-            </span>
-          )}
-        </div>
-      ),
-    },
-    {
-      key: "type",
-      label: "Type",
-      render: (fund) => <span className="text-xs text-zinc-500">{fund.fundType ?? "—"}</span>,
-    },
-    {
-      key: "holdings",
-      label: "Holdings",
-      align: "right",
-      render: (fund) =>
-        fund.holdingsCount > 0 ? (
-          <span className="tabular-nums">{fund.holdingsCount}</span>
-        ) : (
-          <span className="text-zinc-400">—</span>
-        ),
-    },
-    {
-      key: "report",
-      label: "Report",
-      align: "right",
-      render: (fund) =>
-        fund.latestReport ? (
-          // The disclosure date, not the cache date: a fund synced this morning
-          // that last reported in 2023 is still showing 2023 data.
-          <span className="text-xs tabular-nums text-zinc-500">{fund.latestReport}</span>
-        ) : (
-          <span className="text-zinc-400">—</span>
-        ),
-    },
-    {
-      key: "holdings_synced_at",
-      label: "Cached",
-      sortable: true,
-      align: "right",
-      render: (fund) =>
-        fund.lastSyncError ? (
-          <span
-            className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400"
-            title={fund.lastSyncError}
-          >
-            <AlertTriangle className="size-3.5" /> failed
-          </span>
-        ) : fund.holdingsSyncedAt ? (
-          <span className="text-xs text-zinc-500" title={formatDate(fund.holdingsSyncedAt)}>
-            {formatRelative(fund.holdingsSyncedAt)}
-          </span>
-        ) : (
-          <Badge value="expired" label="not cached" />
-        ),
-    },
-  ];
+  // The Funds page's columns plus the failure state, which is this page's
+  // reason to list funds at all: a fund whose sync failed is work for whoever
+  // runs the syncs.
+  const columns = fundColumns(params, { showSyncErrors: true });
 
   return (
     <>
-      <PageHeader title="Fund Cache" description={CACHE_DESCRIPTION} />
-
       <StatTiles stats={stats.data} />
 
       <Card className="mb-4 p-4">
@@ -588,196 +464,6 @@ function Row({ label, value, emphasis }: { label: string; value: string; emphasi
       <dd className={`tabular-nums ${emphasis ? "font-semibold" : ""}`}>{value}</dd>
     </div>
   );
-}
-
-/**
- * Opening a fund that has never been synced fetches it there and then.
- *
- * Asking someone to go run a category sync for the one fund they just clicked
- * is busywork the server can do in a couple of seconds. The fetch is a POST
- * (it has side effects and outbound cost), fired once per open, and the
- * holdings query is invalidated when it lands.
- */
-function HoldingsDialog({
-  code,
-  highlight,
-  onClose,
-}: {
-  code: string;
-  /** The list's search term, so the position that matched can be picked out. */
-  highlight: string;
-  onClose: () => void;
-}) {
-  const queryClient = useQueryClient();
-  const [triggered, setTriggered] = useState(false);
-
-  const query = useQuery({
-    queryKey: ["fund-holdings", code],
-    queryFn: () => api<FundHoldingsResult>(`/api/funds/${code}/holdings`),
-  });
-
-  const cacheNow = useMutation({
-    mutationFn: () => api<{ status: string; message: string }>(`/api/funds/${code}/cache`, { method: "POST" }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["fund-holdings", code] });
-      void queryClient.invalidateQueries({ queryKey: ["funds"] });
-      void queryClient.invalidateQueries({ queryKey: ["fund-stats"] });
-    },
-  });
-
-  const uncached = query.data?.fund.holdingsSyncedAt === null;
-  useEffect(() => {
-    if (!uncached || triggered) return;
-    setTriggered(true);
-    cacheNow.mutate();
-  }, [uncached, triggered]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  return (
-    <Modal title={query.data?.fund.name ?? code} onClose={onClose} size="xl">
-      {query.isPending ? (
-        <Spinner />
-      ) : query.isError ? (
-        <p className="text-sm text-red-600 dark:text-red-400">{(query.error as Error).message}</p>
-      ) : cacheNow.isPending ? (
-        <div className="py-16 text-center">
-          <Spinner />
-          <p className="mt-2 text-sm text-zinc-500">
-            Not cached yet — fetching this fund's holdings and NAV now.
-          </p>
-          <p className="mt-1 text-xs text-zinc-400">Requests are throttled, so this takes a few seconds.</p>
-        </div>
-      ) : cacheNow.isError ? (
-        <p className="text-sm text-red-600 dark:text-red-400">
-          {(cacheNow.error as Error).message}
-        </p>
-      ) : query.data ? (
-        <FundHoldings result={query.data} highlight={highlight} />
-      ) : null}
-    </Modal>
-  );
-}
-
-function FundHoldings({ result, highlight }: { result: FundHoldingsResult; highlight: string }) {
-  if (result.items.length === 0) {
-    return (
-      <EmptyState
-        title="No holdings cached for this fund"
-        description={
-          result.fund.lastSyncError
-            ? `The last sync failed: ${result.fund.lastSyncError}`
-            : "Run a sync covering this fund to download its portfolio."
-        }
-      />
-    );
-  }
-
-  const full = result.fund.holdingsCompleteness === "full";
-  const enriched = result.enrichedPositions;
-  // A top-holdings list can run to hundreds of rows; without this the reader
-  // has to scan for the stock that put the fund in the results in the first place.
-  const needle = highlight.trim().toLowerCase();
-
-  return (
-    <>
-      <div className="mb-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-zinc-500">
-        <span>
-          Code <code className="text-zinc-700 dark:text-zinc-300">{result.fund.code}</code>
-        </span>
-        <span>{PROVIDERS[result.fund.provider]?.label ?? result.fund.provider}</span>
-        {result.fund.company && <span>{result.fund.company}</span>}
-        <span>Report {result.latestReport ?? "—"}</span>
-        <span>Cached {formatRelative(result.fund.holdingsSyncedAt)}</span>
-      </div>
-
-      {/* What the disclosed weight means depends entirely on the source: ~62%
-          is normal for a top-holdings discloser and alarming for a full one.
-          The sentence follows the fund's own convention rather than assuming. */}
-      <p className="mb-3 rounded-lg bg-zinc-50 p-2 text-xs text-zinc-500 dark:bg-zinc-800/50">
-        {result.items.length} disclosed position{result.items.length === 1 ? "" : "s"} covering{" "}
-        <span className="font-medium tabular-nums">{result.disclosedWeight.toFixed(1)}%</span> of net
-        asset value. {completenessNote(result.fund.holdingsCompleteness)}
-        {full && result.disclosedWeight < 90 && (
-          <span className="text-amber-600 dark:text-amber-400">
-            {" "}
-            The shortfall here is unexpected for a full-portfolio source — some rows may have failed
-            to parse.
-          </span>
-        )}
-      </p>
-
-      {enriched < result.items.length && (
-        <p className="mb-3 text-xs text-zinc-400">
-          {enriched} of {result.items.length} positions have been matched against Yahoo. The rest
-          show no country or size yet and are excluded from any market-cap filter — enrichment
-          catches up on the next sync.
-        </p>
-      )}
-
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-zinc-200 text-left text-xs text-zinc-500 uppercase dark:border-zinc-800">
-              <th className="px-3 py-2 font-medium">Symbol</th>
-              <th className="px-3 py-2 font-medium">Name</th>
-              <th className="px-3 py-2 font-medium">Country</th>
-              <th className="px-3 py-2 text-right font-medium">Market cap</th>
-              <th className="px-3 py-2 text-right font-medium">Weight</th>
-            </tr>
-          </thead>
-          <tbody>
-            {result.items.map((holding) => {
-              const matched =
-                needle.length > 0 &&
-                (holding.symbol.toLowerCase().includes(needle) ||
-                  (holding.name?.toLowerCase().includes(needle) ?? false));
-              return (
-                <tr
-                  key={holding.symbol}
-                  className={`border-b border-zinc-100 last:border-0 dark:border-zinc-800/60 ${
-                    matched ? "bg-emerald-50 dark:bg-emerald-500/10" : ""
-                  }`}
-                >
-                  <td className="px-3 py-2 font-mono text-xs" title={holding.isin ?? undefined}>
-                    {holding.symbol}
-                  </td>
-                  <td className="px-3 py-2">{holding.name ?? "—"}</td>
-                  <td className="px-3 py-2 text-xs text-zinc-500">{holding.country ?? "—"}</td>
-                  <td className="px-3 py-2 text-right text-xs tabular-nums text-zinc-500">
-                    {formatUsdCompact(holding.marketCapUsd)}
-                  </td>
-                  <td
-                    className={`px-3 py-2 text-right tabular-nums ${
-                      matched ? "font-medium text-emerald-700 dark:text-emerald-400" : ""
-                    }`}
-                  >
-                    {holding.weight.toFixed(2)}%
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </>
-  );
-}
-
-/**
- * Market caps are USD-converted so they can be read down a column that mixes
- * markets, and abbreviated because the exact figure is a weekly snapshot —
- * printing it to the dollar would imply a precision it does not have.
- */
-function formatUsdCompact(value: number | null): string {
-  if (value === null) return "—";
-  const units: [number, string][] = [
-    [1e12, "T"],
-    [1e9, "B"],
-    [1e6, "M"],
-  ];
-  for (const [size, suffix] of units) {
-    if (value >= size) return `$${(value / size).toFixed(value / size >= 100 ? 0 : 1)}${suffix}`;
-  }
-  return `$${Math.round(value).toLocaleString()}`;
 }
 
 function JobHistory({ jobs }: { jobs: IngestJobItem[] }) {

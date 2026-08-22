@@ -19,7 +19,7 @@ import SettingsPage from "./routes/settings.js";
 import AdminUsersPage from "./routes/admin-users.js";
 import AdminClientsPage from "./routes/admin-clients.js";
 import AdminAuditPage from "./routes/admin-audit.js";
-import AdminFundsPage from "./routes/admin-funds.js";
+import FundsPage from "./routes/funds.js";
 import "./app.css";
 
 const queryClient = new QueryClient({
@@ -56,7 +56,7 @@ const router = createBrowserRouter([
       { path: "integrations", element: <Navigate to="/connector-setup" replace /> },
       { path: "connectors", element: <Navigate to="/connector-setup" replace /> },
       { path: "tools", element: <ToolsPage /> },
-      { path: "funds", element: <Navigate to="/admin/funds" replace /> },
+      { path: "funds", element: <FundsPage /> },
       { path: "watchlist", element: <WatchlistPage /> },
       { path: "notes", element: <NotesPage /> },
       { path: "skills", element: <SkillsPage /> },
@@ -66,7 +66,9 @@ const router = createBrowserRouter([
       { path: "admin/users", element: <AdminUsersPage /> },
       { path: "admin/clients", element: <AdminClientsPage /> },
       { path: "admin/audit", element: <AdminAuditPage /> },
-      { path: "admin/funds", element: <AdminFundsPage /> },
+      // The sync console became a tab of Funds; keep the old address working
+      // for anyone who bookmarked it while it was its own admin page.
+      { path: "admin/funds", element: <Navigate to="/funds?tab=sync" replace /> },
     ],
   },
 ]);

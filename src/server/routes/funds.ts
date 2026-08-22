@@ -1,11 +1,17 @@
 /**
- * The fund cache console's API — admin-only, all of it.
+ * The fund API, split by what a request costs rather than by page.
  *
- * The cache is shared infrastructure: one copy of the holdings feeds every
- * user's MCP tools and watchlists, and filling it costs hours of outbound
- * requests against hosts that rate limit. So managing it is an administrator's
- * job, and ordinary accounts never reach these routes — they consume what the
- * cache produced, through the fund tools and the pages built on them.
+ * Browsing the cache — searching funds, opening one's portfolio, fetching a
+ * single uncached fund on demand — is what everyone signs in for, so it needs
+ * nothing but a session. A **batch** sync is the different thing: hours of
+ * throttled outbound requests against hosts that rate limit, filling a cache
+ * every user shares, and single-flight across the whole process, so one person
+ * starting one blocks everyone else's. That is an administrator's call, and
+ * `syncRoutes` below is admin-only in full.
+ *
+ * The cache-wide statistics sit on the admin side with it: `failing` counts and
+ * a provider's index error are operational readings, not something a reader of
+ * one fund has any use for.
  *
  * Coverage is reported per provider rather than pooled. A single
  * "3,412 of 27,000 cached" spanning markets would be meaningless: the two
@@ -64,10 +70,14 @@ const failingExpr = sql<number>`count(*) filter (where ${funds.lastSyncError} is
 
 export const fundRoutes = new Hono<AppEnv>()
   .use(requireAuth)
-  .use(requireAdmin)
 
-  /** Cache-wide totals for the page header, plus one block per provider. */
-  .get("/stats", async (c) => {
+  /**
+   * Cache-wide totals for the sync console's header, plus one block per
+   * provider. Admin-only inside an otherwise open router: it reports which
+   * funds are failing and whether a provider's index is broken, which is the
+   * operator's view of the cache rather than anything a fund page needs.
+   */
+  .get("/stats", requireAdmin, async (c) => {
     const [totals] = await db
       .select({ total: count(), cached: cachedExpr, failing: failingExpr })
       .from(funds);
@@ -246,10 +256,11 @@ export const fundRoutes = new Hono<AppEnv>()
    * and only a POST goes through CSRF protection. The page calls this when it
    * opens a fund that has never been synced.
    *
-   * Any signed-in user may trigger it — unlike a category sync, this is a
-   * handful of requests for a fund they are already looking at, and it is
-   * de-duplicated and throttled in `funds/ondemand.ts`. Which upstream it hits
-   * follows from the fund row, so this route stays provider-agnostic.
+   * Any signed-in user may trigger it — unlike a batch sync, this is a handful
+   * of requests for a fund they are already looking at, and it is de-duplicated
+   * and throttled in `funds/ondemand.ts`, with a queue ceiling that refuses a
+   * caller looping over codes. Which upstream it hits follows from the fund
+   * row, so this route stays provider-agnostic.
    */
   .post("/:code/cache", async (c) => {
     const result = await fundCache.ensure(normalizeFundCode(c.req.param("code")));
@@ -319,6 +330,13 @@ export const fundRoutes = new Hono<AppEnv>()
     });
   });
 
+/**
+ * Batch synchronization — admin-only, all of it.
+ *
+ * Every route here either starts, stops or prices a run that walks a whole
+ * category. Runs are single-flight process-wide, so this is not a per-user
+ * action that happens to be expensive; it is one shared queue.
+ */
 export const syncRoutes = new Hono<AppEnv>()
   .use(requireAuth)
   .use(requireAdmin)

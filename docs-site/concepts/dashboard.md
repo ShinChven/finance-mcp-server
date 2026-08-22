@@ -16,20 +16,27 @@ database rows, same vocabulary.
 | `/clients` | The user's own OAuth grants |
 | `/settings` | Account settings |
 | `/admin/users` · `/admin/clients` · `/admin/audit` | User management, all registered clients, the full audit log |
-| `/admin/funds` | Admin: what is cached, per-category sync, per-fund portfolios |
+| `/funds` | Fund search and portfolios; **Batch sync** tab (admin) for per-category runs |
 
-## Fund Cache (admin)
+## Funds
 
-Admin-only, and admin-only on the server too: the cache is shared
-infrastructure — one copy of the holdings serves every user's tools — and
-filling it costs hours of outbound requests against hosts that rate limit.
-Everyone else reads what it produced, through the fund tools over MCP and the
-pages built on them.
+Open to every signed-in user. Search by fund code, name, tracked index or a
+stock the fund holds, filter by market and category, and click a fund to open
+its stored portfolio. A fund nobody has opened yet is
+[fetched on the spot](/concepts/on-demand).
 
-The page shows what is actually cached — fund count, holdings rows, distinct stocks,
-latest report date — and lists every fund with its holdings count and cache age,
-filterable by category and by cached / not cached / failing. Clicking a fund
-opens its stored portfolio.
+### Batch sync (admin)
+
+A second tab on the same page, and the only restricted part. The split is by
+cost, not by subject: opening one fund is a handful of throttled requests for a
+fund already named, while a category run is hours of outbound requests against
+hosts that rate limit, filling a cache every user shares, and single-flight
+across the process — one person starting one blocks everyone else's.
+
+The tab shows what is actually cached — fund count, holdings rows, distinct
+stocks, latest report date — the funds whose last sync failed, and each
+provider's index state. `/api/sync/*` and the cache statistics are admin-only
+on the server, so hiding the tab is a courtesy rather than the check.
 
 A sync is started per category. Picking one opens a confirmation showing
 how many funds it matches, how many are already fresh, how many will actually be

@@ -328,8 +328,9 @@ says so.
 ### Fund data ingest
 
 The relationship tools read local tables only — no tool call ever hits an
-upstream data source. An admin populates them from the **Fund Cache** page in the
-dashboard, or from the CLI:
+upstream data source. Any signed-in user fills one fund at a time simply by
+opening it; an admin fills whole categories from the **Batch sync** tab of the
+Funds page, or from the CLI:
 
 ```sh
 npm run build
@@ -427,17 +428,23 @@ which is the same split the MCP tools use. A note written by an assistant is
 marked as such, and deleting a collection keeps its notes: they fall back to
 unfiled rather than disappearing with the folder.
 
-### Fund cache page (admin)
+### Funds page
 
-`/admin/funds` shows what is actually cached — fund count, holdings rows, distinct
-stocks, latest report date — and lists every fund with its holdings count and
-cache age, filterable by category and by cached / not cached / failing. Clicking
-a fund opens its stored portfolio.
+`/funds` is open to every signed-in user: search by fund code, name, tracked
+index or a stock the fund holds, filter by market and category, and click a
+fund to open its stored portfolio. A fund nobody has opened yet is fetched on
+the spot — a handful of throttled requests, de-duplicated server-side — so
+reading the cache never depends on someone else having run a job first.
 
-The page is admin-only, and so is its API: the cache is shared infrastructure —
-one copy of the holdings serves every user's tools — and filling it costs hours
-of outbound requests against hosts that rate limit. Everyone else reads what it
-produced, through the fund tools over MCP and the pages built on them.
+**Batch sync** is a second tab on the same page, and the only admin-restricted
+part. The distinction is cost, not subject: opening one fund is seconds of
+work for a fund already named, while a category run is hours of outbound
+requests against hosts that rate limit, filling a cache every user shares, and
+single-flight across the process — so one person starting one blocks everyone
+else's. The tab shows what is actually cached (fund count, holdings rows,
+distinct stocks, latest report date), the failing funds, and each provider's
+index state. `/api/sync/*` and the cache statistics are admin-only server-side;
+hiding the tab is a courtesy, not the check.
 
 A sync is started per category. Picking one opens a confirmation showing
 how many funds it matches, how many are already fresh, how many will actually be
@@ -473,7 +480,7 @@ So each fetch layer raises what its parser cannot: an HTML challenge page, a
 screener that yields no products, a holdings download with no positions table. A
 listing that returns nothing never records as a loaded index — it leaves the
 error on `fund_index_state` and the previous watermark in place, so the next
-attempt is immediate and the Fund Cache page shows the reason next to the
+attempt is immediate and the Batch sync tab shows the reason next to the
 provider's counts. On-demand fetches report the same way: a fund whose upstream
 failed comes back `failed` with the reason, not `cached` with an empty
 portfolio.

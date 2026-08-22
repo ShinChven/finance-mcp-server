@@ -177,6 +177,9 @@ export default function Shell() {
           <NavLink to="/tools" className={navItemClass}>
             <Wrench className="size-4" /> Tools
           </NavLink>
+          <NavLink to="/funds" className={navItemClass}>
+            <Database className="size-4" /> Funds
+          </NavLink>
           <NavLink to="/watchlist" className={navItemClass}>
             <Star className="size-4" /> Watchlists
           </NavLink>
@@ -206,9 +209,6 @@ export default function Shell() {
               </NavLink>
               <NavLink to="/admin/audit" className={navItemClass}>
                 <ScrollText className="size-4" /> Audit Log
-              </NavLink>
-              <NavLink to="/admin/funds" className={navItemClass}>
-                <Database className="size-4" /> Fund Cache
               </NavLink>
             </>
           )}
