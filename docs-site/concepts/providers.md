@@ -73,5 +73,5 @@ it, which is how the provider came to report every US ETF as holding nothing.
 
 ## Running an ingest
 
-From the dashboard's admin **Fund Cache** page, or the CLI — see
+From the **Batch sync** tab of the dashboard's Funds page (admin), or the CLI — see
 [Fund Data Ingest](/operations/ingest).

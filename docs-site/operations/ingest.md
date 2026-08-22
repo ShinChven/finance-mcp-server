@@ -5,11 +5,13 @@ ever hits an upstream data source. This page is how those tables get populated o
 purpose, rather than by an
 [on-demand fetch](/concepts/on-demand).
 
-Two ways in: the admin **Fund Cache** page in the dashboard, or the CLI.
+Two ways in: the **Batch sync** tab of the dashboard's Funds page (admin only), or
+the CLI. Caching a *single* fund needs neither — any signed-in user opening a fund
+on `/funds` fetches it.
 
 ## From the dashboard
 
-An admin starts a sync per category on `/admin/funds`. Picking one opens a confirmation
+An admin starts a sync per category on `/funds?tab=sync`. Picking one opens a confirmation
 showing how many funds it matches, how many are already fresh, how many will
 actually be fetched, the request count and an estimated duration — nothing is
 fetched until that is confirmed.
@@ -72,7 +74,7 @@ and the parsers answer an unreadable response with an empty list — between the
 they can turn a blocked endpoint into a source that merely looks empty. The
 probe removes that tolerance for one fund, and exits non-zero if any step fails.
 
-The Fund Cache page reports the other half: each provider card shows when its
+The Batch sync tab reports the other half: each provider card shows when its
 fund index last loaded and the error if the listing failed, which is why a
 provider showing zero funds is never ambiguous between "never synced" and
 "cannot be reached".
