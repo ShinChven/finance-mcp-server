@@ -24,12 +24,16 @@ vi.mock("./auth.js", () => ({
     ),
 }));
 // `socket.ts` reaches for the database to re-check sessions on its slow timer.
-vi.mock("../middleware/session.js", () => ({ sessionIsActive: () => Promise.resolve(true) }));
+// Mutable so a test can change who the session belongs to mid-connection.
+const { currentRole } = vi.hoisted(() => ({ currentRole: { value: "admin" as string | null } }));
+vi.mock("../middleware/session.js", () => ({
+  sessionOwnerRole: () => Promise.resolve(currentRole.value),
+}));
 
 const { REALTIME_CLOSE, REALTIME_PATH } = await import("../../shared/realtime.js");
 const { attachRealtime } = await import("./attach.js");
 const { publishChange, publishJob, resetBus } = await import("./bus.js");
-const { closeAllSockets } = await import("./socket.js");
+const { closeAllSockets, connectionCount, sweepNow } = await import("./socket.js");
 
 let server: Server;
 let detach: () => void;
@@ -63,6 +67,7 @@ function nextMessage(socket: WebSocket): Promise<unknown> {
 }
 
 beforeEach(async () => {
+  currentRole.value = "admin";
   origin = "http://dashboard.test";
   server = createServer((_req, res) => res.end("ok"));
   detach = attachRealtime(server);
@@ -146,6 +151,40 @@ describe("realtime upgrade", () => {
     const socket = connect("sid=user", "/api/something-else");
 
     await expect(opened(socket)).rejects.toThrow(/404/);
+  });
+
+  it("hangs up when the user's role changes under an open socket", async () => {
+    // Channels are chosen at connect time, so a demoted admin would otherwise
+    // keep receiving the fund-cache channel for the life of the connection.
+    const socket = connect("sid=admin");
+    await opened(socket);
+    currentRole.value = "user";
+
+    // Only `Date` is faked: the sockets underneath need real timers.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 6 * 60_000);
+    sweepNow();
+    vi.useRealTimers();
+
+    const code = await new Promise<number>((resolve) => socket.once("close", resolve));
+    expect(code).toBe(REALTIME_CLOSE.STALE_IDENTITY);
+  });
+
+  it("hangs up when the session behind an open socket ends", async () => {
+    const socket = connect("sid=admin");
+    await opened(socket);
+    expect(connectionCount()).toBe(1);
+    currentRole.value = null;
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 6 * 60_000);
+    sweepNow();
+    vi.useRealTimers();
+
+    const code = await new Promise<number>((resolve) => socket.once("close", resolve));
+    expect(code).toBe(REALTIME_CLOSE.UNAUTHORIZED);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(connectionCount()).toBe(0);
   });
 
   it("leaves ordinary HTTP requests alone", async () => {

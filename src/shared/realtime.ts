@@ -91,4 +91,9 @@ export const REALTIME_CLOSE = {
   UNAUTHORIZED: 4401,
   /** The connection cap for this user pushed the oldest socket out. */
   REPLACED: 4409,
+  /**
+   * What the socket subscribed to no longer matches who the user is -- their
+   * role changed under it. Reconnecting re-derives the subscriptions.
+   */
+  STALE_IDENTITY: 4410,
 } as const;

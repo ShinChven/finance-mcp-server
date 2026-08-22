@@ -21,6 +21,7 @@ describe("repo change events", () => {
   afterEach(() => {
     resetBus();
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("publishes the new id when a note is created", async () => {
@@ -146,6 +147,22 @@ describe("repo change events", () => {
     } as unknown as WatchlistRepo);
 
     await repo.removeItems("u1", "list-7", { refs: ["NVDA"] });
+    flush();
+
+    expect(received).toHaveLength(0);
+  });
+
+  it("returns the write's result even when publishing the event fails", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const received = watch("u1");
+    // A repo that breaks the shape the spec reads: the saved note must still
+    // come back, because announcing a write is a side effect of it.
+    const repo = watchlistRepoWithEvents({
+      addItems: async () => null,
+    } as unknown as WatchlistRepo);
+
+    await expect(repo.addItems("u1", "list-7", [])).resolves.toBeNull();
     flush();
 
     expect(received).toHaveLength(0);

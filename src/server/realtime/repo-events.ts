@@ -36,11 +36,21 @@ interface EventSpec {
 
 type EventSpecs<T> = Partial<Record<keyof T & string, EventSpec>>;
 
-/** The `id` of a returned record, when there is one. */
+/**
+ * The `id` of a returned record.
+ *
+ * The two "nothing to say" answers are deliberately different. A null or
+ * undefined result means the write matched nothing, so there is no event. A
+ * record whose id cannot be read still changed something, so it publishes with
+ * no ids and the client widens -- an extra refetch, rather than a page that
+ * quietly stops updating, which is the failure this whole feature exists to
+ * prevent.
+ */
 function idOf(result: unknown): string[] | null {
-  if (typeof result !== "object" || result === null || !("id" in result)) return null;
+  if (result === null || result === undefined) return null;
+  if (typeof result !== "object" || !("id" in result)) return [];
   const { id } = result as { id: unknown };
-  return typeof id === "string" ? [id] : null;
+  return typeof id === "string" ? [id] : [];
 }
 
 /** The nth argument, when it is a string. Used for ids only the caller knows. */
@@ -65,12 +75,20 @@ export function withChangeEvents<T extends object>(
       if (spec === undefined || typeof value !== "function") return value;
 
       return async (...args: unknown[]): Promise<unknown> => {
+        // A throw from the write itself never reaches the lines below, so a
+        // failed write publishes nothing.
         const result = await (value as (...inner: unknown[]) => unknown).apply(target, args);
-        const userId = args[0];
-        const ids = spec.ids(result, args);
-        // A throw never reaches here, so a failed write publishes nothing.
-        if (ids !== null && typeof userId === "string") {
-          publishChange(userId, topic, spec.action, ids);
+        try {
+          const userId = args[0];
+          const ids = spec.ids(result, args);
+          if (ids !== null && typeof userId === "string") {
+            publishChange(userId, topic, spec.action, ids);
+          }
+        } catch (error) {
+          // The write already succeeded. Announcing it is a side effect, and a
+          // side effect must never turn a saved note into an error the user
+          // sees; the worst case is a page that refreshes a moment late.
+          console.error(`realtime: failed to publish ${topic} change:`, error);
         }
         return result;
       };
@@ -95,7 +113,7 @@ export function watchlistRepoWithEvents(repo: WatchlistRepo): WatchlistRepo {
   // Item events carry the *list* id: that is what the items query keys on.
   return withChangeEvents<WatchlistRepo>(repo, "watchlist", {
     createWatchlist: { action: "created", ids: idOf },
-    updateWatchlist: { action: "updated", ids: (result) => (result === null ? null : idOf(result)) },
+    updateWatchlist: { action: "updated", ids: idOf },
     deleteWatchlist: {
       action: "deleted",
       ids: (result, args) => (result === true ? argAt(args, 1) : null),
@@ -115,7 +133,7 @@ export function watchlistRepoWithEvents(repo: WatchlistRepo): WatchlistRepo {
 export function skillsRepoWithEvents(repo: SkillsRepo): SkillsRepo {
   return withChangeEvents<SkillsRepo>(repo, "skills", {
     createSkill: { action: "created", ids: idOf },
-    updateSkill: { action: "updated", ids: (result) => (result === null ? null : idOf(result)) },
+    updateSkill: { action: "updated", ids: idOf },
     // Addressed by id *or* slug, so the deleted id is not knowable from the
     // arguments; the client invalidates skill details wholesale.
     deleteSkill: { action: "deleted", ids: (result) => (result === true ? [] : null) },

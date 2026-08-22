@@ -22,7 +22,7 @@
 
 import type { WebSocket } from "ws";
 import { REALTIME_CLOSE, type ServerMessage } from "../../shared/realtime.js";
-import { sessionIsActive } from "../middleware/session.js";
+import { sessionOwnerRole } from "../middleware/session.js";
 import { ADMIN_CHANNEL, subscribe, userChannel } from "./bus.js";
 import type { SocketIdentity } from "./auth.js";
 
@@ -42,6 +42,8 @@ interface SocketState {
   /** Cleared on every pong; a sweep that finds it false terminates. */
   alive: boolean;
   lastSessionCheck: number;
+  /** A recheck is in flight; do not start a second one behind it. */
+  checking: boolean;
   unsubscribe: () => void;
 }
 
@@ -90,15 +92,31 @@ function sweep(): void {
     ws.ping();
     send(ws, { type: "ping" });
 
-    if (now - state.lastSessionCheck >= SESSION_RECHECK_MS) {
-      state.lastSessionCheck = now;
-      void sessionIsActive(state.identity.sessionId)
-        .then((active) => {
-          if (!active) ws.close(REALTIME_CLOSE.UNAUTHORIZED, "session ended");
+    if (!state.checking && now - state.lastSessionCheck >= SESSION_RECHECK_MS) {
+      state.checking = true;
+      void sessionOwnerRole(state.identity.sessionId)
+        .then((role) => {
+          if (role === null) {
+            ws.close(REALTIME_CLOSE.UNAUTHORIZED, "session ended");
+            return;
+          }
+          // Channels are chosen once, at connect time, so a change of role can
+          // only be applied by ending the connection: the client reconnects and
+          // subscribes as whoever it is now.
+          if ((role === "admin") !== state.identity.isAdmin) {
+            ws.close(REALTIME_CLOSE.STALE_IDENTITY, "role changed");
+            return;
+          }
+          // Advanced only on a definite answer, so a failed check really is
+          // retried by the next sweep rather than deferred another interval.
+          state.lastSessionCheck = Date.now();
         })
         .catch((error: unknown) => {
-          // A database blip must not disconnect everyone; the next sweep retries.
+          // A database blip must not disconnect everyone.
           console.error("realtime session recheck failed:", error);
+        })
+        .finally(() => {
+          state.checking = false;
         });
     }
   }
@@ -117,7 +135,13 @@ export function registerSocket(ws: WebSocket, identity: SocketIdentity): void {
     : [userChannel(identity.userId)];
 
   const unsubscribe = subscribe(channels, (message) => send(ws, message));
-  sockets.set(ws, { identity, alive: true, lastSessionCheck: Date.now(), unsubscribe });
+  sockets.set(ws, {
+    identity,
+    alive: true,
+    lastSessionCheck: Date.now(),
+    checking: false,
+    unsubscribe,
+  });
 
   ws.on("pong", () => {
     const state = sockets.get(ws);
@@ -134,6 +158,16 @@ export function registerSocket(ws: WebSocket, identity: SocketIdentity): void {
 
   enforceConnectionCap(identity.userId);
   ensureSweeper();
+}
+
+/**
+ * Runs one sweep immediately.
+ *
+ * A test seam: the revocation paths below are on a five-minute timer inside a
+ * thirty-second one, and they are exactly the paths worth pinning.
+ */
+export function sweepNow(): void {
+  sweep();
 }
 
 /** Test seam, and the shutdown path. */

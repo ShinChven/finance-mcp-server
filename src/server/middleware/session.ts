@@ -60,15 +60,18 @@ export async function lookupSession(raw: string): Promise<ResolvedSession | null
 }
 
 /**
- * Is this session (by stored id) still usable?
+ * The role this session still grants, or null if it grants nothing any more.
  *
  * For long-lived connections that authenticated once and then have no further
  * request to hang a check on. A socket opened a week ago must not outlive the
- * session that authorized it.
+ * session that authorized it -- and because a socket picks its subscriptions
+ * from the role it saw at connect time, a demoted admin must not keep them
+ * either. Returning the role rather than a boolean is what lets the caller
+ * notice that second case.
  */
-export async function sessionIsActive(sessionId: string): Promise<boolean> {
+export async function sessionOwnerRole(sessionId: string): Promise<User["role"] | null> {
   const rows = await db
-    .select({ id: sessions.id })
+    .select({ role: users.role })
     .from(sessions)
     .innerJoin(users, eq(sessions.userId, users.id))
     .where(
@@ -79,7 +82,7 @@ export async function sessionIsActive(sessionId: string): Promise<boolean> {
       ),
     )
     .limit(1);
-  return rows.length > 0;
+  return rows[0]?.role ?? null;
 }
 
 /**

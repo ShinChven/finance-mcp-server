@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { api, ApiError } from "../lib/api.js";
 import { useRealtime } from "../lib/use-realtime.js";
-import type { RealtimeStatus } from "../lib/realtime.js";
+import { realtime, type RealtimeStatus } from "../lib/realtime.js";
 import type { Me } from "../lib/types.js";
 
 export async function shellLoader({ request }: { request: Request }) {
@@ -115,6 +115,9 @@ export default function Shell() {
 
   async function logout() {
     await api("/auth/logout", { method: "POST" });
+    // Explicit: the server only notices a dead session on its next recheck,
+    // minutes away, and until then this tab holds an authenticated socket.
+    realtime.close();
     navigate("/login");
   }
 

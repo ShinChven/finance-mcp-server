@@ -8,7 +8,15 @@ import { config } from "../config.js";
  * same latitude the CSRF check has always taken.
  */
 export function selfOrigins(host: string | undefined): Set<string> {
-  return new Set([config.appOrigin, `http://${host}`, `https://${host}`]);
+  const origins = new Set([config.appOrigin]);
+  // Guarded, not interpolated blindly: without a Host header the templates
+  // below would make the literal origins `http://undefined` and
+  // `https://undefined` acceptable.
+  if (host) {
+    origins.add(`http://${host}`);
+    origins.add(`https://${host}`);
+  }
+  return origins;
 }
 
 export function isSelfOrigin(origin: string, host: string | undefined): boolean {
