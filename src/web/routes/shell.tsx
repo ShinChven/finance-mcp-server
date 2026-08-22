@@ -21,6 +21,8 @@ import {
   X,
 } from "lucide-react";
 import { api, ApiError } from "../lib/api.js";
+import { useRealtime } from "../lib/use-realtime.js";
+import { realtime, type RealtimeStatus } from "../lib/realtime.js";
 import type { Me } from "../lib/types.js";
 
 export async function shellLoader({ request }: { request: Request }) {
@@ -49,6 +51,35 @@ function applyTheme(theme: string | undefined) {
   document.documentElement.classList.toggle("dark", dark);
 }
 
+/**
+ * Whether what is on screen is live.
+ *
+ * Worth the pixels because of how this dashboard is used: left open on a second
+ * screen while the agent works on the first. A page that quietly stopped
+ * updating looks exactly like a page where nothing happened, and those two are
+ * the only states a viewer needs to be able to tell apart.
+ */
+function RealtimeIndicator({ status }: { status: RealtimeStatus }) {
+  if (status === "open") {
+    return (
+      <span
+        title="Live: this page updates as data changes"
+        aria-label="Live updates connected"
+        className="ml-auto size-2 shrink-0 rounded-full bg-emerald-500"
+      />
+    );
+  }
+  return (
+    <span
+      title="Not receiving live updates. Reload to see the latest data."
+      className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400"
+    >
+      <span className="size-2 animate-pulse rounded-full bg-amber-500" />
+      {status === "connecting" ? "Connecting" : "Offline"}
+    </span>
+  );
+}
+
 const navItemClass = ({ isActive }: { isActive: boolean }) =>
   `flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
     isActive
@@ -61,8 +92,15 @@ export default function Shell() {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
+  const realtimeStatus = useRealtime();
 
   useEffect(() => applyTheme(me.preferences.theme), [me.preferences.theme]);
+
+  // The socket is the first thing to notice an expired session on a tab that
+  // has been sitting idle: no query is running to get a 401 of its own.
+  useEffect(() => {
+    if (realtimeStatus === "unauthorized") navigate("/login");
+  }, [realtimeStatus, navigate]);
 
   // The drawer overlays the page on small screens, so the page behind it must
   // not scroll away underneath.
@@ -77,6 +115,9 @@ export default function Shell() {
 
   async function logout() {
     await api("/auth/logout", { method: "POST" });
+    // Explicit: the server only notices a dead session on its next recheck,
+    // minutes away, and until then this tab holds an authenticated socket.
+    realtime.close();
     navigate("/login");
   }
 
@@ -112,10 +153,11 @@ export default function Shell() {
         <div className="flex items-center gap-2 px-5 py-5">
           <Server className="size-5 text-indigo-600 dark:text-indigo-400" />
           <span className="font-semibold">MCP Server</span>
+          <RealtimeIndicator status={realtimeStatus} />
           <button
             onClick={() => setNavOpen(false)}
             aria-label="Close navigation"
-            className="ml-auto cursor-pointer rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-100 lg:hidden dark:text-zinc-400 dark:hover:bg-zinc-800"
+            className="cursor-pointer rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-100 lg:hidden dark:text-zinc-400 dark:hover:bg-zinc-800"
           >
             <X className="size-4" />
           </button>

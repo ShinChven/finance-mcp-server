@@ -90,8 +90,8 @@ function FundCacheConsole() {
   const jobs = useQuery({
     queryKey: ["sync-jobs"],
     queryFn: () => api<JobsResult>("/api/sync/jobs"),
-    // Only poll while something is actually running.
-    refetchInterval: (query) => (isJobActive(query.state.data?.items[0]) ? 3000 : false),
+    // No polling: the runner pushes progress over the realtime socket, and a
+    // dropped connection re-syncs everything on reconnect.
   });
 
   const list = useQuery({

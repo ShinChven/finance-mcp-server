@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { secureHeaders } from "hono/secure-headers";
+import { config } from "./config.js";
 import type { AppEnv } from "./lib/http.js";
 import { csrfProtect } from "./middleware/csrf.js";
 import { mcpRoutes } from "./mcp/index.js";
@@ -28,7 +29,10 @@ export function createApp(): Hono<AppEnv> {
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", "data:", "https://*.googleusercontent.com"],
-        connectSrc: ["'self'"],
+        // `'self'` already covers same-origin ws: and wss: under CSP Level 3,
+        // but naming the socket origin explicitly costs nothing and keeps the
+        // dashboard working on browsers that never shipped that clarification.
+        connectSrc: ["'self'", config.appOrigin.replace(/^http/, "ws")],
         frameAncestors: ["'none'"],
       },
       crossOriginEmbedderPolicy: false,

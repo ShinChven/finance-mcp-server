@@ -38,6 +38,7 @@ import {
 } from "./ingest.js";
 import { getProvider } from "./providers/index.js";
 import { seedEmptyFundIndexes } from "./universe.js";
+import { publishAdminChange } from "../realtime/bus.js";
 
 type Db = typeof Database;
 
@@ -294,7 +295,14 @@ export function createFundCache(db: Db, yahoo: YahooFinanceClient): FundCache {
         };
       }
 
-      const promise = run(code, options).finally(() => inFlight.delete(code));
+      const promise = run(code, options)
+        .then((result) => {
+          // An agent touching an uncached fund fills the cache as a side
+          // effect; the fund pages should show that without a manual reload.
+          if (result.status === "cached") publishAdminChange("funds", "updated", [result.code]);
+          return result;
+        })
+        .finally(() => inFlight.delete(code));
       inFlight.set(code, promise);
       return promise;
     },

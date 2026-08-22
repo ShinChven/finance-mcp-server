@@ -186,6 +186,52 @@ auth guards via loader redirects, error boundaries, toast notifications.
 ### MCP endpoint
 - `ALL /mcp` — Streamable HTTP via `@hono/mcp`, guarded by the bearer middleware.
 
+### Realtime updates (`/api/events`)
+
+The dashboard is meant to be watched on one screen while an agent works on
+another, so pages refresh themselves instead of waiting for a reload. A
+WebSocket at `/api/events` carries the signal; the data still comes back over
+the ordinary HTTP API.
+
+- **Events never carry business data.** A message says which topic changed
+  (`notes`, `watchlist`, `skills`, `funds`), whether it was a create, update or
+  delete, and optionally the ids. The client then invalidates the matching
+  TanStack Query keys and refetches, where `requireAuth` and the user-scoped
+  repos remain the only authorization gate. A misrouted event therefore cannot
+  leak anything — the worst case is someone refetching their own data. It also
+  keeps the URL-search-params rule intact: reads stay addressable GETs.
+- **The one exception is sync progress**, which is pushed with its counters and
+  patched straight into the cache. Re-reading a job list every three seconds to
+  watch one number tick is what the socket replaced.
+- **Events are published by decorating the repositories**
+  (`src/server/realtime/repo-events.ts`), not by each route and tool handler.
+  The dashboard API and the MCP tools share those repositories, so every write
+  path publishes, including tools that do not exist yet. A method that changed
+  nothing (`null`, `false`, an empty batch) publishes nothing, so a re-running
+  agent converges instead of spamming.
+- **Auth is the session cookie plus a mandatory `Origin` check.** WebSockets are
+  exempt from the same-origin policy, so that check is the whole CSRF defence
+  for this endpoint. A foreign origin is refused before any handshake; a
+  same-origin caller with a dead session gets a handshake and an immediate
+  `4401` close, which the browser can actually read (an HTTP 401 arrives as an
+  opaque `1006` and the tab would retry forever instead of redirecting to
+  login). Sessions are re-checked on a slow timer so a socket cannot outlive the
+  session that authorized it.
+- **Operationally**: protocol ping/pong with `terminate` on a missed beat, an
+  application-level `ping` the browser watchdog can see (browsers do not surface
+  protocol pongs to JavaScript), events dropped when a peer stops reading,
+  per-user connection cap, `permessage-deflate` off. The client reconnects with
+  jittered backoff, does not retry a `4401`, and invalidates every query once on
+  reconnect — which is why the protocol needs no replay buffer or sequence
+  numbers.
+- **Dev mode needs its own wiring.** `@hono/vite-dev-server` is built around
+  `fetch` and cannot handle an HTTP upgrade, so the socket attaches to the
+  server Vite already owns for HMR, loaded through `ssrLoadModule` so it shares
+  one module graph — and therefore one event bus — with `src/server/dev.ts`.
+- **Single process today.** The bus is in-memory, which is correct while the
+  container runs one server process. Scaling out means replacing delivery in
+  `bus.ts` with Postgres `LISTEN/NOTIFY`; nothing above that file changes.
+
 ### Fund relationship tools
 
 Keyword search over fund names cannot answer "which fund holds this stock" —
