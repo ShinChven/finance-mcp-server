@@ -33,6 +33,7 @@ import {
   type NoteStatus,
   type NoteSymbolRef,
 } from "../../shared/notes.js";
+import { notesRepoWithEvents } from "../realtime/repo-events.js";
 
 /** The stored vector is an implementation detail of search; nothing reads it. */
 export type NoteColumns = Omit<Note, "searchVector">;
@@ -626,7 +627,7 @@ export function createLazyNotesRepo(): NotesRepo {
     return cached;
   };
 
-  return new Proxy({} as NotesRepo, {
+  const lazy = new Proxy({} as NotesRepo, {
     get(_target, property) {
       return async (...args: unknown[]) => {
         const repo = await load();
@@ -635,4 +636,9 @@ export function createLazyNotesRepo(): NotesRepo {
       };
     },
   });
+
+  // Wrapped here rather than at each call site so both the dashboard API and
+  // the MCP tools -- the two callers of this factory -- publish change events
+  // without either of them having to remember to.
+  return notesRepoWithEvents(lazy);
 }

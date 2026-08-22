@@ -23,6 +23,8 @@ import { ingestJobs, type IngestJob } from "../db/schema.js";
 import { yahooFinanceClient } from "../mcp/client.js";
 import type { ProviderId } from "../../shared/funds.js";
 import { runIngest, type IngestSummary } from "./ingest.js";
+import { publishAdminChange, publishJob } from "../realtime/bus.js";
+import type { JobProgress } from "../../shared/realtime.js";
 import { getProvider } from "./providers/index.js";
 
 export interface StartJobOptions {
@@ -57,6 +59,29 @@ export function activeJobId(): string | null {
  *  UPDATE per fund purely so a poller can see a number tick. */
 const PROGRESS_INTERVAL_MS = 2_000;
 
+/**
+ * The subset of a job row the console actually renders while a run is in
+ * flight. Pushed with its values rather than as a bare "something changed",
+ * because that is the whole reason the panel used to poll every three seconds.
+ */
+function toProgress(row: IngestJob): JobProgress {
+  return {
+    id: row.id,
+    status: row.status,
+    processedFunds: row.processedFunds,
+    totalFunds: row.totalFunds,
+    skippedFresh: row.skippedFresh,
+    error: row.error,
+  };
+}
+
+/** Terminal states also change the cache itself, so the fund pages re-read. */
+function announceFinished(row: IngestJob | undefined): void {
+  if (!row) return;
+  publishJob(toProgress(row), null);
+  publishAdminChange("funds", "updated");
+}
+
 export async function startJob(options: StartJobOptions): Promise<IngestJob> {
   if (active) throw new JobInProgressError(active.id);
 
@@ -77,6 +102,7 @@ export async function startJob(options: StartJobOptions): Promise<IngestJob> {
 
   const controller = new AbortController();
   active = { id: job.id, controller };
+  publishJob(toProgress(job), job.id);
 
   // Detached on purpose: the caller is an HTTP request that must not wait.
   void execute(job.id, options, controller).finally(() => {
@@ -109,14 +135,16 @@ async function execute(
         const now = Date.now();
         if (now - lastWrite < PROGRESS_INTERVAL_MS && processed < total) return;
         lastWrite = now;
-        await db
+        const [row] = await db
           .update(ingestJobs)
           .set({ processedFunds: processed, totalFunds: total })
-          .where(eq(ingestJobs.id, jobId));
+          .where(eq(ingestJobs.id, jobId))
+          .returning();
+        if (row) publishJob(toProgress(row), jobId);
       },
     });
 
-    await db
+    const [finished] = await db
       .update(ingestJobs)
       .set({
         status: controller.signal.aborted ? "cancelled" : "succeeded",
@@ -124,16 +152,20 @@ async function execute(
         skippedFresh: summary.skippedFresh,
         finishedAt: new Date(),
       })
-      .where(eq(ingestJobs.id, jobId));
+      .where(eq(ingestJobs.id, jobId))
+      .returning();
+    announceFinished(finished);
   } catch (error) {
-    await db
+    const [failed] = await db
       .update(ingestJobs)
       .set({
         status: "failed",
         error: (error as Error).message.slice(0, 1000),
         finishedAt: new Date(),
       })
-      .where(eq(ingestJobs.id, jobId));
+      .where(eq(ingestJobs.id, jobId))
+      .returning();
+    announceFinished(failed);
   }
 }
 

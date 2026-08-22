@@ -27,6 +27,7 @@ import {
   MAX_WATCHLISTS_PER_USER,
   type WatchlistItemKind,
 } from "../../shared/watchlist.js";
+import { watchlistRepoWithEvents } from "../realtime/repo-events.js";
 
 export interface WatchlistSummary extends Watchlist {
   itemCount: number;
@@ -396,7 +397,7 @@ export function createLazyWatchlistRepo(): WatchlistRepo {
     return cached;
   };
 
-  return new Proxy({} as WatchlistRepo, {
+  const lazy = new Proxy({} as WatchlistRepo, {
     get(_target, property) {
       return async (...args: unknown[]) => {
         const repo = await load();
@@ -405,4 +406,9 @@ export function createLazyWatchlistRepo(): WatchlistRepo {
       };
     },
   });
+
+  // Wrapped here rather than at each call site so both the dashboard API and
+  // the MCP tools -- the two callers of this factory -- publish change events
+  // without either of them having to remember to.
+  return watchlistRepoWithEvents(lazy);
 }

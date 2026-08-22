@@ -43,6 +43,10 @@ Requirements:
 - `src/web/` — React SPA (routes, components, lib)
 - `src/shared/` — types and zod schemas used by both
 - MCP tools live in `src/server/mcp/tools/`, one file per tool.
+- `src/server/realtime/` — the WebSocket endpoint and the in-process event bus.
+  Change events are published by decorating the repositories, so the dashboard
+  API and the MCP tools both emit without either knowing about sockets. Events
+  never carry business data: the client refetches over the normal HTTP API.
 - `src/server/funds/` — the market-agnostic fund pipeline (ingest, repo,
   exposure, on-demand cache). Nothing here may know about a specific market.
 - `src/server/funds/providers/<id>/` — one upstream source each, behind the
