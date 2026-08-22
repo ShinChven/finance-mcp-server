@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { secureHeaders } from "hono/secure-headers";
 import { config } from "./config.js";
-import type { AppEnv } from "./lib/http.js";
+import { errorHandler, type AppEnv } from "./lib/http.js";
 import { csrfProtect } from "./middleware/csrf.js";
 import { mcpRoutes } from "./mcp/index.js";
 import { wellKnownRoutes } from "./oauth/metadata.js";
@@ -68,10 +68,7 @@ export function createApp(): Hono<AppEnv> {
   api.route("/skills", skillRoutes);
   app.route("/api", api);
 
-  app.onError((err, c) => {
-    console.error(`${c.req.method} ${c.req.path} failed:`, err);
-    return c.json({ error: "internal server error" }, 500);
-  });
+  app.onError(errorHandler);
 
   return app;
 }

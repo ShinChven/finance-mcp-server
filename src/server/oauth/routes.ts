@@ -22,6 +22,8 @@ import { issueTokenPair } from "./issue.js";
 import { SUPPORTED_SCOPES } from "./metadata.js";
 import { consentPage, oauthErrorPage } from "./pages.js";
 import { validRedirectUri } from "./redirect.js";
+import { classifyRefreshUse } from "./rotation.js";
+import { narrowScope } from "./scope.js";
 
 const AUTH_CODE_TTL_MS = 60_000;
 
@@ -113,10 +115,14 @@ async function validateAuthorizeRequest(
   if (!params.code_challenge || params.code_challenge_method !== "S256") {
     return { response: redirectWithError(c, params, "invalid_request", "PKCE with S256 is required") };
   }
-  const scopes = params.scope.split(/\s+/).filter(Boolean);
-  if (scopes.some((s) => !SUPPORTED_SCOPES.includes(s))) {
+  const granted = narrowScope(params.scope);
+  if (granted === null) {
     return { response: redirectWithError(c, params, "invalid_scope", "unsupported scope requested") };
   }
+  // Everything downstream -- the consent screen, the stored grant, the token
+  // response -- reads the narrowed scope, so what the user approves and what the
+  // client is told it received are the same string.
+  params.scope = granted;
   const resource = params.resource.replace(/\/+$/, "");
   if (resource && resource !== config.APP_URL && resource !== `${config.APP_URL}/mcp`) {
     return { response: redirectWithError(c, params, "invalid_target", "unknown resource") };
@@ -176,6 +182,26 @@ async function revokeGrantTokens(grantId: string): Promise<void> {
     .update(oauthTokens)
     .set({ revokedAt: new Date() })
     .where(and(eq(oauthTokens.grantId, grantId), isNull(oauthTokens.revokedAt)));
+}
+
+/**
+ * A code presented twice (RFC 6749 §4.1.2): the first exchange may have been an
+ * attacker's, so the tokens it produced are revoked rather than left running.
+ */
+async function rejectCodeReplay(
+  c: Context,
+  row: { grantId: string; userId: string; clientId: string; issuedFamilyId: string | null },
+) {
+  if (row.issuedFamilyId) await revokeFamily(row.issuedFamilyId);
+  else await revokeGrantTokens(row.grantId);
+  await audit({
+    actorUserId: row.userId,
+    action: "oauth.code_replay",
+    targetType: "oauth_client",
+    targetId: row.clientId,
+    ip: clientIp(c),
+  });
+  return tokenError(c, "invalid_grant", "authorization code already used");
 }
 
 // ---------------------------------------------------------------------------
@@ -318,12 +344,7 @@ export const oauthRoutes = new Hono<AppEnv>()
         .where(eq(oauthAuthCodes.codeHash, sha256Hex(code)))
         .limit(1);
       if (!row) return tokenError(c, "invalid_grant", "unknown authorization code");
-      if (row.consumedAt) {
-        // Code replay (RFC 6749 §4.1.2): revoke the tokens issued from this code.
-        if (row.issuedFamilyId) await revokeFamily(row.issuedFamilyId);
-        else await revokeGrantTokens(row.grantId);
-        return tokenError(c, "invalid_grant", "authorization code already used");
-      }
+      if (row.consumedAt) return rejectCodeReplay(c, row);
       if (row.expiresAt.getTime() < Date.now()) return tokenError(c, "invalid_grant", "authorization code expired");
       if (row.clientId !== clientId) return tokenError(c, "invalid_grant", "client mismatch");
       if (row.redirectUri !== redirectUri) return tokenError(c, "invalid_grant", "redirect_uri mismatch");
@@ -334,10 +355,15 @@ export const oauthRoutes = new Hono<AppEnv>()
       if (!grant || grant.status !== "active") return tokenError(c, "invalid_grant", "authorization no longer valid");
 
       const familyId = newId();
-      await db
+      // Conditional, and the returned row is the proof it was this request that
+      // consumed the code: two exchanges racing here would otherwise both pass
+      // the `consumedAt` check above and both be issued tokens.
+      const [claimed] = await db
         .update(oauthAuthCodes)
         .set({ consumedAt: new Date(), issuedFamilyId: familyId })
-        .where(eq(oauthAuthCodes.codeHash, row.codeHash));
+        .where(and(eq(oauthAuthCodes.codeHash, row.codeHash), isNull(oauthAuthCodes.consumedAt)))
+        .returning();
+      if (!claimed) return rejectCodeReplay(c, { ...row, issuedFamilyId: null });
       const tokens = await issueTokenPair(grant, familyId);
       return c.json(tokens, 200, { "Cache-Control": "no-store", Pragma: "no-cache" });
     }
@@ -356,19 +382,46 @@ export const oauthRoutes = new Hono<AppEnv>()
         .limit(1);
       const row = rows[0];
       if (!row) return tokenError(c, "invalid_grant", "unknown refresh token");
-      if (row.token.revokedAt) {
-        // Rotation reuse detected: revoke the whole family.
-        await revokeFamily(row.token.familyId);
-        return tokenError(c, "invalid_grant", "refresh token reuse detected");
-      }
       if (row.token.expiresAt.getTime() < Date.now()) return tokenError(c, "invalid_grant", "refresh token expired");
       if (row.grant.clientId !== clientId) return tokenError(c, "invalid_grant", "client mismatch");
       if (row.grant.status !== "active") return tokenError(c, "invalid_grant", "authorization no longer valid");
 
-      await db
-        .update(oauthTokens)
-        .set({ revokedAt: new Date() })
-        .where(eq(oauthTokens.id, row.token.id));
+      const rejectReuse = async () => {
+        await revokeFamily(row.token.familyId);
+        await audit({
+          actorUserId: row.grant.userId,
+          action: "oauth.refresh_reuse",
+          targetType: "oauth_grant",
+          targetId: row.grant.id,
+          meta: { familyId: row.token.familyId },
+          ip: clientIp(c),
+        });
+        return tokenError(c, "invalid_grant", "refresh token reuse detected");
+      };
+
+      // See `rotation.ts`: a token rotated seconds ago is a retried exchange, not
+      // a stolen credential, and gets a fresh pair instead of killing the family.
+      if (classifyRefreshUse(row.token) === "reuse") return rejectReuse();
+      if (!row.token.revokedAt) {
+        const now = new Date();
+        const [rotated] = await db
+          .update(oauthTokens)
+          .set({ revokedAt: now, rotatedAt: now })
+          .where(and(eq(oauthTokens.id, row.token.id), isNull(oauthTokens.revokedAt)))
+          .returning();
+        // Nothing updated means the row changed under us between the read and
+        // the write: either a concurrent refresh (fine, both are the same client
+        // asking twice) or a revocation that landed in between (not fine). The
+        // re-read tells them apart, which a blind update never could.
+        if (!rotated) {
+          const [current] = await db
+            .select()
+            .from(oauthTokens)
+            .where(eq(oauthTokens.id, row.token.id))
+            .limit(1);
+          if (!current || classifyRefreshUse(current) !== "replay") return rejectReuse();
+        }
+      }
       const tokens = await issueTokenPair(row.grant, row.token.familyId);
       return c.json(tokens, 200, { "Cache-Control": "no-store", Pragma: "no-cache" });
     }

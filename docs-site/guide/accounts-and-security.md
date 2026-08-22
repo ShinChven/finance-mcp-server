@@ -31,7 +31,9 @@ The server is a full OAuth 2.1 authorization server for MCP clients:
 - **Dynamic client registration** (RFC 7591), so a client can onboard itself
 - **Discovery metadata** (RFC 8414 / RFC 9728) at the well-known endpoints
 - **Refresh token rotation with reuse detection** — a replayed refresh token
-  invalidates the chain
+  invalidates the chain, outside a short grace window that exists so an ordinary
+  retry (a deploy mid-refresh, two requests refreshing at once) is not mistaken
+  for theft
 - **Revocation** (RFC 7009)
 - **An explicit consent screen** before any client gets a token
 

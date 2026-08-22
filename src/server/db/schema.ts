@@ -169,6 +169,11 @@ export const oauthTokens = pgTable(
     familyId: text("family_id").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    // Set alongside `revoked_at` only when the revocation was a rotation -- this
+    // token was exchanged for a successor. Family revocation (reuse detected, a
+    // /revoke call, a withdrawn grant) leaves it null, which is what lets the
+    // grace window below tell a retried refresh apart from a revoked one.
+    rotatedAt: timestamp("rotated_at", { withTimezone: true }),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     createdAt: createdAt(),
   },

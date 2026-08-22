@@ -26,6 +26,8 @@ const ACTIONS = [
   "oauth.grant_update",
   "oauth.grant_revoke",
   "oauth.grant_delete",
+  "oauth.refresh_reuse",
+  "oauth.code_replay",
 ];
 
 export default function AdminAuditPage() {
