@@ -47,6 +47,18 @@ The flow an MCP client runs by itself:
 Exact `redirect_uri` matching is enforced, and a replayed refresh token
 invalidates the whole chain rather than silently issuing another access token.
 
+Two details matter if you are debugging a client that will not connect:
+
+- **A refresh token repeated within 30 seconds of its rotation is treated as the
+  same exchange arriving twice**, and answered with a fresh pair. Without that
+  window, a deploy that interrupts a refresh — or a client that refreshes on two
+  requests at once — reads as reuse and disconnects the client until someone
+  re-authorizes it by hand. Past the window, or for a token revoked any other
+  way, reuse detection still invalidates the family and writes an audit row.
+- **Scopes are narrowed, not rejected.** A client that asks for `offline_access`,
+  `openid` or anything else this server does not issue gets `mcp` back rather
+  than `invalid_scope`, and the token response says what was actually granted.
+
 ## Which to choose
 
 | Situation | Use |

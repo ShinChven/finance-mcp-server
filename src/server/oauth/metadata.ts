@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { config } from "../config.js";
+import { SUPPORTED_SCOPES } from "./scope.js";
 
-export const SUPPORTED_SCOPES = ["mcp"];
+export { SUPPORTED_SCOPES };
 
 /** RFC 8414 + RFC 9728 discovery documents, required by the MCP auth spec. */
 export const wellKnownRoutes = new Hono()

@@ -28,6 +28,8 @@ const ACTION_LABELS: Record<string, string> = {
   "oauth.grant_update": "Updated OAuth grant",
   "oauth.grant_revoke": "Revoked OAuth grant",
   "oauth.grant_delete": "Deleted OAuth grant",
+  "oauth.refresh_reuse": "Refresh token reuse detected",
+  "oauth.code_replay": "Authorization code replayed",
 };
 
 export function formatAction(action: string): string {

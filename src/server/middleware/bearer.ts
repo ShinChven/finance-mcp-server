@@ -16,7 +16,11 @@ const LAST_USED_THROTTLE_MS = 60_000;
 
 function unauthorized(c: Context, description: string) {
   return c.json({ error: "unauthorized", error_description: description }, 401, {
-    "WWW-Authenticate": `Bearer resource_metadata="${config.APP_URL}/.well-known/oauth-protected-resource"`,
+    // The path-suffixed document, not the root one (RFC 9728 §3.1): the resource
+    // being protected is `{APP_URL}/mcp`, and the root document describes
+    // `{APP_URL}`. A client that checks the `resource` it gets back against the
+    // URL it was calling rejects the mismatch and never starts the OAuth flow.
+    "WWW-Authenticate": `Bearer resource_metadata="${config.APP_URL}/.well-known/oauth-protected-resource/mcp"`,
   });
 }
 
