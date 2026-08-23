@@ -42,6 +42,7 @@ import { registerSkillsTool } from "./tools/skills-search.js";
 import { registerSkillResources } from "./resources/skills.js";
 import { registerWatchlistTool } from "./tools/watchlist.js";
 import { registerWatchlistAddTool } from "./tools/watchlist-add.js";
+import { registerWatchlistLevelsTool } from "./tools/watchlist-levels.js";
 import { registerWatchlistRemoveTool } from "./tools/watchlist-remove.js";
 import { registerWatchlistsTool } from "./tools/watchlists.js";
 import { registerTrendingSymbolsTool } from "./tools/trending-symbols.js";
@@ -104,10 +105,13 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
         "the fastest way to see surprises, estimate revisions, and the next report date; secFilings and " +
         "secFinancials read SEC EDGAR directly and are the right choice for US issuers when you need " +
         "as-reported figures, restatement-accurate history, or a citable filing URL. " +
-        "Watchlist tools (watchlists, watchlist, watchlistAdd, watchlistRemove) read and edit the " +
-        "signed-in user's own saved lists, which span both families — Yahoo symbols and fund " +
-        "codes in one list — and are shared with the web dashboard. Read a watchlist before answering " +
-        "questions about what this user is tracking, rather than assuming from the conversation. " +
+        "Watchlist tools (watchlists, watchlist, watchlistAdd, watchlistLevels, watchlistRemove) read " +
+        "and edit the signed-in user's own saved lists, which span both families — Yahoo symbols and " +
+        "fund codes in one list — and are shared with the web dashboard. Read a watchlist before " +
+        "answering questions about what this user is tracking, rather than assuming from the " +
+        "conversation. Items carry the price they were added at and any number of price levels — " +
+        "support, resistance, targets, stops — so write what your analysis concluded with " +
+        "watchlistLevels instead of leaving it in a reply the user will not have next time. " +
         "Note tools (noteCollections, notesSearch, noteRead, noteCreate, noteUpdate, noteDelete) are " +
         "this user's long-term memory: theses, decisions and context saved out of earlier " +
         "conversations, organized in collections, tagged, and linked to the symbols they are about. " +
@@ -148,7 +152,8 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
 
   registerWatchlistsTool(server, watchlists, auth);
   registerWatchlistTool(server, watchlists, client, auth);
-  registerWatchlistAddTool(server, watchlists, auth);
+  registerWatchlistAddTool(server, watchlists, client, auth);
+  registerWatchlistLevelsTool(server, watchlists, auth);
   registerWatchlistRemoveTool(server, watchlists, auth);
 
   registerNoteCollectionsTool(server, notes, auth);

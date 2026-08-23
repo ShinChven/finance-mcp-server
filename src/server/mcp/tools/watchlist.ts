@@ -32,8 +32,9 @@ export function registerWatchlistTool(
       title: "Read Watchlist",
       description:
         "Read one of the user's watchlists with current values: live Yahoo quotes for instruments and " +
-        "the latest cached NAV for China funds, plus per-item notes, targets and a breadth summary. " +
-        "Names a list by name or id; omit it when the user has only one.",
+        "the latest cached NAV for China funds, plus per-item notes, the price each item was added at, " +
+        "its recorded price levels and a breadth summary. Names a list by name or id; omit it when the " +
+        "user has only one.",
       inputSchema: {
         list: listReferenceSchema.optional(),
         kind: z
@@ -72,7 +73,15 @@ export function registerWatchlistTool(
               ref: item.ref,
               name: item.name,
               note: item.note,
-              targetPrice: item.targetPrice,
+              entryPrice: item.entryPrice,
+              levels: item.levels.map((level) => ({
+                id: level.id,
+                kind: level.kind,
+                price: level.price,
+                priceHigh: level.priceHigh,
+                label: level.label,
+                status: level.status,
+              })),
               addedAt: item.createdAt.toISOString(),
             })),
           };
@@ -87,7 +96,12 @@ export function registerWatchlistTool(
             "`live.basis` says what the number is: `market` is an intraday Yahoo quote, `nav` is a " +
             "fund's last published net asset value, which moves once per trading day. Items with " +
             "`available: false` carry the reason. The summary counts items equally — a watchlist " +
-            "records no position sizes, so it cannot express a portfolio return.",
+            "records no position sizes, so it cannot express a portfolio return. " +
+            "On each level, `side` and `distancePercent` are computed against the current price: " +
+            "`side: above` means the level is overhead, and `distancePercent` is the move needed to " +
+            "reach it, as a percentage of the current price. `nearest` is the first active level in " +
+            "each direction. `sinceEntryPercent` is measured from `entryPrice` instead, which is what " +
+            "the item was worth when it went on the list — not a cost basis, and not a position.",
         };
       }),
   );

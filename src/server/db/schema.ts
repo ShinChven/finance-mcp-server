@@ -17,7 +17,12 @@ import type { HoldingsCompleteness, ProviderId } from "../../shared/funds.js";
 import type { UserPreferences } from "../../shared/preferences.js";
 import { NOTE_SOURCES, NOTE_STATUSES } from "../../shared/notes.js";
 import { SKILL_SOURCES, SKILL_STATUSES } from "../../shared/skills.js";
-import { WATCHLIST_ITEM_KINDS } from "../../shared/watchlist.js";
+import {
+  WATCHLIST_ITEM_KINDS,
+  WATCHLIST_LEVEL_KINDS,
+  WATCHLIST_LEVEL_SOURCES,
+  WATCHLIST_LEVEL_STATUSES,
+} from "../../shared/watchlist.js";
 
 export const userRole = pgEnum("user_role", ["admin", "user"]);
 export const userStatus = pgEnum("user_status", ["active", "disabled"]);
@@ -229,7 +234,17 @@ export const watchlistItems = pgTable(
     name: text("name"),
     /** Why this is being tracked — the context an agent otherwise loses. */
     note: text("note"),
-    targetPrice: doublePrecision("target_price"),
+    /**
+     * The price when this went on the list — the one price that is *supposed*
+     * to be stale, and the reason it lives here rather than in the levels
+     * table: there is at most one per item and it is never re-read.
+     */
+    entryPrice: doublePrecision("entry_price"),
+    /**
+     * Separate from `created_at` because they diverge whenever a holding is
+     * backfilled: bought in May, tracked in August.
+     */
+    entryAt: timestamp("entry_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
   (t) => [
@@ -238,8 +253,58 @@ export const watchlistItems = pgTable(
   ],
 );
 
+export const watchlistLevelKind = pgEnum("watchlist_level_kind", WATCHLIST_LEVEL_KINDS);
+export const watchlistLevelStatus = pgEnum("watchlist_level_status", WATCHLIST_LEVEL_STATUSES);
+export const watchlistLevelSource = pgEnum("watchlist_level_source", WATCHLIST_LEVEL_SOURCES);
+
+/**
+ * The prices that matter for one tracked item.
+ *
+ * A table rather than columns on the item: how many levels an instrument earns
+ * is a property of the chart, not of the schema, and `resistance_1..3` runs out
+ * on the fourth one. It also makes a level addressable — an agent can revise
+ * exactly the level its analysis moved, and the page can sort a list by
+ * proximity to one, neither of which a JSON blob on the item supports without
+ * a sequential scan.
+ *
+ * Nothing derived is stored: which side of the market a level is on, how far
+ * away it is and whether it is past its date are all computed against the live
+ * price by `shared/watchlist.ts`.
+ */
+export const watchlistLevels = pgTable(
+  "watchlist_levels",
+  {
+    id: id(),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => watchlistItems.id, { onDelete: "cascade" }),
+    kind: watchlistLevelKind("kind").notNull(),
+    /** The level itself, or the near edge of a zone. */
+    price: doublePrecision("price").notNull(),
+    /** Set only for a zone; the unique index treats a zone as its low edge. */
+    priceHigh: doublePrecision("price_high"),
+    /** Where the number came from: "前高", "20日均线", "缺口上沿". */
+    label: text("label"),
+    note: text("note"),
+    source: watchlistLevelSource("source").notNull().default("user"),
+    status: watchlistLevelStatus("status").notNull().default("active"),
+    hitAt: timestamp("hit_at", { withTimezone: true }),
+    /** A level that only holds until a known date — earnings, an expiry. */
+    validUntil: date("valid_until"),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // Same price, same intent, same item is a duplicate — an agent re-running
+    // its analysis converges instead of stacking copies.
+    uniqueIndex("watchlist_levels_unique_idx").on(t.itemId, t.kind, t.price),
+    index("watchlist_levels_item_idx").on(t.itemId, t.status, t.price),
+  ],
+);
+
 export type Watchlist = typeof watchlists.$inferSelect;
 export type WatchlistItem = typeof watchlistItems.$inferSelect;
+export type WatchlistLevel = typeof watchlistLevels.$inferSelect;
 
 /* ------------------------------------------------------------------ *
  * Notes

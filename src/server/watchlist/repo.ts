@@ -18,14 +18,20 @@ import {
   fundNav,
   funds,
   watchlistItems,
+  watchlistLevels,
   watchlists,
   type Watchlist,
   type WatchlistItem,
+  type WatchlistLevel,
 } from "../db/schema.js";
 import {
   MAX_ITEMS_PER_WATCHLIST,
+  MAX_LEVELS_PER_ITEM,
   MAX_WATCHLISTS_PER_USER,
   type WatchlistItemKind,
+  type WatchlistLevelKind,
+  type WatchlistLevelSource,
+  type WatchlistLevelStatus,
 } from "../../shared/watchlist.js";
 import { watchlistRepoWithEvents } from "../realtime/repo-events.js";
 
@@ -43,17 +49,53 @@ export interface FundSnapshot {
   navDate: string | null;
 }
 
+export interface AddLevelRow {
+  kind: WatchlistLevelKind;
+  price: number;
+  priceHigh?: number | null;
+  label?: string | null;
+  note?: string | null;
+  validUntil?: string | null;
+  source?: WatchlistLevelSource;
+}
+
+export interface UpdateLevelPatch {
+  kind?: WatchlistLevelKind;
+  price?: number;
+  priceHigh?: number | null;
+  label?: string | null;
+  note?: string | null;
+  validUntil?: string | null;
+  status?: WatchlistLevelStatus;
+}
+
 export interface AddItemRow {
   kind: WatchlistItemKind;
   ref: string;
   name?: string | null;
   note?: string | null;
-  targetPrice?: number | null;
+  entryPrice?: number | null;
+  entryAt?: Date | null;
+  /** Written only for items that were actually inserted. */
+  levels?: AddLevelRow[];
 }
 
 export interface UpdateItemPatch {
   note?: string | null;
-  targetPrice?: number | null;
+  entryPrice?: number | null;
+  entryAt?: Date | null;
+}
+
+/**
+ * An item always travels with its levels.
+ *
+ * They are fetched in one `in (…)` query per listing rather than left to the
+ * caller, because every caller there is — the dashboard API and the MCP read
+ * tool — needs them, and the one that forgot would silently render an item as
+ * having no levels at all.
+ */
+export interface WatchlistItemRow extends WatchlistItem {
+  levels: WatchlistLevel[];
 }
 
 export interface ItemQuery {
@@ -69,6 +111,14 @@ export class WatchlistLimitError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "WatchlistLimitError";
+  }
+}
+
+/** Thrown for input the schema cannot check alone; routes map it to 400. */
+export class WatchlistValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WatchlistValidationError";
   }
 }
 
@@ -100,7 +150,7 @@ export interface WatchlistRepo {
     userId: string,
     watchlistId: string,
     query?: ItemQuery,
-  ): Promise<{ items: WatchlistItem[]; total: number }>;
+  ): Promise<{ items: WatchlistItemRow[]; total: number }>;
   addItems(
     userId: string,
     watchlistId: string,
@@ -118,6 +168,21 @@ export interface WatchlistRepo {
     watchlistId: string,
     selector: { ids?: string[]; refs?: string[] },
   ): Promise<WatchlistItem[]>;
+
+  /** Duplicates — same item, same kind, same price — are skipped, not stacked. */
+  addLevels(
+    userId: string,
+    watchlistId: string,
+    itemId: string,
+    rows: AddLevelRow[],
+  ): Promise<{ added: WatchlistLevel[]; skipped: number }>;
+  updateLevel(
+    userId: string,
+    watchlistId: string,
+    levelId: string,
+    patch: UpdateLevelPatch,
+  ): Promise<WatchlistLevel | null>;
+  removeLevel(userId: string, watchlistId: string, levelId: string): Promise<boolean>;
 
   /** Latest cached NAV per fund code, for `fund` items. */
   getFundSnapshots(codes: string[]): Promise<Map<string, FundSnapshot>>;
@@ -167,6 +232,73 @@ export function createWatchlistRepo(db: Db): WatchlistRepo {
       .where(owned(userId, watchlistId))
       .limit(1);
     if (!row) throw new Error("Watchlist not found.");
+  }
+
+  /**
+   * Levels are addressed by their own id, but a level id says nothing about
+   * who owns it, so every level write starts from the list — which is checked
+   * against the user — and matches the level through its item.
+   */
+  const levelInList = (levelId: string, watchlistId: string): SQL =>
+    and(
+      eq(watchlistLevels.id, levelId),
+      sql`exists (select 1 from ${watchlistItems} where ${watchlistItems.id} = ${watchlistLevels.itemId} and ${watchlistItems.watchlistId} = ${watchlistId})`,
+    )!;
+
+  async function levelsFor(itemIds: string[]): Promise<Map<string, WatchlistLevel[]>> {
+    const grouped = new Map<string, WatchlistLevel[]>();
+    if (itemIds.length === 0) return grouped;
+    const rows = await db
+      .select()
+      .from(watchlistLevels)
+      .where(inArray(watchlistLevels.itemId, itemIds))
+      // Descending price is how a ladder reads: what is overhead comes first.
+      .orderBy(desc(watchlistLevels.price));
+    for (const row of rows) {
+      const bucket = grouped.get(row.itemId);
+      if (bucket === undefined) grouped.set(row.itemId, [row]);
+      else bucket.push(row);
+    }
+    return grouped;
+  }
+
+  async function insertLevels(
+    itemId: string,
+    rows: AddLevelRow[],
+  ): Promise<{ added: WatchlistLevel[]; skipped: number }> {
+    if (rows.length === 0) return { added: [], skipped: 0 };
+
+    const [countRow] = await db
+      .select({ n: sql<number>`count(*)`.mapWith(Number) })
+      .from(watchlistLevels)
+      .where(eq(watchlistLevels.itemId, itemId));
+    const current = countRow?.n ?? 0;
+    if (current + rows.length > MAX_LEVELS_PER_ITEM) {
+      throw new WatchlistLimitError(
+        `An item holds at most ${MAX_LEVELS_PER_ITEM} price levels; this one already has ${current}.`,
+      );
+    }
+
+    const added = await db
+      .insert(watchlistLevels)
+      .values(
+        rows.map((row) => ({
+          itemId,
+          kind: row.kind,
+          price: row.price,
+          priceHigh: row.priceHigh ?? null,
+          label: row.label ?? null,
+          note: row.note ?? null,
+          validUntil: row.validUntil ?? null,
+          source: row.source ?? "user",
+        })),
+      )
+      .onConflictDoNothing({
+        target: [watchlistLevels.itemId, watchlistLevels.kind, watchlistLevels.price],
+      })
+      .returning();
+
+    return { added, skipped: rows.length - added.length };
   }
 
   return {
@@ -267,7 +399,11 @@ export function createWatchlistRepo(db: Db): WatchlistRepo {
         .limit(query.limit ?? MAX_ITEMS_PER_WATCHLIST)
         .offset(query.offset ?? 0);
 
-      return { items: rows, total: totalRow?.n ?? 0 };
+      const levels = await levelsFor(rows.map((row) => row.id));
+      return {
+        items: rows.map((row) => ({ ...row, levels: levels.get(row.id) ?? [] })),
+        total: totalRow?.n ?? 0,
+      };
     },
 
     async addItems(userId, watchlistId, rows) {
@@ -296,7 +432,10 @@ export function createWatchlistRepo(db: Db): WatchlistRepo {
             ref: row.ref,
             name: row.name ?? null,
             note: row.note ?? null,
-            targetPrice: row.targetPrice ?? null,
+            entryPrice: row.entryPrice ?? null,
+            // An entry price with no date is one captured right now; the two
+            // only come apart when a caller backfills both.
+            entryAt: row.entryAt ?? (typeof row.entryPrice === "number" ? new Date() : null),
           })),
         )
         .onConflictDoNothing({
@@ -306,6 +445,19 @@ export function createWatchlistRepo(db: Db): WatchlistRepo {
 
       const addedRefs = new Set(added.map((row) => row.ref));
       const skipped = rows.filter((row) => !addedRefs.has(row.ref)).map((row) => row.ref);
+
+      // Only for items that were actually inserted: levels sent alongside a ref
+      // that was already tracked belong to a row this call did not create, and
+      // silently merging them into someone's existing analysis is worse than
+      // reporting the ref as skipped.
+      const byRef = new Map(added.map((item) => [`${item.kind}:${item.ref}`, item.id]));
+      for (const row of rows) {
+        const itemId = byRef.get(`${row.kind}:${row.ref}`);
+        if (itemId !== undefined && row.levels !== undefined && row.levels.length > 0) {
+          await insertLevels(itemId, row.levels);
+        }
+      }
+
       if (added.length > 0) await touch(watchlistId);
       return { added, skipped };
     },
@@ -314,7 +466,8 @@ export function createWatchlistRepo(db: Db): WatchlistRepo {
       await requireOwned(userId, watchlistId);
       const values: Record<string, unknown> = {};
       if (patch.note !== undefined) values["note"] = patch.note;
-      if (patch.targetPrice !== undefined) values["targetPrice"] = patch.targetPrice;
+      if (patch.entryPrice !== undefined) values["entryPrice"] = patch.entryPrice;
+      if (patch.entryAt !== undefined) values["entryAt"] = patch.entryAt;
       if (Object.keys(values).length === 0) return null;
 
       const [row] = await db
@@ -343,6 +496,82 @@ export function createWatchlistRepo(db: Db): WatchlistRepo {
         .returning();
       if (removed.length > 0) await touch(watchlistId);
       return removed;
+    },
+
+    async addLevels(userId, watchlistId, itemId, rows) {
+      await requireOwned(userId, watchlistId);
+      const [item] = await db
+        .select({ id: watchlistItems.id })
+        .from(watchlistItems)
+        .where(and(eq(watchlistItems.id, itemId), eq(watchlistItems.watchlistId, watchlistId))!)
+        .limit(1);
+      if (!item) throw new Error("Watchlist item not found.");
+
+      const result = await insertLevels(itemId, rows);
+      if (result.added.length > 0) await touch(watchlistId);
+      return result;
+    },
+
+    async updateLevel(userId, watchlistId, levelId, patch) {
+      await requireOwned(userId, watchlistId);
+
+      const [existing] = await db
+        .select()
+        .from(watchlistLevels)
+        .where(levelInList(levelId, watchlistId))
+        .limit(1);
+      if (!existing) return null;
+
+      const values: Record<string, unknown> = {};
+      if (patch.kind !== undefined) values["kind"] = patch.kind;
+      if (patch.price !== undefined) values["price"] = patch.price;
+      if (patch.priceHigh !== undefined) values["priceHigh"] = patch.priceHigh;
+      if (patch.label !== undefined) values["label"] = patch.label;
+      if (patch.note !== undefined) values["note"] = patch.note;
+      if (patch.validUntil !== undefined) values["validUntil"] = patch.validUntil;
+      if (patch.status !== undefined) {
+        values["status"] = patch.status;
+        // The moment it stopped being something to wait for. Cleared on the way
+        // back to `active` so a re-armed level does not read as already hit.
+        values["hitAt"] = patch.status === "hit" ? new Date() : null;
+      }
+      if (Object.keys(values).length === 0) return null;
+
+      // A patch that moves one edge of a zone is only checkable here, against
+      // what is already stored.
+      const low = patch.price ?? existing.price;
+      const high = patch.priceHigh === undefined ? existing.priceHigh : patch.priceHigh;
+      if (high !== null && high <= low) {
+        throw new WatchlistValidationError("priceHigh must be greater than price.");
+      }
+
+      values["updatedAt"] = new Date();
+      try {
+        const [row] = await db
+          .update(watchlistLevels)
+          .set(values)
+          .where(levelInList(levelId, watchlistId))
+          .returning();
+        if (row) await touch(watchlistId);
+        return row ?? null;
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          throw new WatchlistValidationError(
+            "This item already has a level of that kind at that price.",
+          );
+        }
+        throw error;
+      }
+    },
+
+    async removeLevel(userId, watchlistId, levelId) {
+      await requireOwned(userId, watchlistId);
+      const removed = await db
+        .delete(watchlistLevels)
+        .where(levelInList(levelId, watchlistId))
+        .returning({ id: watchlistLevels.id });
+      if (removed.length > 0) await touch(watchlistId);
+      return removed.length > 0;
     },
 
     async getFundSnapshots(codes) {

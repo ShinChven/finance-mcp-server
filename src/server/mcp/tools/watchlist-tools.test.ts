@@ -3,11 +3,14 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { describe, expect, it, vi } from "vitest";
 import type { McpAuth } from "../../lib/http.js";
-import type { WatchlistItem } from "../../db/schema.js";
+import type { WatchlistLevel } from "../../db/schema.js";
 import type {
   AddItemRow,
+  AddLevelRow,
   FundSnapshot,
   ItemQuery,
+  UpdateLevelPatch,
+  WatchlistItemRow,
   WatchlistRepo,
   WatchlistSummary,
 } from "../../watchlist/repo.js";
@@ -38,9 +41,9 @@ const auth = {
  * database does — ownership and (list, kind, ref) uniqueness — because those
  * are what the tools are relied on to respect.
  */
-function memoryRepo(seed: { lists?: WatchlistSummary[]; items?: WatchlistItem[] } = {}) {
+function memoryRepo(seed: { lists?: WatchlistSummary[]; items?: WatchlistItemRow[] } = {}) {
   const lists = new Map<string, WatchlistSummary>();
-  const items: WatchlistItem[] = [...(seed.items ?? [])];
+  const items: WatchlistItemRow[] = [...(seed.items ?? [])];
   for (const list of seed.lists ?? []) lists.set(list.id, list);
   let counter = 0;
 
@@ -53,6 +56,32 @@ function memoryRepo(seed: { lists?: WatchlistSummary[]; items?: WatchlistItem[] 
     ...list,
     itemCount: items.filter((item) => item.watchlistId === list.id).length,
   });
+
+  const makeLevel = (itemId: string, row: AddLevelRow): WatchlistLevel => ({
+    id: `level-${++counter}`,
+    itemId,
+    kind: row.kind,
+    price: row.price,
+    priceHigh: row.priceHigh ?? null,
+    label: row.label ?? null,
+    note: row.note ?? null,
+    source: row.source ?? "user",
+    status: "active",
+    hitAt: null,
+    validUntil: row.validUntil ?? null,
+    createdAt: new Date("2026-08-02T00:00:00Z"),
+    updatedAt: new Date("2026-08-02T00:00:00Z"),
+  });
+
+  /** Levels are reached through their item, exactly as the database reaches them. */
+  const findLevel = (watchlistId: string, levelId: string) => {
+    for (const item of items) {
+      if (item.watchlistId !== watchlistId) continue;
+      const level = item.levels.find((candidate) => candidate.id === levelId);
+      if (level !== undefined) return { item, level };
+    }
+    return null;
+  };
 
   const repo: WatchlistRepo = {
     listWatchlists: vi.fn(async (userId: string) =>
@@ -93,7 +122,7 @@ function memoryRepo(seed: { lists?: WatchlistSummary[]; items?: WatchlistItem[] 
     }),
     addItems: vi.fn(async (userId: string, watchlistId: string, rows: AddItemRow[]) => {
       if (ownedList(userId, watchlistId) === null) throw new Error("Watchlist not found.");
-      const added: WatchlistItem[] = [];
+      const added: WatchlistItemRow[] = [];
       const skipped: string[] = [];
       for (const row of rows) {
         const clash = items.some(
@@ -103,17 +132,20 @@ function memoryRepo(seed: { lists?: WatchlistSummary[]; items?: WatchlistItem[] 
           skipped.push(row.ref);
           continue;
         }
-        const item: WatchlistItem = {
+        const item: WatchlistItemRow = {
           id: `item-${++counter}`,
           watchlistId,
           kind: row.kind,
           ref: row.ref,
           name: row.name ?? null,
           note: row.note ?? null,
-          targetPrice: row.targetPrice ?? null,
+          entryPrice: row.entryPrice ?? null,
+          entryAt: row.entryAt ?? (typeof row.entryPrice === "number" ? new Date() : null),
+          levels: [],
           createdAt: new Date("2026-08-02T00:00:00Z"),
         };
         items.push(item);
+        for (const level of row.levels ?? []) item.levels.push(makeLevel(item.id, level));
         added.push(item);
       }
       return { added, skipped };
@@ -125,6 +157,47 @@ function memoryRepo(seed: { lists?: WatchlistSummary[]; items?: WatchlistItem[] 
       const removed = items.filter((item) => item.watchlistId === watchlistId && refs.has(item.ref));
       for (const item of removed) items.splice(items.indexOf(item), 1);
       return removed;
+    }),
+    addLevels: vi.fn(async (userId: string, watchlistId: string, itemId: string, rows: AddLevelRow[]) => {
+      if (ownedList(userId, watchlistId) === null) throw new Error("Watchlist not found.");
+      const item = items.find(
+        (candidate) => candidate.id === itemId && candidate.watchlistId === watchlistId,
+      );
+      if (item === undefined) throw new Error("Watchlist item not found.");
+      const added: WatchlistLevel[] = [];
+      let skipped = 0;
+      for (const row of rows) {
+        const clash = item.levels.some(
+          (level) => level.kind === row.kind && level.price === row.price,
+        );
+        if (clash) {
+          skipped += 1;
+          continue;
+        }
+        const level = makeLevel(item.id, row);
+        item.levels.push(level);
+        added.push(level);
+      }
+      return { added, skipped };
+    }),
+    updateLevel: vi.fn(
+      async (userId: string, watchlistId: string, levelId: string, patch: UpdateLevelPatch) => {
+        if (ownedList(userId, watchlistId) === null) throw new Error("Watchlist not found.");
+        const found = findLevel(watchlistId, levelId);
+        if (found === null) return null;
+        Object.assign(found.level, patch);
+        if (patch.status !== undefined) {
+          found.level.hitAt = patch.status === "hit" ? new Date() : null;
+        }
+        return found.level;
+      },
+    ),
+    removeLevel: vi.fn(async (userId: string, watchlistId: string, levelId: string) => {
+      if (ownedList(userId, watchlistId) === null) throw new Error("Watchlist not found.");
+      const found = findLevel(watchlistId, levelId);
+      if (found === null) return false;
+      found.item.levels.splice(found.item.levels.indexOf(found.level), 1);
+      return true;
     }),
     getFundSnapshots: vi.fn(async (codes: string[]) => {
       const map = new Map<string, FundSnapshot>();
@@ -201,9 +274,11 @@ describe("watchlist tools", () => {
       });
 
       expect(result.data.watchlist.created).toBe(true);
+      // The entry price is captured from the quote, not asked for: the fake
+      // prices every symbol at 100 and every fund's NAV at 1.5.
       expect(result.data.added).toEqual([
-        { kind: "symbol", ref: "NVDA", name: null },
-        { kind: "fund", ref: "161125", name: null },
+        { kind: "symbol", ref: "NVDA", name: null, entryPrice: 100 },
+        { kind: "fund", ref: "161125", name: null, entryPrice: 1.5 },
       ]);
       // Stored upper-cased, so the same instrument cannot land twice.
       expect(items.map((item) => item.ref)).toEqual(["NVDA", "161125"]);
@@ -226,7 +301,7 @@ describe("watchlist tools", () => {
 
       expect(again.isError).toBe(false);
       expect(again.data.skipped).toEqual(["NVDA"]);
-      expect(again.data.added).toEqual([{ kind: "symbol", ref: "AMD", name: null }]);
+      expect(again.data.added).toEqual([{ kind: "symbol", ref: "AMD", name: null, entryPrice: 100 }]);
     } finally {
       await client.close();
       await server.close();
@@ -279,13 +354,24 @@ describe("watchlist tools", () => {
     try {
       await call(client, "watchlistAdd", {
         list: "core",
-        items: [{ ref: "NVDA", targetPrice: 80 }, { ref: "161125" }],
+        items: [
+          { ref: "NVDA", levels: [{ kind: "support", price: 80 }] },
+          { ref: "161125" },
+        ],
       });
       const result = await call(client, "watchlist", { list: "Core" });
 
       expect(result.data.watchlist.name).toBe("Core");
       expect(result.data.items[0].live).toMatchObject({ basis: "market", price: 100 });
-      expect(result.data.items[0].targetDistancePercent).toBe(25);
+      // Priced at 100 with support at 80: 20% below, and the nearest thing down.
+      expect(result.data.items[0].levels[0]).toMatchObject({
+        kind: "support",
+        side: "below",
+        distancePercent: -20,
+        source: "agent",
+      });
+      expect(result.data.items[0].nearest.below.price).toBe(80);
+      expect(result.data.items[0].nearest.above).toBeNull();
       expect(result.data.items[1].live).toMatchObject({ basis: "nav", price: 1.5 });
       expect(result.data.summary).toMatchObject({ items: 2, priced: 2, advancing: 2 });
     } finally {
@@ -295,7 +381,25 @@ describe("watchlist tools", () => {
   });
 
   it("skips the quote lookup when only membership was asked for", async () => {
-    const { repo } = memoryRepo({ lists: [list("list-1", "Core")] });
+    // Seeded rather than added through the tool: adding captures an entry price,
+    // which is a quote of its own and would mask the thing under test.
+    const { repo } = memoryRepo({
+      lists: [list("list-1", "Core")],
+      items: [
+        {
+          id: "item-1",
+          watchlistId: "list-1",
+          kind: "symbol",
+          ref: "NVDA",
+          name: null,
+          note: null,
+          entryPrice: 92,
+          entryAt: null,
+          levels: [],
+          createdAt: new Date("2026-08-02T00:00:00Z"),
+        },
+      ],
+    });
     const client_ = yahoo();
     const server = buildMcpServer(auth, { client: client_, watchlists: repo });
     const client = new Client({ name: "watchlist-test", version: "0.1.0" });
@@ -304,7 +408,6 @@ describe("watchlist tools", () => {
     await client.connect(clientTransport);
 
     try {
-      await call(client, "watchlistAdd", { list: "Core", items: [{ ref: "NVDA" }] });
       const result = await call(client, "watchlist", { list: "Core", quotes: false });
 
       expect(result.data.items).toEqual([
@@ -313,11 +416,97 @@ describe("watchlist tools", () => {
           ref: "NVDA",
           name: null,
           note: null,
-          targetPrice: null,
+          entryPrice: 92,
+          levels: [],
           addedAt: "2026-08-02T00:00:00.000Z",
         },
       ]);
       expect(client_.quote).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("records levels against an item already tracked, and converges on re-runs", async () => {
+    const { repo, items } = memoryRepo({ lists: [list("list-1", "Core")] });
+    const { server, client } = await connect(repo);
+
+    try {
+      await call(client, "watchlistAdd", { list: "Core", items: [{ ref: "NVDA" }] });
+      const first = await call(client, "watchlistLevels", {
+        list: "Core",
+        ref: "nvda",
+        add: [
+          { kind: "resistance", price: 185, label: "prior high" },
+          { kind: "stop", price: 152, note: "thesis breaks" },
+        ],
+      });
+
+      expect(first.data.added).toHaveLength(2);
+      expect(first.data.skipped).toBe(0);
+      // Written by an agent, and shown as such on the dashboard.
+      expect(items[0]?.levels.map((level) => level.source)).toEqual(["agent", "agent"]);
+
+      // The same analysis run again adds nothing rather than stacking copies.
+      const again = await call(client, "watchlistLevels", {
+        list: "Core",
+        ref: "NVDA",
+        add: [{ kind: "resistance", price: 185, label: "prior high" }],
+      });
+      expect(again.data.added).toEqual([]);
+      expect(again.data.skipped).toBe(1);
+      expect(items[0]?.levels).toHaveLength(2);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("marks a level hit and drops one by id, reporting ids it did not find", async () => {
+    const { repo, items } = memoryRepo({ lists: [list("list-1", "Core")] });
+    const { server, client } = await connect(repo);
+
+    try {
+      await call(client, "watchlistAdd", { list: "Core", items: [{ ref: "NVDA" }] });
+      const added = await call(client, "watchlistLevels", {
+        list: "Core",
+        ref: "NVDA",
+        add: [{ kind: "target", price: 210 }, { kind: "support", price: 168 }],
+      });
+      const [target, support] = added.data.added as { id: string }[];
+
+      const result = await call(client, "watchlistLevels", {
+        list: "Core",
+        ref: "NVDA",
+        update: [{ id: target!.id, status: "hit" }],
+        remove: [support!.id, "level-does-not-exist"],
+      });
+
+      expect(result.data.updated).toEqual([
+        { id: target!.id, kind: "target", price: 210, status: "hit" },
+      ]);
+      expect(result.data.removed).toEqual([support!.id]);
+      expect(result.data.notFound).toEqual(["level-does-not-exist"]);
+      expect(items[0]?.levels).toHaveLength(1);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("refuses to annotate something that is not on the list", async () => {
+    const { repo } = memoryRepo({ lists: [list("list-1", "Core")] });
+    const { server, client } = await connect(repo);
+
+    try {
+      const result = await call(client, "watchlistLevels", {
+        list: "Core",
+        ref: "TSLA",
+        add: [{ kind: "target", price: 400 }],
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain("watchlistAdd");
     } finally {
       await client.close();
       await server.close();
