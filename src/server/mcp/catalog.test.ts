@@ -4,6 +4,7 @@ import { getMcpToolCatalog, toolMatches } from "./catalog.js";
 /** The tools that change stored state; every other tool must stay read-only. */
 const WRITE_TOOLS = new Set([
   "watchlistAdd",
+  "watchlistLevels",
   "watchlistRemove",
   "noteCreate",
   "noteUpdate",
@@ -37,6 +38,7 @@ describe("mcp tool catalog", () => {
       "watchlists",
       "watchlist",
       "watchlistAdd",
+      "watchlistLevels",
       "watchlistRemove",
       "noteCollections",
       "notesSearch",

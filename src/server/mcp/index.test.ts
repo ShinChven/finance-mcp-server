@@ -77,6 +77,7 @@ describe("finance MCP server", () => {
         "watchlists",
         "watchlist",
         "watchlistAdd",
+        "watchlistLevels",
         "watchlistRemove",
         "noteCollections",
         "notesSearch",
@@ -104,6 +105,7 @@ describe("finance MCP server", () => {
         .map((tool) => tool.name);
       expect(mutating).toEqual([
         "watchlistAdd",
+        "watchlistLevels",
         "watchlistRemove",
         "noteCreate",
         "noteUpdate",

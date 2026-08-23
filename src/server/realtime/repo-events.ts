@@ -127,6 +127,17 @@ export function watchlistRepoWithEvents(repo: WatchlistRepo): WatchlistRepo {
     },
     updateItem: { action: "updated", ids: (result, args) => (result === null ? null : argAt(args, 1)) },
     removeItems: { action: "deleted", ids: (result, args) => (nonEmpty(result) ? argAt(args, 1) : null) },
+    // Levels hang off an item, but the client keys on the list, so a level
+    // write is an update to the list that holds it.
+    addLevels: {
+      action: "updated",
+      ids: (result, args) => {
+        const added = (result as { added?: unknown }).added;
+        return nonEmpty(added) ? argAt(args, 1) : null;
+      },
+    },
+    updateLevel: { action: "updated", ids: (result, args) => (result === null ? null : argAt(args, 1)) },
+    removeLevel: { action: "updated", ids: (result, args) => (result === true ? argAt(args, 1) : null) },
   });
 }
 

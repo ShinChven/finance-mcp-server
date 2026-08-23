@@ -57,6 +57,20 @@
       "when": 1787366750504,
       "tag": "0007_refresh_rotation_grace",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787470712539,
+      "tag": "0008_watchlist_levels",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787470723045,
+      "tag": "0009_watchlist_target_to_level",
+      "breakpoints": true
     }
   ]
 }

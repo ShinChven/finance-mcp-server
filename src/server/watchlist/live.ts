@@ -12,11 +12,21 @@
  * than one that renders with gaps.
  */
 
-import { targetDistancePercent, type WatchlistItemKind } from "../../shared/watchlist.js";
+import {
+  isLevelExpired,
+  locateLevel,
+  NEAR_LEVEL_PERCENT,
+  percentChange,
+  type LevelPosition,
+  type WatchlistItemKind,
+  type WatchlistLevelKind,
+  type WatchlistLevelSource,
+  type WatchlistLevelStatus,
+} from "../../shared/watchlist.js";
 import type { YahooFinanceClient } from "../mcp/client.js";
 import { yahooRequestOptions } from "../mcp/tools/runtime.js";
-import type { WatchlistItem } from "../db/schema.js";
-import type { WatchlistRepo } from "./repo.js";
+import type { WatchlistLevel } from "../db/schema.js";
+import type { WatchlistItemRow, WatchlistRepo } from "./repo.js";
 
 export interface LiveValue {
   /** `market` for a Yahoo quote, `nav` for a fund's last published NAV. */
@@ -33,15 +43,45 @@ export interface LiveValue {
   unavailableReason?: string;
 }
 
+/**
+ * A stored level plus everything about it that depends on the current price.
+ *
+ * `side`, `distancePercent` and `expired` are computed here on every read for
+ * the same reason no price is stored on an item: a level's relationship to the
+ * market changes every tick, and a persisted copy would be a lie between them.
+ */
+export interface EnrichedLevel extends LevelPosition {
+  id: string;
+  kind: WatchlistLevelKind;
+  price: number;
+  priceHigh: number | null;
+  label: string | null;
+  note: string | null;
+  source: WatchlistLevelSource;
+  status: WatchlistLevelStatus;
+  hitAt: string | null;
+  validUntil: string | null;
+  expired: boolean;
+}
+
 export interface EnrichedItem {
   id: string;
   kind: WatchlistItemKind;
   ref: string;
   name: string | null;
   note: string | null;
-  targetPrice: number | null;
-  /** Signed % from the live price to the target; null without both. */
-  targetDistancePercent: number | null;
+  entryPrice: number | null;
+  entryAt: string | null;
+  /** How the item has done since it went on the list — measured from entry. */
+  sinceEntryPercent: number | null;
+  /** Highest first, so the list reads like a ladder around the price. */
+  levels: EnrichedLevel[];
+  /**
+   * The first level the price would meet going either way, ignoring levels
+   * that are hit, invalidated or expired. Computed here rather than in the
+   * client because the table sorts on it.
+   */
+  nearest: { above: EnrichedLevel | null; below: EnrichedLevel | null };
   addedAt: string;
   live: LiveValue;
 }
@@ -56,6 +96,8 @@ export interface WatchlistTotals {
   averageChangePercent: number | null;
   best: { ref: string; changePercent: number } | null;
   worst: { ref: string; changePercent: number } | null;
+  /** Items whose next level in either direction is within `NEAR_LEVEL_PERCENT`. */
+  approaching: number;
 }
 
 const UNAVAILABLE = (reason: string, basis: LiveValue["basis"]): LiveValue => ({
@@ -194,12 +236,60 @@ async function quoteFunds(
  * Enriches stored rows with current values. One Yahoo call for every symbol on
  * the list and one database round trip for every fund, regardless of list size.
  */
-export async function enrichItems(
-  items: WatchlistItem[],
-  deps: { client: YahooFinanceClient; repo: WatchlistRepo },
-): Promise<EnrichedItem[]> {
-  const symbols = [...new Set(items.filter((i) => i.kind === "symbol").map((i) => i.ref))];
-  const codes = [...new Set(items.filter((i) => i.kind === "fund").map((i) => i.ref))];
+function enrichLevel(level: WatchlistLevel, price: number | null, today: Date): EnrichedLevel {
+  const position = locateLevel(price, level.price, level.priceHigh);
+  return {
+    id: level.id,
+    kind: level.kind,
+    price: level.price,
+    priceHigh: level.priceHigh,
+    label: level.label,
+    note: level.note,
+    source: level.source,
+    status: level.status,
+    hitAt: level.hitAt?.toISOString() ?? null,
+    validUntil: level.validUntil,
+    expired: isLevelExpired(level.validUntil, today),
+    ...position,
+  };
+}
+
+/**
+ * Which level the price runs into next, in each direction.
+ *
+ * Only `active`, unexpired levels count: a stop that already triggered is
+ * history, and surfacing it as the next thing below would misread the chart.
+ */
+function nearestLevels(levels: EnrichedLevel[]): EnrichedItem["nearest"] {
+  const live = levels.filter((level) => level.status === "active" && !level.expired);
+  // `levels` is sorted high to low, so the last one above and the first one
+  // below are the two adjacent to the price.
+  const above = live.filter((level) => level.side === "above");
+  const below = live.filter((level) => level.side === "below");
+  return {
+    above: above[above.length - 1] ?? null,
+    below: below[0] ?? null,
+  };
+}
+
+export interface ValueDeps {
+  client: YahooFinanceClient;
+  repo: WatchlistRepo;
+}
+
+/**
+ * Current value for anything addressable as (kind, ref), keyed by `kind:ref`.
+ *
+ * Split out of `enrichItems` because adding an item needs the same two lookups
+ * for a different reason — capturing what it cost at the moment it was tracked
+ * — and doing it twice would be two ways to price the same thing.
+ */
+export async function currentValues(
+  refs: { kind: WatchlistItemKind; ref: string }[],
+  deps: ValueDeps,
+): Promise<{ values: Map<string, LiveValue>; names: Map<string, string> }> {
+  const symbols = [...new Set(refs.filter((i) => i.kind === "symbol").map((i) => i.ref))];
+  const codes = [...new Set(refs.filter((i) => i.kind === "fund").map((i) => i.ref))];
 
   const [symbolValues, fundResult] = await Promise.all([
     quoteSymbols(symbols, deps.client),
@@ -209,24 +299,75 @@ export async function enrichItems(
   const values = new Map<string, LiveValue>();
   for (const [symbol, value] of symbolValues) values.set(key("symbol", symbol), value);
   for (const [code, value] of fundResult.values) values.set(key("fund", code), value);
+  return { values, names: fundResult.names };
+}
+
+/**
+ * Fills in the entry price of rows that did not bring one.
+ *
+ * Automatic on purpose: "what was it worth when I started watching this" is
+ * only answerable at this moment, and a field the caller has to remember to
+ * fill would be empty on exactly the rows that needed it. An explicit value
+ * always wins, so backfilling a holding bought months ago still works. A quote
+ * that cannot be had leaves the row alone rather than failing the add — the
+ * item still belongs on the list.
+ */
+export async function withEntryPrices<T extends { kind: WatchlistItemKind; ref: string; entryPrice?: number | null }>(
+  rows: T[],
+  deps: ValueDeps,
+): Promise<T[]> {
+  const missing = rows.filter((row) => row.entryPrice === undefined || row.entryPrice === null);
+  if (missing.length === 0) return rows;
+
+  const { values } = await currentValues(missing, deps);
+  return rows.map((row) => {
+    if (row.entryPrice !== undefined && row.entryPrice !== null) return row;
+    const price = values.get(key(row.kind, row.ref))?.price ?? null;
+    return price === null ? row : { ...row, entryPrice: price };
+  });
+}
+
+export async function enrichItems(
+  items: WatchlistItemRow[],
+  deps: ValueDeps,
+): Promise<EnrichedItem[]> {
+  const { values, names } = await currentValues(items, deps);
+
+  const today = new Date();
 
   return items.map((item) => {
     const live =
       values.get(key(item.kind, item.ref)) ??
       UNAVAILABLE("No value source for this item.", item.kind === "fund" ? "nav" : "market");
+    const levels = item.levels
+      .map((level) => enrichLevel(level, live.price, today))
+      .sort((a, b) => b.price - a.price);
     return {
       id: item.id,
       kind: item.kind,
       ref: item.ref,
       // The stored name wins; the fund cache fills in what was never captured.
-      name: item.name ?? fundResult.names.get(item.ref) ?? null,
+      name: item.name ?? names.get(item.ref) ?? null,
       note: item.note,
-      targetPrice: item.targetPrice,
-      targetDistancePercent: targetDistancePercent(live.price, item.targetPrice),
+      entryPrice: item.entryPrice,
+      entryAt: item.entryAt?.toISOString() ?? null,
+      sinceEntryPercent: percentChange(item.entryPrice, live.price),
+      levels,
+      nearest: nearestLevels(levels),
       addedAt: item.createdAt.toISOString(),
       live,
     };
   });
+}
+
+/** Close enough to a level that it is worth looking at today. */
+export function isApproaching(item: EnrichedItem): boolean {
+  return [item.nearest.above, item.nearest.below].some(
+    (level) =>
+      level !== null &&
+      level.distancePercent !== null &&
+      Math.abs(level.distancePercent) <= NEAR_LEVEL_PERCENT,
+  );
 }
 
 export function summarize(items: EnrichedItem[]): WatchlistTotals {
@@ -250,5 +391,6 @@ export function summarize(items: EnrichedItem[]): WatchlistTotals {
         : Number((moves.reduce((sum, value) => sum + value, 0) / moves.length).toFixed(2)),
     best: ranked[0] ?? null,
     worst: ranked.length > 1 ? ranked[ranked.length - 1]! : null,
+    approaching: items.filter(isApproaching).length,
   };
 }
