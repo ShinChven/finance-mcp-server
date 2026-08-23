@@ -1,7 +1,12 @@
 import type { HoldingsCompleteness, ProviderId } from "../../shared/funds.js";
 import type { NoteSource, NoteStatus } from "../../shared/notes.js";
 import type { SkillSource, SkillStatus } from "../../shared/skills.js";
-import type { WatchlistItemKind } from "../../shared/watchlist.js";
+import type {
+  WatchlistItemKind,
+  WatchlistLevelKind,
+  WatchlistLevelSource,
+  WatchlistLevelStatus,
+} from "../../shared/watchlist.js";
 
 import type { JsonSchemaNode } from "./json-schema.js";
 import type { UserPreferences } from "../../shared/preferences.js";
@@ -284,14 +289,44 @@ export interface LiveValue {
   unavailableReason?: string;
 }
 
+/**
+ * A recorded price, placed against the current one.
+ *
+ * `side` and `distancePercent` arrive computed: the server holds the live
+ * price, and nothing about where a level sits survives a tick.
+ */
+export interface WatchlistLevel {
+  id: string;
+  kind: WatchlistLevelKind;
+  price: number;
+  priceHigh: number | null;
+  label: string | null;
+  note: string | null;
+  source: WatchlistLevelSource;
+  status: WatchlistLevelStatus;
+  hitAt: string | null;
+  validUntil: string | null;
+  expired: boolean;
+  /** Where the level sits relative to the live price; null without one. */
+  side: "above" | "below" | "inside" | "at" | null;
+  /** Signed move needed to reach it, as a percentage of the live price. */
+  distancePercent: number | null;
+}
+
 export interface WatchlistItem {
   id: string;
   kind: WatchlistItemKind;
   ref: string;
   name: string | null;
   note: string | null;
-  targetPrice: number | null;
-  targetDistancePercent: number | null;
+  entryPrice: number | null;
+  entryAt: string | null;
+  /** Measured from the entry price, not from yesterday's close. */
+  sinceEntryPercent: number | null;
+  /** Highest price first. */
+  levels: WatchlistLevel[];
+  /** The first active level the price would meet in each direction. */
+  nearest: { above: WatchlistLevel | null; below: WatchlistLevel | null };
   addedAt: string;
   live: LiveValue;
 }
@@ -304,6 +339,7 @@ export interface WatchlistTotals {
   averageChangePercent: number | null;
   best: { ref: string; changePercent: number } | null;
   worst: { ref: string; changePercent: number } | null;
+  approaching: number;
 }
 
 export interface WatchlistItemsResult {

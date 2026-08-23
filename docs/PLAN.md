@@ -112,6 +112,22 @@ partially-classified holdings is a materially weaker claim than fully-classified
 exposure, and a schema that cannot express the difference forces the tools to
 present both identically.
 
+Watchlists (written by both the MCP tools and the dashboard, one user's rows either way):
+- **watchlists** — id, user_id, name (unique per user, case-insensitive), description,
+  created_at, updated_at
+- **watchlist_items** — id, watchlist_id, kind (`symbol`|`fund`), ref, name, note,
+  **entry_price**, **entry_at**; unique per (list, kind, ref). The entry price is
+  the one price stored anywhere: captured from the live quote when the item is
+  added, never re-read.
+- **watchlist_levels** — id, item_id (`ON DELETE cascade`), kind (`support`|
+  `resistance`|`target`|`stop`|`entry`), price, price_high (for a zone), label,
+  note, source (`user`|`agent`), status (`active`|`hit`|`invalidated`), hit_at,
+  valid_until; unique per (item, kind, price). A table rather than columns on the
+  item because how many levels an instrument earns is a property of the chart.
+  A level stores intent and never direction — which side of the market it is on,
+  how far away, and whether it has expired are computed against the live price on
+  every read.
+
 Notes (written by both the MCP tools and the dashboard, one user's rows either way):
 - **note_collections** — id, user_id, name (unique per user, case-insensitive),
   description, created_at, updated_at
@@ -323,13 +339,15 @@ portfolios. `funds/present.ts` builds the caveat every tool response carries.
   shape knowledge in `parseMarkets`. The free tier allows only a few requests a
   minute, so pages are cached for minutes and one tool call costs one request.
   No key is required; `COINGECKO_API_KEY` is optional and only raises the limit.
-- Watchlist tools: `watchlists`, `watchlist`, `watchlistAdd` and `watchlistRemove`
-  are the only tools that write. They are scoped to `auth.user.id` — never to a
+- Watchlist tools: `watchlists`, `watchlist`, `watchlistAdd`, `watchlistLevels`
+  and `watchlistRemove` are the only tools that write. They are scoped to `auth.user.id` — never to a
   user id in the arguments — and go through `watchlist/repo.ts`, which takes the
   owner on every call so the MCP and dashboard paths cannot diverge on access
   control. `watchlist/live.ts` attaches values at read time (Yahoo for symbols,
   the cached NAV for funds) and degrades to `available: false` with a reason
-  rather than failing the call. List deletion is deliberately dashboard-only.
+  rather than failing the call — and places every recorded price level against
+  that value, so `side`, `distancePercent` and `nearest` are answers to "as of
+  now" rather than stored claims. List deletion is deliberately dashboard-only.
 - On-demand caching (`funds/ondemand.ts`): the dashboard drill-down and the
   fund tools fetch an uncached fund on first touch rather than failing. Shared
   client per provider (the throttle is per instance), in-flight de-duplication,

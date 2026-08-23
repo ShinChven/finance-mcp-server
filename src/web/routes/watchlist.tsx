@@ -6,8 +6,13 @@
  * sort all live in the URL, so a particular view is a link.
  *
  * Sorting happens client-side even though the URL drives it, because the
- * interesting columns — price, change, distance to target — are computed per
- * request and never stored, so the database cannot order by them.
+ * interesting columns — price, change, distance to the nearest level — are
+ * computed per request and never stored, so the database cannot order by them.
+ *
+ * An item's price levels open in a third pane rather than in the row: there can
+ * be twenty of them, and a row that tried to show them all would show none of
+ * the other items. Which one is open lives in `?item=`, like every other piece
+ * of page state, so a particular reading of a particular holding is a link.
  */
 
 import { useMemo, useState } from "react";
@@ -20,10 +25,11 @@ import {
   Plus,
   RefreshCw,
   Star,
-  Target,
   Trash2,
 } from "lucide-react";
 import { Modal, ConfirmDialog } from "../components/modal.js";
+import { LevelsPanel, NearestSummary, PriceRail } from "../components/price-levels.js";
+import { parseLevelLines, type LevelDraft, type LevelPatch } from "../lib/levels.js";
 import { FilterPills, SearchInput } from "../components/table.js";
 import { useToast } from "../components/toast.js";
 import { Button, Card, EmptyState, Input, Label, PageHeader, Spinner } from "../components/ui.js";
@@ -36,11 +42,18 @@ import type {
   WatchlistItemsResult,
   WatchlistSummary,
 } from "../lib/types.js";
-import { detectItemKind, KIND_LABELS } from "../../shared/watchlist.js";
+import { detectItemKind, KIND_LABELS, NEAR_LEVEL_PERCENT } from "../../shared/watchlist.js";
 
 const KIND_FILTERS = [
   { value: "symbol", label: "Instruments" },
   { value: "fund", label: "China funds" },
+];
+
+/** The level facet the server applies after pricing; see the items route. */
+const LEVEL_FILTERS = [
+  { value: "near", label: `Within ${NEAR_LEVEL_PERCENT}%` },
+  { value: "hit", label: "Hit" },
+  { value: "none", label: "No levels" },
 ];
 
 /** Quotes go stale quickly; a minute is often enough to matter and cheap enough to pay. */
@@ -90,8 +103,9 @@ export default function WatchlistPage() {
     const search = new URLSearchParams();
     if (params.q) search.set("q", params.q);
     if (params.kind) search.set("kind", params.kind);
+    if (params.level) search.set("level", params.level);
     return search.toString();
-  }, [params.q, params.kind]);
+  }, [params.q, params.kind, params.level]);
 
   const items = useQuery({
     queryKey: ["watchlist-items", selectedId, itemsQuery],
@@ -141,7 +155,7 @@ export default function WatchlistPage() {
   });
 
   const addItems = useMutation({
-    mutationFn: (body: { items: { ref: string; note?: string; targetPrice?: number }[] }) =>
+    mutationFn: (body: { items: { ref: string; note?: string; levels?: LevelDraft[] }[] }) =>
       api<AddItemsResult>(`/api/watchlists/${selectedId}/items`, { method: "POST", body }),
     onSuccess: (result) => {
       setAdding(false);
@@ -156,12 +170,36 @@ export default function WatchlistPage() {
   });
 
   const updateItem = useMutation({
-    mutationFn: ({ id, ...body }: { id: string; note: string | null; targetPrice: number | null }) =>
+    mutationFn: ({ id, ...body }: { id: string; note: string | null; entryPrice: number | null }) =>
       api(`/api/watchlists/${selectedId}/items/${id}`, { method: "PATCH", body }),
     onSuccess: () => {
       setEditingItem(null);
       invalidate();
     },
+    onError: (error: Error) => toast("error", error.message),
+  });
+
+  const addLevels = useMutation({
+    mutationFn: ({ itemId, levels }: { itemId: string; levels: LevelDraft[] }) =>
+      api(`/api/watchlists/${selectedId}/items/${itemId}/levels`, {
+        method: "POST",
+        body: { levels },
+      }),
+    onSuccess: () => invalidate(),
+    onError: (error: Error) => toast("error", error.message),
+  });
+
+  const updateLevel = useMutation({
+    mutationFn: ({ levelId, patch }: { levelId: string; patch: LevelPatch }) =>
+      api(`/api/watchlists/${selectedId}/levels/${levelId}`, { method: "PATCH", body: patch }),
+    onSuccess: () => invalidate(),
+    onError: (error: Error) => toast("error", error.message),
+  });
+
+  const removeLevel = useMutation({
+    mutationFn: (levelId: string) =>
+      api(`/api/watchlists/${selectedId}/levels/${levelId}`, { method: "DELETE" }),
+    onSuccess: () => invalidate(),
     onError: (error: Error) => toast("error", error.message),
   });
 
@@ -174,6 +212,9 @@ export default function WatchlistPage() {
 
   const selected = lists.data?.items.find((list) => list.id === selectedId) ?? null;
   const sorted = useSortedItems(items.data?.items ?? [], params.sort);
+  // Resolved from the refetched list rather than held in state, so the panel
+  // shows the same prices the table does after every refresh.
+  const openItem = items.data?.items.find((item) => item.id === params.item) ?? null;
 
   return (
     <>
@@ -197,7 +238,11 @@ export default function WatchlistPage() {
           />
         </Card>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[16rem_1fr]">
+        <div
+          className={`grid gap-4 ${
+            openItem === null ? "lg:grid-cols-[16rem_1fr]" : "lg:grid-cols-[16rem_1fr_22rem]"
+          }`}
+        >
           <ListSidebar
             lists={lists.data?.items ?? []}
             selectedId={selectedId}
@@ -205,12 +250,15 @@ export default function WatchlistPage() {
           />
 
           <div className="min-w-0">
-            {items.data?.summary && <SummaryTiles summary={items.data.summary} />}
+            {items.data?.summary && (
+              <SummaryTiles summary={items.data.summary} compact={openItem !== null} />
+            )}
 
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <SearchInput params={params} placeholder="Search symbol, name, note…" />
               <div className="flex flex-wrap items-center gap-2">
                 <FilterPills params={params} paramKey="kind" options={KIND_FILTERS} />
+                <FilterPills params={params} paramKey="level" options={LEVEL_FILTERS} />
                 <Button variant="secondary" size="sm" onClick={() => void items.refetch()}>
                   <RefreshCw className={`size-3.5 ${items.isFetching ? "animate-spin" : ""}`} />
                   Refresh
@@ -246,11 +294,25 @@ export default function WatchlistPage() {
               items={sorted}
               loading={items.isPending}
               sort={params.sort}
+              openItemId={params.item}
+              narrow={openItem !== null}
               onSort={(next) => params.update({ sort: next })}
+              onOpen={(id) => params.update({ item: id === params.item ? "" : id })}
               onEdit={setEditingItem}
               onRemove={(id) => removeItem.mutate(id)}
             />
           </div>
+
+          {openItem && (
+            <LevelsPanel
+              item={openItem}
+              busy={addLevels.isPending || updateLevel.isPending || removeLevel.isPending}
+              onAdd={(levels) => addLevels.mutate({ itemId: openItem.id, levels })}
+              onUpdate={(levelId, patch) => updateLevel.mutate({ levelId, patch })}
+              onRemove={(levelId) => removeLevel.mutate(levelId)}
+              onClose={() => params.update({ item: "" })}
+            />
+          )}
         </div>
       )}
 
@@ -284,7 +346,7 @@ export default function WatchlistPage() {
           title="Delete watchlist"
           message={`"${deleting.name}" and its ${deleting.itemCount} item${
             deleting.itemCount === 1 ? "" : "s"
-          } will be removed. Notes and targets go with it.`}
+          } will be removed. Notes, entry prices and price levels go with it.`}
           confirmLabel="Delete"
           danger
           busy={deleteList.isPending}
@@ -325,8 +387,19 @@ function useSortedItems(items: WatchlistItem[], sort: string): WatchlistItem[] {
           return item.live.changePercent ?? Number.NEGATIVE_INFINITY;
         case "price":
           return item.live.price ?? Number.NEGATIVE_INFINITY;
-        case "target":
-          return item.targetDistancePercent ?? Number.NEGATIVE_INFINITY;
+        case "entry":
+          return item.sinceEntryPercent ?? Number.NEGATIVE_INFINITY;
+        case "levels": {
+          // Closest first, whichever direction it is in: the question this
+          // column answers is "what is about to happen", not "up or down".
+          const distances = [item.nearest.above, item.nearest.below]
+            .map((level) => level?.distancePercent ?? null)
+            .filter((value): value is number => value !== null)
+            .map(Math.abs);
+          // No levels sorts to the far end either way round, rather than
+          // pretending to be zero distance from something.
+          return distances.length === 0 ? Number.POSITIVE_INFINITY : Math.min(...distances);
+        }
         case "ref":
           return item.ref;
         default:
@@ -376,7 +449,13 @@ function ListSidebar({
   );
 }
 
-function SummaryTiles({ summary }: { summary: NonNullable<WatchlistItemsResult["summary"]> }) {
+function SummaryTiles({
+  summary,
+  compact,
+}: {
+  summary: NonNullable<WatchlistItemsResult["summary"]>;
+  compact: boolean;
+}) {
   const tiles = [
     { label: "Tracked", value: String(summary.items), hint: `${summary.priced} priced` },
     {
@@ -395,10 +474,15 @@ function SummaryTiles({ summary }: { summary: NonNullable<WatchlistItemsResult["
       value: summary.best ? `${summary.best.ref}` : "—",
       hint: summary.worst ? `worst ${summary.worst.ref}` : "",
     },
+    {
+      label: "Approaching",
+      value: String(summary.approaching),
+      hint: `within ${NEAR_LEVEL_PERCENT}% of a level`,
+    },
   ];
 
   return (
-    <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <div className={`mb-4 grid gap-3 ${compact ? "grid-cols-3" : "grid-cols-2 lg:grid-cols-5"}`}>
       {tiles.map((tile) => (
         <Card key={tile.label} className="p-3">
           <div className="text-xs text-zinc-500">{tile.label}</div>
@@ -416,27 +500,47 @@ function SummaryTiles({ summary }: { summary: NonNullable<WatchlistItemsResult["
   );
 }
 
-const COLUMNS: { key: string; label: string; sortable?: boolean; align?: string }[] = [
+const COLUMNS: {
+  key: string;
+  label: string;
+  sortable?: boolean;
+  align?: string;
+  /** Folds away while a levels panel is taking a third of the row. */
+  secondary?: boolean;
+}[] = [
   { key: "ref", label: "Item", sortable: true },
   { key: "price", label: "Last", sortable: true, align: "text-right" },
   { key: "change", label: "Change", sortable: true, align: "text-right" },
-  { key: "target", label: "Target", sortable: true, align: "text-right" },
-  { key: "note", label: "Note" },
+  { key: "entry", label: "Since entry", sortable: true, align: "text-right", secondary: true },
+  { key: "levels", label: "Levels", sortable: true },
+  { key: "note", label: "Note", secondary: true },
   { key: "actions", label: "", align: "text-right" },
 ];
+
+/**
+ * With the panel open the table has roughly half the width it had, and the two
+ * columns that go are the ones the panel itself is showing in more detail.
+ */
+const SECONDARY_HIDDEN = "hidden 2xl:table-cell";
 
 function ItemsTable({
   items,
   loading,
   sort,
+  openItemId,
+  narrow,
   onSort,
+  onOpen,
   onEdit,
   onRemove,
 }: {
   items: WatchlistItem[];
   loading: boolean;
   sort: string;
+  openItemId: string;
+  narrow: boolean;
   onSort: (next: string) => void;
+  onOpen: (id: string) => void;
   onEdit: (item: WatchlistItem) => void;
   onRemove: (id: string) => void;
 }) {
@@ -464,11 +568,16 @@ function ItemsTable({
   return (
     <Card>
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[30rem] text-sm">
           <thead>
             <tr className="border-b border-zinc-200 text-left text-xs text-zinc-500 uppercase dark:border-zinc-800">
               {COLUMNS.map((column) => (
-                <th key={column.key} className={`px-4 py-3 font-medium ${column.align ?? ""}`}>
+                <th
+                  key={column.key}
+                  className={`px-4 py-3 font-medium ${column.align ?? ""} ${
+                    column.secondary && narrow ? SECONDARY_HIDDEN : ""
+                  }`}
+                >
                   {column.sortable ? (
                     <button
                       className="inline-flex cursor-pointer items-center gap-1 uppercase hover:text-zinc-800 dark:hover:text-zinc-200"
@@ -499,7 +608,10 @@ function ItemsTable({
             {items.map((item) => (
               <tr
                 key={item.id}
-                className="border-b border-zinc-100 last:border-0 hover:bg-zinc-50 dark:border-zinc-800/60 dark:hover:bg-zinc-800/40"
+                onClick={() => onOpen(item.id)}
+                className={`cursor-pointer border-b border-zinc-100 last:border-0 hover:bg-zinc-50 dark:border-zinc-800/60 dark:hover:bg-zinc-800/40 ${
+                  item.id === openItemId ? "bg-indigo-50/60 dark:bg-indigo-500/10" : ""
+                }`}
               >
                 <td className="px-4 py-3">
                   <div className="flex min-w-0 items-center gap-2">
@@ -535,29 +647,32 @@ function ItemsTable({
                 <td className={`px-4 py-3 text-right tabular-nums ${signClass(item.live.changePercent)}`}>
                   {formatPercent(item.live.changePercent)}
                 </td>
-                <td className="px-4 py-3 text-right tabular-nums">
-                  {item.targetPrice === null ? (
+                <td
+                  className={`px-4 py-3 text-right tabular-nums ${signClass(item.sinceEntryPercent)} ${
+                    narrow ? SECONDARY_HIDDEN : ""
+                  }`}
+                >
+                  {item.entryPrice === null ? (
                     <span className="text-zinc-300 dark:text-zinc-600">—</span>
                   ) : (
                     <>
-                      <div className="flex items-center justify-end gap-1 text-xs">
-                        <Target className="size-3 text-zinc-400" />
-                        {item.targetPrice}
-                      </div>
-                      {item.targetDistancePercent !== null && (
-                        <div className={`text-[10px] ${signClass(item.targetDistancePercent)}`}>
-                          {formatPercent(item.targetDistancePercent)} vs target
-                        </div>
-                      )}
+                      <div>{formatPercent(item.sinceEntryPercent)}</div>
+                      <div className="text-[10px] text-zinc-400">from {item.entryPrice}</div>
                     </>
                   )}
                 </td>
-                <td className="px-4 py-3">
+                <td className="w-44 px-4 py-3">
+                  <PriceRail item={item} />
+                  <div className="mt-1">
+                    <NearestSummary item={item} />
+                  </div>
+                </td>
+                <td className={`px-4 py-3 ${narrow ? SECONDARY_HIDDEN : ""}`}>
                   <span className="block max-w-64 truncate text-xs text-zinc-500" title={item.note ?? ""}>
                     {item.note ?? "—"}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-right">
+                <td className="px-4 py-3 text-right" onClick={(event) => event.stopPropagation()}>
                   <div className="flex justify-end gap-1">
                     <button
                       onClick={() => onEdit(item)}
@@ -653,11 +768,11 @@ function AddItemsDialog({
 }: {
   busy: boolean;
   onClose: () => void;
-  onSubmit: (items: { ref: string; note?: string; targetPrice?: number }[]) => void;
+  onSubmit: (items: { ref: string; note?: string; levels?: LevelDraft[] }[]) => void;
 }) {
   const [refs, setRefs] = useState("");
   const [note, setNote] = useState("");
-  const [target, setTarget] = useState("");
+  const [levels, setLevels] = useState("");
 
   const parsed = refs
     .split(/[,\n]/)
@@ -670,15 +785,16 @@ function AddItemsDialog({
         onSubmit={(event) => {
           event.preventDefault();
           if (parsed.length === 0) return;
-          const targetPrice = target.trim() === "" ? undefined : Number(target);
+          // Nothing is quoted yet, so the levels typed here cannot be placed
+          // above or below a price; `parseLevelLines` reads them as targets
+          // unless the line names a kind.
+          const drafts = parseLevelLines(levels, null);
           onSubmit(
             parsed.map((ref) => ({
               ref,
               ...(note.trim() !== "" && { note: note.trim() }),
-              // A single target only makes sense for a single item.
-              ...(parsed.length === 1 && targetPrice !== undefined && Number.isFinite(targetPrice)
-                ? { targetPrice }
-                : {}),
+              // Levels describe one instrument; a batch add gets none.
+              ...(parsed.length === 1 && drafts.length > 0 ? { levels: drafts } : {}),
             })),
           );
         }}
@@ -694,7 +810,7 @@ function AddItemsDialog({
           />
           <p className="mt-1 text-xs text-zinc-400">
             Comma separated. A bare 6-digit number is read as a China fund code; anything else as a
-            Yahoo symbol.
+            Yahoo symbol. The price at the moment you add it is recorded automatically.
           </p>
           {parsed.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1">
@@ -720,13 +836,18 @@ function AddItemsDialog({
         </div>
         {parsed.length <= 1 && (
           <div>
-            <Label>Target price (optional)</Label>
-            <Input
-              value={target}
-              onChange={(event) => setTarget(event.target.value)}
-              placeholder="120"
-              inputMode="decimal"
+            <Label>Price levels (optional)</Label>
+            <textarea
+              value={levels}
+              onChange={(event) => setLevels(event.target.value)}
+              rows={3}
+              placeholder={"target 210 year-end\nstop 152 thesis breaks"}
+              className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 font-mono text-xs outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
             />
+            <p className="mt-1 text-xs text-zinc-400">
+              One per line. Name the kind here — nothing is priced yet, so there is no side to infer
+              one from. More can be added from the item afterwards.
+            </p>
           </div>
         )}
         <div className="flex justify-end gap-2 pt-1">
@@ -751,20 +872,20 @@ function EditItemDialog({
   item: WatchlistItem;
   busy: boolean;
   onClose: () => void;
-  onSubmit: (patch: { note: string | null; targetPrice: number | null }) => void;
+  onSubmit: (patch: { note: string | null; entryPrice: number | null }) => void;
 }) {
   const [note, setNote] = useState(item.note ?? "");
-  const [target, setTarget] = useState(item.targetPrice === null ? "" : String(item.targetPrice));
+  const [entry, setEntry] = useState(item.entryPrice === null ? "" : String(item.entryPrice));
 
   return (
     <Modal title={item.ref} onClose={onClose}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          const parsed = target.trim() === "" ? null : Number(target);
+          const parsed = entry.trim() === "" ? null : Number(entry);
           onSubmit({
             note: note.trim() === "" ? null : note.trim(),
-            targetPrice: parsed !== null && Number.isFinite(parsed) ? parsed : null,
+            entryPrice: parsed !== null && Number.isFinite(parsed) ? parsed : null,
           });
         }}
         className="space-y-3"
@@ -779,13 +900,17 @@ function EditItemDialog({
           />
         </div>
         <div>
-          <Label>Target price</Label>
+          <Label>Entry price</Label>
           <Input
-            value={target}
-            onChange={(event) => setTarget(event.target.value)}
+            value={entry}
+            onChange={(event) => setEntry(event.target.value)}
             inputMode="decimal"
             placeholder="Leave blank to clear"
           />
+          <p className="mt-1 text-xs text-zinc-400">
+            Captured from the quote when the item was added. Correct it here for something bought
+            before you started tracking it. Price levels live in the item's panel.
+          </p>
         </div>
         <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="secondary" onClick={onClose}>

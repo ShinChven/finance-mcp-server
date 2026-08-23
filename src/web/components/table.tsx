@@ -47,7 +47,7 @@ export function FilterPills({
   clears,
 }: {
   params: ListParams;
-  paramKey: "status" | "role" | "action" | "provider" | "scope" | "kind";
+  paramKey: "status" | "role" | "action" | "provider" | "scope" | "kind" | "level";
   options: { value: string; label: string }[];
   /**
    * Params cleared alongside this one, for filters that scope another filter.
@@ -55,7 +55,7 @@ export function FilterPills({
    * previous one — otherwise the URL keeps a category that provider does not
    * have, and the pills show a selection the results do not reflect.
    */
-  clears?: ("status" | "role" | "action" | "provider" | "scope" | "kind")[];
+  clears?: ("status" | "role" | "action" | "provider" | "scope" | "kind" | "level")[];
 }) {
   const current = params[paramKey];
   return (

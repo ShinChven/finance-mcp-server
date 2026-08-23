@@ -30,6 +30,10 @@ export interface ListParamValues {
   list: string;
   /** Watchlist item kind (`symbol`, `fund`). */
   kind: string;
+  /** Watchlist level facet: `near`, `hit`, `none`. */
+  level: string;
+  /** Watchlist item whose price levels are open. */
+  item: string;
   /** Selected note collection (an id, or `none` for unfiled notes). */
   collection: string;
   /** Single tag facet on the Notes page. */
@@ -54,6 +58,7 @@ const FILTER_KEYS = [
   "scope",
   "category",
   "kind",
+  "level",
   "collection",
   "tag",
   "symbol",
@@ -80,6 +85,8 @@ export function useListParams(defaults: Partial<ListParamValues> = {}) {
       fund: searchParams.get("fund") ?? "",
       list: searchParams.get("list") ?? "",
       kind: searchParams.get("kind") ?? "",
+      level: searchParams.get("level") ?? "",
+      item: searchParams.get("item") ?? "",
       collection: searchParams.get("collection") ?? "",
       tag: searchParams.get("tag") ?? "",
       symbol: searchParams.get("symbol") ?? "",
@@ -104,6 +111,7 @@ export function useListParams(defaults: Partial<ListParamValues> = {}) {
     // an `equity` scope, so sending it alone would be ambiguous.
     if (values.provider && values.scope) params.set("scope", values.scope);
     if (values.kind) params.set("kind", values.kind);
+    if (values.level) params.set("level", values.level);
     if (values.collection) params.set("collection", values.collection);
     if (values.tag) params.set("tag", values.tag);
     if (values.symbol) params.set("symbol", values.symbol);
