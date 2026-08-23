@@ -174,8 +174,11 @@ Lifecycle semantics (tokens and grants alike):
 | `/admin/audit` | Admin: audit log | `?q=&action=&actor=&page=` |
 | `/admin/funds` | Admin: fund cache console — coverage, per-category sync, per-fund portfolios | `?q=&provider=&scope=&status=&page=&sort=&fund=` |
 
-Layout: sidebar app shell (admin section visible only to admins), route-level
-auth guards via loader redirects, error boundaries, toast notifications.
+Layout: sidebar app shell grouped into Overview, **Workspace** (watchlists,
+notes, funds, skills), **Connect** (connector setup, MCP tools, access tokens,
+OAuth clients), **Account** (settings, activity) and **Admin** (visible only to
+admins), route-level auth guards via loader redirects, error boundaries, toast
+notifications.
 
 ### Backend API (all under `/api`, JSON, zod-validated, session-cookie auth + CSRF)
 

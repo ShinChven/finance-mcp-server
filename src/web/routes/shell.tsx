@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, redirect, useNavigate, useRouteLoaderData } from "react-router";
 import {
-  Activity,
   BookOpen,
-  Database,
   History,
   KeyRound,
+  Landmark,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -87,6 +86,65 @@ const navItemClass = ({ isActive }: { isActive: boolean }) =>
       : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/60"
   }`;
 
+/**
+ * The sidebar, grouped by what the reader came here to do.
+ *
+ * Three audiences share one list and each wants a different part of it: the
+ * workspace is where the day is spent, Connect is read once while wiring up a
+ * client and then never again, and Account/Admin are where you go when
+ * something is wrong. Grouping them means the eye skips two thirds of the list
+ * instead of reading eleven labels top to bottom.
+ *
+ * Labels match the `PageHeader` title of the page they open — a link whose
+ * name changes on arrival costs the reader a beat working out whether they
+ * landed where they meant to.
+ */
+export const NAV_SECTIONS: {
+  label?: string;
+  adminOnly?: boolean;
+  items: { to: string; label: string; icon: typeof LayoutDashboard; end?: boolean }[];
+}[] = [
+  { items: [{ to: "/", label: "Overview", icon: LayoutDashboard, end: true }] },
+  {
+    label: "Workspace",
+    items: [
+      { to: "/watchlist", label: "Watchlists", icon: Star },
+      { to: "/notes", label: "Notes", icon: NotebookPen },
+      { to: "/funds", label: "Funds", icon: Landmark },
+      { to: "/skills", label: "Skills", icon: Sparkles },
+    ],
+  },
+  {
+    // In the order the setup is actually done: read the guide, mint a token,
+    // then check what ended up holding a grant.
+    label: "Connect",
+    items: [
+      { to: "/connector-setup", label: "Connector Setup", icon: BookOpen },
+      { to: "/tools", label: "MCP Tools", icon: Wrench },
+      { to: "/tokens", label: "Access Tokens", icon: KeyRound },
+      { to: "/clients", label: "OAuth Clients", icon: Plug },
+    ],
+  },
+  {
+    label: "Account",
+    items: [
+      { to: "/settings", label: "Settings", icon: Settings },
+      { to: "/activity", label: "Activity", icon: History },
+    ],
+  },
+  {
+    label: "Admin",
+    adminOnly: true,
+    items: [
+      { to: "/admin/users", label: "Users", icon: Users },
+      // Same Plug as the user-level OAuth Clients on purpose: one entity, two
+      // scopes, and the repeated icon is what says so.
+      { to: "/admin/clients", label: "All Clients", icon: Plug },
+      { to: "/admin/audit", label: "Audit Log", icon: ScrollText },
+    ],
+  },
+];
+
 export default function Shell() {
   const me = useMe();
   const navigate = useNavigate();
@@ -164,54 +222,33 @@ export default function Shell() {
         </div>
         {/* Any click inside the nav dismisses the drawer, including a link back
             to the route already open, which no location change would catch. */}
-        <nav onClick={() => setNavOpen(false)} className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 pb-3">
-          <NavLink to="/" end className={navItemClass}>
-            <LayoutDashboard className="size-4" /> Overview
-          </NavLink>
-          <NavLink to="/activity" className={navItemClass}>
-            <History className="size-4" /> Recent Activity
-          </NavLink>
-          <NavLink to="/connector-setup" className={navItemClass}>
-            <BookOpen className="size-4" /> Connector Setup
-          </NavLink>
-          <NavLink to="/tools" className={navItemClass}>
-            <Wrench className="size-4" /> Tools
-          </NavLink>
-          <NavLink to="/funds" className={navItemClass}>
-            <Database className="size-4" /> Funds
-          </NavLink>
-          <NavLink to="/watchlist" className={navItemClass}>
-            <Star className="size-4" /> Watchlists
-          </NavLink>
-          <NavLink to="/notes" className={navItemClass}>
-            <NotebookPen className="size-4" /> Notes
-          </NavLink>
-          <NavLink to="/skills" className={navItemClass}>
-            <Sparkles className="size-4" /> Skills
-          </NavLink>
-          <NavLink to="/tokens" className={navItemClass}>
-            <KeyRound className="size-4" /> Access Tokens
-          </NavLink>
-          <NavLink to="/clients" className={navItemClass}>
-            <Plug className="size-4" /> OAuth Clients
-          </NavLink>
-          <NavLink to="/settings" className={navItemClass}>
-            <Settings className="size-4" /> Settings
-          </NavLink>
-          {me.role === "admin" && (
-            <>
-              <div className="mt-4 mb-1 px-3 text-xs font-medium text-zinc-400 uppercase">Admin</div>
-              <NavLink to="/admin/users" className={navItemClass}>
-                <Users className="size-4" /> Users
-              </NavLink>
-              <NavLink to="/admin/clients" className={navItemClass}>
-                <Activity className="size-4" /> All Clients
-              </NavLink>
-              <NavLink to="/admin/audit" className={navItemClass}>
-                <ScrollText className="size-4" /> Audit Log
-              </NavLink>
-            </>
-          )}
+        <nav
+          onClick={() => setNavOpen(false)}
+          aria-label="Main"
+          className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 pb-3"
+        >
+          {NAV_SECTIONS.filter((section) => !section.adminOnly || me.role === "admin").map((section) => {
+            const headingId = section.label && `nav-${section.label.toLowerCase()}`;
+            return (
+              <div
+                key={section.label ?? "home"}
+                className="flex flex-col gap-1"
+                role={section.label ? "group" : undefined}
+                aria-labelledby={headingId}
+              >
+                {section.label && (
+                  <div id={headingId} className="mt-4 mb-1 px-3 text-xs font-medium text-zinc-400 uppercase">
+                    {section.label}
+                  </div>
+                )}
+                {section.items.map(({ to, label, icon: Icon, end }) => (
+                  <NavLink key={to} to={to} end={end} className={navItemClass}>
+                    <Icon className="size-4" /> {label}
+                  </NavLink>
+                ))}
+              </div>
+            );
+          })}
         </nav>
         <div className="relative border-t border-zinc-200 p-3 dark:border-zinc-800">
           {menuOpen && (
