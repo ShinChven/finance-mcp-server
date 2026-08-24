@@ -293,3 +293,36 @@ export const syncBodySchema = z
     force: z.boolean().default(false),
   })
   .superRefine(refineScope);
+
+/**
+ * The windows the NAV chart can be drawn over.
+ *
+ * Derived from `TRAILING_PERIODS` rather than listed again, so a reader
+ * switching the chart to 1Y and a reader reading the 1Y figure above it are
+ * looking at the same window by construction. `1d` is dropped: two
+ * observations are a number, not a shape.
+ */
+export const NAV_RANGES = TRAILING_PERIODS.filter(
+  (period): period is Exclude<(typeof TRAILING_PERIODS)[number], { id: "1d" }> =>
+    period.id !== "1d",
+);
+
+export type NavRangeId = (typeof NAV_RANGES)[number]["id"];
+
+/** Long enough to show a cycle, short enough that most funds cover it. */
+export const DEFAULT_NAV_RANGE: NavRangeId = "1y";
+
+const NAV_RANGE_IDS = NAV_RANGES.map((range) => range.id) as [NavRangeId, ...NavRangeId[]];
+
+export function isNavRange(value: string): value is NavRangeId {
+  return (NAV_RANGE_IDS as readonly string[]).includes(value);
+}
+
+export const navQuerySchema = z.object({
+  range: z.enum(NAV_RANGE_IDS).default(DEFAULT_NAV_RANGE),
+});
+
+/** Months back from the window's end, or null for the whole history. */
+export function navRangeMonths(range: NavRangeId): number | null {
+  return NAV_RANGES.find((entry) => entry.id === range)?.months ?? null;
+}

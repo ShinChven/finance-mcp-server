@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { computePerformance, computeTrailingReturns, type NavSeriesPoint } from "./performance.js";
+import {
+  buildNavChartSeries,
+  computePerformance,
+  computeTrailingReturns,
+  type NavSeriesPoint,
+} from "./performance.js";
 
 function series(values: [string, number, number | null][]): NavSeriesPoint[] {
   return values.map(([navDate, nav, accNav]) => ({ navDate, nav, accNav }));
@@ -204,5 +209,205 @@ describe("computeTrailingReturns", () => {
         asOf: "2025-01-01",
       }),
     ).toBeNull();
+  });
+});
+
+describe("buildNavChartSeries", () => {
+  /** A daily series stepping by `step` a day from 1.0, starting at `from`. */
+  function daily(from: string, days: number, step = 0.001): NavSeriesPoint[] {
+    const points: NavSeriesPoint[] = [];
+    const start = Date.parse(`${from}T00:00:00Z`);
+    for (let i = 0; i < days; i++) {
+      const date = new Date(start + i * 86_400_000).toISOString().slice(0, 10);
+      const value = 1 + i * step;
+      points.push({ navDate: date, nav: value, accNav: value });
+    }
+    return points;
+  }
+
+  it("rebases the window to its own first observation", () => {
+    const result = buildNavChartSeries(
+      series([
+        ["2026-01-01", 2, 2],
+        ["2026-04-01", 2.5, 2.5],
+        ["2026-07-01", 3, 3],
+      ]),
+      { range: "max" },
+    );
+
+    expect(result?.points[0]?.changePercent).toBe(0);
+    expect(result?.points[1]?.changePercent).toBe(25);
+    expect(result?.points.at(-1)?.changePercent).toBe(50);
+  });
+
+  it("measures the window back from the latest NAV, not from today", () => {
+    // The series ends well in the past; a 1M window anchored on the calendar
+    // would contain nothing at all.
+    const result = buildNavChartSeries(daily("2020-01-01", 400), { range: "1m" });
+
+    expect(result?.endDate).toBe("2021-02-03");
+    expect(result?.startDate).toBe("2021-01-03");
+  });
+
+  it("returns the whole history for max, and only the window for a range", () => {
+    const points = daily("2024-01-01", 900);
+
+    expect(buildNavChartSeries(points, { range: "max" })?.observations).toBe(900);
+    // A year back from the last observation, inclusive of both ends.
+    expect(buildNavChartSeries(points, { range: "1y" })?.observations).toBe(366);
+  });
+
+  it("reports the window's own drawdown, not the whole history's", () => {
+    const result = buildNavChartSeries(
+      series([
+        ["2020-01-01", 1, 1],
+        ["2020-06-01", 0.4, 0.4], // a 60% crash, outside the 1Y window
+        ["2025-01-01", 1, 1],
+        ["2025-07-01", 0.9, 0.9],
+        ["2025-12-01", 1, 1],
+      ]),
+      { range: "1y" },
+    );
+
+    expect(result?.performance?.maxDrawdownPercent).toBe(10);
+  });
+
+  it("caps the plotted points and keeps the first and last", () => {
+    const points = daily("2010-01-01", 4000);
+    const result = buildNavChartSeries(points, { range: "max", maxPoints: 300 });
+
+    expect(result?.observations).toBe(4000);
+    expect(result?.points).toHaveLength(300);
+    expect(result?.downsampled).toBe(true);
+    expect(result?.points[0]?.date).toBe("2010-01-01");
+    expect(result?.points.at(-1)?.date).toBe(points.at(-1)?.navDate);
+  });
+
+  it("keeps the plotted series in date order after decimation", () => {
+    const result = buildNavChartSeries(daily("2010-01-01", 4000), {
+      range: "max",
+      maxPoints: 250,
+    });
+    const dates = result?.points.map((point) => point.date) ?? [];
+
+    expect([...dates].sort()).toEqual(dates);
+  });
+
+  it("keeps a crash that every-nth sampling would drop", () => {
+    // One deep, one-day trough in an otherwise smooth series. Decimated to a
+    // fraction of the points, the trough must survive: a chart that loses it
+    // contradicts the drawdown printed beside it.
+    const points = daily("2020-01-01", 1000, 0);
+    const crash = points[500];
+    if (crash !== undefined) {
+      crash.nav = 0.5;
+      crash.accNav = 0.5;
+    }
+
+    const result = buildNavChartSeries(points, { range: "max", maxPoints: 100 });
+
+    expect(result?.points.some((point) => point.value === 0.5)).toBe(true);
+  });
+
+  it("leaves a series shorter than the cap untouched", () => {
+    const result = buildNavChartSeries(daily("2026-01-01", 40), { range: "max", maxPoints: 600 });
+
+    expect(result?.points).toHaveLength(40);
+    expect(result?.downsampled).toBe(false);
+  });
+
+  it("prefers cumulative NAV and says which basis it drew", () => {
+    const result = buildNavChartSeries(
+      series([
+        ["2026-01-01", 1, 1],
+        ["2026-02-01", 0.9, 1.1], // a distribution: unit NAV falls, cumulative rises
+      ]),
+      { range: "max" },
+    );
+
+    expect(result?.basis).toBe("accNav");
+    expect(result?.points.at(-1)?.changePercent).toBe(10);
+  });
+
+  it("reaches back to the anchor observation on a sparse series", () => {
+    const sparse = series([
+      ["2020-01-01", 1, 1],
+      ["2020-06-01", 1.1, 1.1],
+    ]);
+
+    // Nothing was published inside the last month, so the line is drawn from
+    // the observation the 1M return is measured from — a five-month span under
+    // a "1M" button, which the caption spells out. The alternative is a chart
+    // that rebases somewhere the printed figure does not, and disagrees with it.
+    const result = buildNavChartSeries(sparse, { range: "1m" });
+    expect(result?.startDate).toBe("2020-01-01");
+    expect(result?.points.at(-1)?.changePercent).toBe(10);
+  });
+
+  it("returns null when there is nothing to draw a line from", () => {
+    expect(buildNavChartSeries(series([["2020-01-01", 1, 1]]), { range: "max" })).toBeNull();
+    expect(buildNavChartSeries([], { range: "max" })).toBeNull();
+    // Two rows, but neither carries a usable value.
+    expect(
+      buildNavChartSeries(
+        [
+          { navDate: "2020-01-01", nav: null, accNav: null },
+          { navDate: "2020-01-02", nav: null, accNav: null },
+        ],
+        { range: "max" },
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("buildNavChartSeries and computeTrailingReturns agree", () => {
+  /**
+   * The dialog prints both, one above the other. A chart whose own figure
+   * disagrees with the window named beside it discredits both numbers, and the
+   * disagreement is invisible without this: it only appears when the calendar
+   * target lands on a day the fund published nothing, which is two days in
+   * seven.
+   */
+  it("ends on the same return the matching trailing window reports", () => {
+    const points: NavSeriesPoint[] = [];
+    const start = Date.parse("2025-01-01T00:00:00Z");
+    for (let i = 0; i < 400; i++) {
+      const date = new Date(start + i * 86_400_000);
+      // Weekends unpublished, so the calendar target regularly falls on a gap.
+      if (date.getUTCDay() === 0 || date.getUTCDay() === 6) continue;
+      const value = 1 + Math.sin(i / 30) * 0.1 + i * 0.0004;
+      points.push({ navDate: date.toISOString().slice(0, 10), nav: value, accNav: value });
+    }
+
+    const trailing = computeTrailingReturns(points);
+    for (const range of ["1m", "3m", "6m", "1y"] as const) {
+      const chart = buildNavChartSeries(points, { range });
+      const window = trailing?.periods.find((period) => period.period === range);
+      if (chart === null || window === undefined) continue;
+
+      expect(chart.startDate).toBe(window.from);
+      expect(chart.points.at(-1)?.changePercent).toBeCloseTo(window.returnPercent, 2);
+    }
+  });
+
+  it("refuses to annualize a window shorter than a year", () => {
+    const points: NavSeriesPoint[] = [];
+    const start = Date.parse("2026-01-01T00:00:00Z");
+    for (let i = 0; i < 400; i++) {
+      const value = 1 + i * 0.0005;
+      points.push({
+        navDate: new Date(start + i * 86_400_000).toISOString().slice(0, 10),
+        nav: value,
+        accNav: value,
+      });
+    }
+
+    // A month of gains extrapolated to a year is a forecast, not a measurement.
+    expect(buildNavChartSeries(points, { range: "1m" })?.performance?.annualizedReturnPercent).toBeNull();
+    expect(
+      buildNavChartSeries(points, { range: "1y" })?.performance?.annualizedReturnPercent,
+    ).not.toBeNull();
+    // The rest of the window's statistics are unaffected.
+    expect(buildNavChartSeries(points, { range: "1m" })?.performance?.cumulativeReturnPercent).toBeGreaterThan(0);
   });
 });

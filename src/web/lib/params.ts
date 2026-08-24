@@ -26,6 +26,8 @@ export interface ListParamValues {
   category: string;
   /** Fund whose holdings are open on the Funds page. */
   fund: string;
+  /** Window the open fund's NAV chart is drawn over (`1m`…`5y`, `max`). */
+  range: string;
   /** Selected watchlist on the Watchlists page. */
   list: string;
   /** Watchlist item kind (`symbol`, `fund`). */
@@ -83,6 +85,7 @@ export function useListParams(defaults: Partial<ListParamValues> = {}) {
       tool: searchParams.get("tool") ?? "",
       category: searchParams.get("category") ?? "",
       fund: searchParams.get("fund") ?? "",
+      range: searchParams.get("range") ?? "",
       list: searchParams.get("list") ?? "",
       kind: searchParams.get("kind") ?? "",
       level: searchParams.get("level") ?? "",

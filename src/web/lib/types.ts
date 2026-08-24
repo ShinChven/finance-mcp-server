@@ -1,4 +1,4 @@
-import type { HoldingsCompleteness, ProviderId, TrailingPeriodId } from "../../shared/funds.js";
+import type { HoldingsCompleteness, NavRangeId, ProviderId, TrailingPeriodId } from "../../shared/funds.js";
 import type { NoteSource, NoteStatus } from "../../shared/notes.js";
 import type { SkillSource, SkillStatus } from "../../shared/skills.js";
 import type {
@@ -227,6 +227,48 @@ export interface TrailingReturns {
   basis: "accNav" | "nav";
   /** Only the windows the NAV history reaches back to. */
   periods: TrailingReturn[];
+}
+
+/** One plotted NAV observation, rebased to the window's first point. */
+export interface NavChartPoint {
+  date: string;
+  value: number;
+  changePercent: number;
+}
+
+/** Return, drawdown and volatility over the charted window — not all history. */
+export interface NavWindowPerformance {
+  startDate: string;
+  endDate: string;
+  days: number;
+  points: number;
+  basis: "accNav" | "nav";
+  cumulativeReturnPercent: number;
+  annualizedReturnPercent: number | null;
+  maxDrawdownPercent: number;
+  annualizedVolatilityPercent: number | null;
+}
+
+export interface NavChartSeries {
+  range: NavRangeId;
+  basis: "accNav" | "nav";
+  startDate: string;
+  endDate: string;
+  observations: number;
+  downsampled: boolean;
+  points: NavChartPoint[];
+  performance: NavWindowPerformance | null;
+}
+
+export interface FundNavResult {
+  code: string;
+  currency: string;
+  navSyncedAt: string | null;
+  range: NavRangeId;
+  /** Observations on record at all — a window can be empty while the fund has years. */
+  historyPoints: number;
+  /** Null when the window holds fewer than two observations. */
+  series: NavChartSeries | null;
 }
 
 /** The counts shown before a sync is confirmed. */
