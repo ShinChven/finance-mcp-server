@@ -181,5 +181,11 @@ export function createIsharesProvider(options: IsharesProviderOptions): FundProv
     },
 
     scopeFilter: isharesScopeFilter,
+
+    // Worth a line in the probe because this source is the one that gets
+    // blocked on the caller rather than the request: from a host Akamai has
+    // judged, every step fails identically whichever route was taken, and this
+    // is what says which one it was.
+    describeTransport: () => client.describeTransport(),
   };
 }

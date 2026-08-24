@@ -115,6 +115,14 @@ export interface FundProvider {
    */
   scopeFilter(scope: string): SQL | undefined;
 
+  /**
+   * How this provider currently reaches its upstream, in one line, when that is
+   * a thing which can vary — a direct fetch versus a relay, say. Optional
+   * because for most sources there is nothing to say. The probe prints it
+   * verbatim; the pipeline never reads it.
+   */
+  describeTransport?(): string;
+
   /** Minimum gap this provider keeps between upstream requests. Used to
    *  estimate how long a run will take before it is started. */
   readonly requestIntervalMs: number;
