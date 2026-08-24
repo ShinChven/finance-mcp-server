@@ -19,6 +19,7 @@ import {
   type BrandIconComponent,
 } from "../components/brand-icons.js";
 import { Card, CodeCopyBlock, CopyField, PageHeader } from "../components/ui.js";
+import { BRAND_NAME, BRAND_SLUG } from "../../shared/brand.js";
 
 export type ClientId =
   | "claude"
@@ -176,7 +177,7 @@ function ClaudeGuide({ mcpUrl, isLocal }: { mcpUrl: string; isLocal: boolean }) 
         </p>
       </Step>
       <Step number={2} title="Enter the remote MCP URL">
-        <p>Name the connector “MCP Server” and paste this exact endpoint. Leave advanced OAuth client credentials empty; this server supports automatic client registration.</p>
+        <p>Name the connector “{BRAND_NAME}” and paste this exact endpoint. Leave advanced OAuth client credentials empty; this server supports automatic client registration.</p>
         <CopyField value={mcpUrl} />
       </Step>
       <Step number={3} title="Connect with OAuth">
@@ -186,7 +187,7 @@ function ClaudeGuide({ mcpUrl, isLocal }: { mcpUrl: string; isLocal: boolean }) 
       </Step>
       <Step number={4} title="Enable it in a conversation">
         <p>
-          In a Claude conversation, select the <strong>+</strong> menu, open <strong>Connectors</strong>, and enable MCP Server. Ask Claude to list the available tools to verify the connection.
+          In a Claude conversation, select the <strong>+</strong> menu, open <strong>Connectors</strong>, and enable {BRAND_NAME}. Ask Claude to list the available tools to verify the connection.
         </p>
       </Step>
     </>
@@ -194,17 +195,17 @@ function ClaudeGuide({ mcpUrl, isLocal }: { mcpUrl: string; isLocal: boolean }) 
 }
 
 function ClaudeCodeGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
-  const addCommand = `claude mcp add --transport http --scope user mcp-server ${mcpUrl}`;
-  const loginCommand = "claude mcp login mcp-server";
+  const addCommand = `claude mcp add --transport http --scope user ${BRAND_SLUG} ${mcpUrl}`;
+  const loginCommand = `claude mcp login ${BRAND_SLUG}`;
   const listCommand = "claude mcp list";
   const tokenCommands = `export MCP_SERVER_TOKEN="${token ?? "mcp_…"}"
-claude mcp add-json --scope user mcp-server '${JSON.stringify({
+claude mcp add-json --scope user ${BRAND_SLUG} '${JSON.stringify({
     type: "http",
     url: mcpUrl,
     headers: { Authorization: "Bearer ${MCP_SERVER_TOKEN}" },
   })}'`;
-  const projectCommand = `claude mcp add --transport http --scope project mcp-server ${mcpUrl}`;
-  const projectJson = JSON.stringify({ mcpServers: { "mcp-server": { type: "http", url: mcpUrl } } }, null, 2);
+  const projectCommand = `claude mcp add --transport http --scope project ${BRAND_SLUG} ${mcpUrl}`;
+  const projectJson = JSON.stringify({ mcpServers: { [BRAND_SLUG]: { type: "http", url: mcpUrl } } }, null, 2);
 
   return (
     <>
@@ -241,7 +242,7 @@ claude mcp add-json --scope user mcp-server '${JSON.stringify({
         <p>
           Run <code>claude mcp list</code>, or open Claude Code and enter <code>/mcp</code>. The server should show as
           connected and expose its tools.
-          {!token && <> If it shows “Needs authentication,” run <code>claude mcp login mcp-server</code> again.</>}
+          {!token && <> If it shows “Needs authentication,” run <code>claude mcp login {BRAND_SLUG}</code> again.</>}
         </p>
       </Step>
       <Step number={token ? 3 : 4} title="Or share it with one repository">
@@ -267,11 +268,11 @@ claude mcp add-json --scope user mcp-server '${JSON.stringify({
 }
 
 function CodexGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
-  const oauthAddAndLogin = `codex mcp add mcp-server --url ${mcpUrl}
-codex mcp login mcp-server`;
+  const oauthAddAndLogin = `codex mcp add ${BRAND_SLUG} --url ${mcpUrl}
+codex mcp login ${BRAND_SLUG}`;
   const oauthList = "codex mcp list";
   const tokenCommands = `export MCP_SERVER_TOKEN="${token ?? "mcp_…"}"
-codex mcp add mcp-server --url ${mcpUrl} \\
+codex mcp add ${BRAND_SLUG} --url ${mcpUrl} \\
   --bearer-token-env-var MCP_SERVER_TOKEN`;
   const toml = `[mcp_servers.mcp_server]
 url = "${mcpUrl}"
@@ -318,11 +319,11 @@ bearer_token_env_var = "MCP_SERVER_TOKEN"`;
 }
 
 function CursorGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
-  const oauthJson = JSON.stringify({ mcpServers: { "mcp-server": { url: mcpUrl } } }, null, 2);
+  const oauthJson = JSON.stringify({ mcpServers: { [BRAND_SLUG]: { url: mcpUrl } } }, null, 2);
   const tokenJson = JSON.stringify(
     {
       mcpServers: {
-        "mcp-server": {
+        [BRAND_SLUG]: {
           url: mcpUrl,
           headers: { Authorization: token ? `Bearer ${token}` : "Bearer ${env:MCP_SERVER_TOKEN}" },
         },
@@ -345,7 +346,7 @@ function CursorGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
       />
       {!token && <AuthSummary />}
       <Notice kind="warning" className="mb-5">
-        Each snippet below is a complete <code>mcp.json</code>. If that file already configures other MCP servers, merge the <code>"mcp-server"</code> entry into your existing <code>mcpServers</code> object — don't paste over the whole file.
+        Each snippet below is a complete <code>mcp.json</code>. If that file already configures other MCP servers, merge the <code>"{BRAND_SLUG}"</code> entry into your existing <code>mcpServers</code> object — don't paste over the whole file.
       </Notice>
       <Step number={1} title="Choose a configuration scope">
         <p>
@@ -371,12 +372,12 @@ function CursorGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
       <Step number={token ? 3 : 4} title="Connect and verify">
         {token ? (
           <p>
-            Restart Cursor, open <strong>Cursor Settings → Tools & Integrations → MCP</strong>, then confirm MCP Server
+            Restart Cursor, open <strong>Cursor Settings → Tools & Integrations → MCP</strong>, then confirm {BRAND_NAME}
             is connected and its tools are enabled.
           </p>
         ) : (
           <p>
-            Open <strong>Cursor Settings → Tools & Integrations → MCP</strong>. Select <strong>Connect</strong> or <strong>Needs authentication</strong> for MCP Server, complete OAuth, then confirm its tools are enabled. Cursor Agent CLI users can run <code>cursor-agent mcp login mcp-server</code> and <code>cursor-agent mcp list-tools mcp-server</code>.
+            Open <strong>Cursor Settings → Tools & Integrations → MCP</strong>. Select <strong>Connect</strong> or <strong>Needs authentication</strong> for {BRAND_NAME}, complete OAuth, then confirm its tools are enabled. Cursor Agent CLI users can run <code>cursor-agent mcp login {BRAND_SLUG}</code> and <code>cursor-agent mcp list-tools {BRAND_SLUG}</code>.
           </p>
         )}
       </Step>
@@ -385,27 +386,27 @@ function CursorGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
 }
 
 function VsCodeGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
-  const oauthJson = JSON.stringify({ servers: { "mcp-server": { type: "http", url: mcpUrl } } }, null, 2);
+  const oauthJson = JSON.stringify({ servers: { [BRAND_SLUG]: { type: "http", url: mcpUrl } } }, null, 2);
   const tokenJson = JSON.stringify(
     token
       ? {
           servers: {
-            "mcp-server": { type: "http", url: mcpUrl, headers: { Authorization: `Bearer ${token}` } },
+            [BRAND_SLUG]: { type: "http", url: mcpUrl, headers: { Authorization: `Bearer ${token}` } },
           },
         }
       : {
           servers: {
-            "mcp-server": {
+            [BRAND_SLUG]: {
               type: "http",
               url: mcpUrl,
-              headers: { Authorization: "Bearer ${input:mcp-server-token}" },
+              headers: { Authorization: "Bearer ${input:" + BRAND_SLUG + "-token}" },
             },
           },
           inputs: [
             {
-              id: "mcp-server-token",
+              id: `${BRAND_SLUG}-token`,
               type: "promptString",
-              description: "MCP Server personal access token",
+              description: `${BRAND_NAME} personal access token`,
               password: true,
             },
           ],
@@ -474,15 +475,15 @@ function VsCodeGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
 
 function AntigravityGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
   const cliAddCommand = token
-    ? `agy mcp add --header "Authorization: Bearer ${token}" mcp-server ${mcpUrl}`
-    : `agy mcp add mcp-server ${mcpUrl}`;
+    ? `agy mcp add --header "Authorization: Bearer ${token}" ${BRAND_SLUG} ${mcpUrl}`
+    : `agy mcp add ${BRAND_SLUG} ${mcpUrl}`;
   const cliListCommand = "agy mcp list";
 
-  const oauthJson = JSON.stringify({ mcpServers: { "mcp-server": { serverUrl: mcpUrl } } }, null, 2);
+  const oauthJson = JSON.stringify({ mcpServers: { [BRAND_SLUG]: { serverUrl: mcpUrl } } }, null, 2);
   const tokenJson = JSON.stringify(
     {
       mcpServers: {
-        "mcp-server": {
+        [BRAND_SLUG]: {
           serverUrl: mcpUrl,
           headers: { Authorization: `Bearer ${token ?? "YOUR_PERSONAL_ACCESS_TOKEN"}` },
         },
@@ -501,7 +502,7 @@ function AntigravityGuide({ mcpUrl, token }: { mcpUrl: string; token?: string })
       />
       {!token && <AuthSummary />}
       <Notice kind="warning" className="mb-5">
-        Each snippet below is a complete <code>mcp_config.json</code>. If that file already configures other MCP servers, merge the <code>"mcp-server"</code> entry into your existing <code>mcpServers</code> object — don't paste over the whole file.
+        Each snippet below is a complete <code>mcp_config.json</code>. If that file already configures other MCP servers, merge the <code>"{BRAND_SLUG}"</code> entry into your existing <code>mcpServers</code> object — don't paste over the whole file.
       </Notice>
 
       <Step number={1} title="Antigravity 2.0 & IDE (UI Setup)">
@@ -514,7 +515,7 @@ function AntigravityGuide({ mcpUrl, token }: { mcpUrl: string; token?: string })
             Click <strong>Add MCP Server</strong> (or <strong>+</strong>).
           </li>
           <li>
-            Set Name to <code>mcp-server</code> and enter the remote URL:
+            Set Name to <code>{BRAND_SLUG}</code> and enter the remote URL:
           </li>
         </ol>
         <div className="mt-2">
@@ -598,14 +599,14 @@ function GeminiGuide({ mcpUrl, isLocal }: { mcpUrl: string; isLocal: boolean }) 
 
 function GenericGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
   const oauthJson = JSON.stringify(
-    { mcpServers: { "mcp-server": { type: "streamable-http", url: mcpUrl } } },
+    { mcpServers: { [BRAND_SLUG]: { type: "streamable-http", url: mcpUrl } } },
     null,
     2,
   );
   const tokenJson = JSON.stringify(
     {
       mcpServers: {
-        "mcp-server": {
+        [BRAND_SLUG]: {
           type: "streamable-http",
           url: mcpUrl,
           headers: { Authorization: `Bearer ${token ?? "YOUR_PERSONAL_ACCESS_TOKEN"}` },
@@ -629,7 +630,7 @@ function GenericGuide({ mcpUrl, token }: { mcpUrl: string; token?: string }) {
       />
       {!token && <AuthSummary />}
       <Notice kind="warning" className="mb-5">
-        The JSON snippets below illustrate a full config file for clients that use an <code>mcpServers</code> map. If your client's file already lists other servers, merge the <code>"mcp-server"</code> entry into your existing <code>mcpServers</code> object — don't paste over the whole file.
+        The JSON snippets below illustrate a full config file for clients that use an <code>mcpServers</code> map. If your client's file already lists other servers, merge the <code>"{BRAND_SLUG}"</code> entry into your existing <code>mcpServers</code> object — don't paste over the whole file.
       </Notice>
       <Step number={1} title="Select Streamable HTTP transport">
         <p>

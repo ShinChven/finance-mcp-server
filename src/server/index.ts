@@ -10,6 +10,7 @@ import { config } from "./config.js";
 import { pool } from "./db/index.js";
 import { attachRealtime } from "./realtime/attach.js";
 import { closeAllSockets } from "./realtime/socket.js";
+import { BRAND_SLUG } from "../shared/brand.js";
 
 await bootstrap();
 
@@ -20,7 +21,7 @@ app.use("*", serveStatic({ root: "./dist/web" }));
 app.get("*", serveStatic({ path: "./dist/web/index.html" }));
 
 const server = serve({ fetch: app.fetch, port: config.PORT }, (info) => {
-  console.log(`mcp-server listening on http://localhost:${info.port}`);
+  console.log(`${BRAND_SLUG} listening on http://localhost:${info.port}`);
 });
 
 // The realtime endpoint attaches to the Node server rather than the Hono app:

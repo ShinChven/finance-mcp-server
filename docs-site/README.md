@@ -1,6 +1,6 @@
-# Finance MCP Server Documentation Site
+# Fintools Documentation Site
 
-A [VitePress](https://vitepress.dev) documentation site for Finance MCP Server.
+A [VitePress](https://vitepress.dev) documentation site for Fintools.
 
 This site has its own `package.json` and dependencies. VitePress is **not**
 installed in the main app, and `docs-site/` is excluded by `.dockerignore`, so

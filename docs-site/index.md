@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: Finance MCP Server
+  name: Fintools
   text: Market data, filings and fund relationships over MCP
   tagline: A self-hosted Model Context Protocol server with a management dashboard — Yahoo Finance, SEC EDGAR, a cross-market fund holdings index, watchlists, notes and skills, behind Google sign-in and OAuth 2.1.
   actions:

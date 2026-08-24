@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
-  title: 'Finance MCP Server',
+  title: 'Fintools',
   description:
     'A self-hosted Model Context Protocol server for market data, SEC filings, cross-market fund relationships, watchlists and notes.',
   lang: 'en-US',
@@ -17,7 +17,7 @@ export default defineConfig({
   head: [
     ['meta', { name: 'theme-color', content: '#0f766e' }],
     ['meta', { property: 'og:type', content: 'website' }],
-    ['meta', { property: 'og:title', content: 'Finance MCP Server' }],
+    ['meta', { property: 'og:title', content: 'Fintools' }],
     [
       'meta',
       {
@@ -71,7 +71,7 @@ export default defineConfig({
           text: 'Introduction',
           collapsed: false,
           items: [
-            { text: 'What Is Finance MCP Server', link: '/guide/introduction' },
+            { text: 'What Is Fintools', link: '/guide/introduction' },
             { text: 'Architecture', link: '/guide/architecture' },
           ],
         },
