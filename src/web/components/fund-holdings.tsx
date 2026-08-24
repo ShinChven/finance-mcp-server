@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { completenessNote, PROVIDERS, TRAILING_PERIODS } from "../../shared/funds.js";
 import { Modal } from "./modal.js";
+import { NavChart } from "./nav-chart.js";
 import { EmptyState, Spinner } from "./ui.js";
 import { api } from "../lib/api.js";
 import { formatPercent, formatRelative, signClass } from "../lib/format.js";
@@ -49,6 +50,8 @@ export function HoldingsDialog({
     mutationFn: () => api<{ status: string; message: string }>(`/api/funds/${code}/cache`, { method: "POST" }),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["fund-holdings", code] });
+      // The same fetch fills NAV, so the chart is as stale as the table is.
+      void queryClient.invalidateQueries({ queryKey: ["fund-nav", code] });
       void queryClient.invalidateQueries({ queryKey: ["funds"] });
       void queryClient.invalidateQueries({ queryKey: ["fund-stats"] });
     },
@@ -108,6 +111,10 @@ function FundHoldings({ result, highlight }: { result: FundHoldingsResult; highl
           cached but whose positions are not still has a return to report, and
           it is the first thing anyone asks of a fund. */}
       <TrailingReturnsStrip returns={result.trailingReturns} />
+
+      {/* Under the windows rather than above them: the strip is the answer to
+          "how has it done", and the chart is the evidence for it. */}
+      <NavChart code={result.fund.code} />
 
       {result.items.length === 0 ? (
         <EmptyState

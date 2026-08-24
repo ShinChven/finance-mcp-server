@@ -25,6 +25,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import {
   isProviderScope,
+  navQuerySchema,
   normalizeFundCode,
   previewQuerySchema,
   PROVIDER_IDS,
@@ -35,7 +36,7 @@ import {
 import { db } from "../db/index.js";
 import { fundHoldings, fundIndexState, fundNav, funds, ingestJobs, instruments } from "../db/schema.js";
 import { previewSync } from "../funds/ingest.js";
-import { computeTrailingReturns } from "../funds/performance.js";
+import { buildNavChartSeries, computeTrailingReturns } from "../funds/performance.js";
 import { refreshAllFundIndexes } from "../funds/universe.js";
 import { activeJobId, cancelJob, JobInProgressError, startJob } from "../funds/jobs.js";
 import { createLazyFundCache } from "../funds/ondemand.js";
@@ -342,6 +343,55 @@ export const fundRoutes = new Hono<AppEnv>()
       // Null when the fund has fewer than two NAV observations — a fund cached
       // for its holdings alone, or one whose NAV fetch failed.
       trailingReturns: computeTrailingReturns(navSeries),
+    });
+  })
+
+  /**
+   * The NAV series behind the chart, for one window.
+   *
+   * Separate from the holdings drill-down even though that route already reads
+   * the same table, because the two are asked at different rates: holdings are
+   * fetched once when a fund is opened, and the series is refetched every time
+   * the reader switches range. Sending every observation with the portfolio so
+   * ranges could be sliced in the browser would move a twenty-year history for
+   * a reader who only ever looks at 1Y, and would have to be decimated for the
+   * longest window before the shortest one could be cut out of it — which is
+   * exactly backwards, since it is the short windows that need every point.
+   *
+   * A GET, and deliberately not one that fetches: a fund with no cached NAV
+   * answers "no series" rather than reaching upstream. Filling the cache is the
+   * `POST /:code/cache` the dialog already fires when it opens an uncached fund.
+   */
+  .get("/:code/nav", zValidator("query", navQuerySchema), async (c) => {
+    const code = normalizeFundCode(c.req.param("code"));
+    const { range } = c.req.valid("query");
+
+    const [fund] = await db
+      .select({ code: funds.code, currency: funds.currency, navSyncedAt: funds.navSyncedAt })
+      .from(funds)
+      .where(eq(funds.code, code))
+      .limit(1);
+    if (!fund) return c.json({ error: "fund not found" }, 404);
+
+    // The whole history in one query, windowed in memory — the same shape the
+    // `fundPerformance` tool uses, and for the same reason: this is a few
+    // thousand narrow rows, and windowing here keeps the range vocabulary in
+    // one place instead of translating it into SQL dates as well.
+    const history = await db
+      .select({ navDate: fundNav.navDate, nav: fundNav.nav, accNav: fundNav.accNav })
+      .from(fundNav)
+      .where(eq(fundNav.fundCode, code))
+      .orderBy(asc(fundNav.navDate));
+
+    return c.json({
+      code: fund.code,
+      currency: fund.currency,
+      navSyncedAt: fund.navSyncedAt,
+      range,
+      /** How many observations exist at all — a window can be empty while the
+       *  fund has years of history, and the two read very differently. */
+      historyPoints: history.length,
+      series: buildNavChartSeries(history, { range }),
     });
   });
 
