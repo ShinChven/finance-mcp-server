@@ -44,7 +44,7 @@ below.
 | `similarFunds` | Substitutes for a fund, by cosine similarity of exposure vectors |
 | `themeToFunds` | Theme → tracking index / sector exposure / market exposure, in one call |
 | `compareFunds` | Fees, size, top sectors and pairwise portfolio overlap for 2–10 funds |
-| `fundPerformance` | Cumulative/annualized return, max drawdown and volatility from NAV history |
+| `fundPerformance` | Trailing returns (1D→5Y, max), cumulative/annualized return, max drawdown and volatility from NAV history |
 
 ## Watchlists — [details](/mcp/watchlists)
 

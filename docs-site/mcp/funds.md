@@ -16,7 +16,7 @@ both, tagged with the market each fund trades in.
 | `similarFunds` | Substitutes for a fund, by cosine similarity of exposure vectors |
 | `themeToFunds` | Theme → tracking index / sector exposure / market exposure, in one call |
 | `compareFunds` | Fees, size, top sectors and pairwise portfolio overlap for 2–10 funds |
-| `fundPerformance` | Cumulative/annualized return, max drawdown and volatility from NAV history |
+| `fundPerformance` | Trailing returns (1D→5Y, max), cumulative/annualized return, max drawdown and volatility from NAV history |
 
 ::: tip No tool call hits an upstream source
 These tools read local tables only. An admin populates them from the **Fund
@@ -57,6 +57,23 @@ Whenever the series has it, returns are measured from cumulative NAV (累计净�
 so distributions are not read as losses — over a multi-year horizon that
 difference compounds into a materially wrong number. The response states which
 basis was used.
+
+Alongside the window statistics, `trailingReturns` carries the standard
+quotation windows — 1D, 1M, 3M, 6M, 1Y, 3Y, 5Y and since the earliest NAV on
+record. They are measured over the fund's whole history rather than over `from`
+… `to`, so narrowing the window does not silently shorten a 5Y figure; passing
+`to` moves the end of every window with it.
+
+Each entry reports the NAV dates it actually spanned. A window is anchored to a
+real observation on or before the calendar target, never to the target itself,
+so a 1Y return may run from 361 days back when the fund published no NAV on the
+anniversary — and a window the history does not reach back to is **absent from
+the list** rather than zero. Windows of a year or more also carry
+`annualizedPercent`; shorter ones do not, because annualizing a month turns
+noise into a forecast.
+
+The dashboard's fund drill-down shows the same figures as a row above the
+portfolio.
 
 ## Two numbers accompany every answer
 

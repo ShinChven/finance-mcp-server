@@ -20,7 +20,7 @@
  */
 
 import { zValidator } from "@hono/zod-validator";
-import { and, count, desc, eq, ilike, isNotNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, isNotNull, or, sql, type SQL } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import {
@@ -33,8 +33,9 @@ import {
   syncBodySchema,
 } from "../../shared/funds.js";
 import { db } from "../db/index.js";
-import { fundHoldings, fundIndexState, funds, ingestJobs, instruments } from "../db/schema.js";
+import { fundHoldings, fundIndexState, fundNav, funds, ingestJobs, instruments } from "../db/schema.js";
 import { previewSync } from "../funds/ingest.js";
+import { computeTrailingReturns } from "../funds/performance.js";
 import { refreshAllFundIndexes } from "../funds/universe.js";
 import { activeJobId, cancelJob, JobInProgressError, startJob } from "../funds/jobs.js";
 import { createLazyFundCache } from "../funds/ondemand.js";
@@ -296,6 +297,16 @@ export const fundRoutes = new Hono<AppEnv>()
       .where(eq(fundHoldings.fundCode, code))
       .orderBy(desc(fundHoldings.reportDate), desc(fundHoldings.weight));
 
+    // The NAV history behind the trailing returns. Read here rather than from a
+    // second endpoint because the same POST that caches a fund's holdings
+    // caches its NAV: one open, one fetch, one answer about what the fund holds
+    // and what it has returned.
+    const navSeries = await db
+      .select({ navDate: fundNav.navDate, nav: fundNav.nav, accNav: fundNav.accNav })
+      .from(fundNav)
+      .where(eq(fundNav.fundCode, code))
+      .orderBy(asc(fundNav.navDate));
+
     // Only the latest disclosed report is the fund's current portfolio; older
     // ones stay in the table but would double-count if mixed in.
     const latestReport = rows[0]?.reportDate ?? null;
@@ -314,6 +325,7 @@ export const fundRoutes = new Hono<AppEnv>()
         trackingIndex: fund.trackingIndex,
         holdingsCompleteness: fund.holdingsCompleteness,
         holdingsSyncedAt: fund.holdingsSyncedAt,
+        navSyncedAt: fund.navSyncedAt,
         lastSyncError: fund.lastSyncError,
       },
       latestReport,
@@ -327,6 +339,9 @@ export const fundRoutes = new Hono<AppEnv>()
       enrichedPositions: current.filter((row) => row.profileSyncedAt !== null).length,
       items: current,
       reportDates: [...new Set(rows.map((row) => row.reportDate))],
+      // Null when the fund has fewer than two NAV observations — a fund cached
+      // for its holdings alone, or one whose NAV fetch failed.
+      trailingReturns: computeTrailingReturns(navSeries),
     });
   });
 

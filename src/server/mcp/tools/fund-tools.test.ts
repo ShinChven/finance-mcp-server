@@ -392,13 +392,36 @@ describe("fundPerformance", () => {
     expect(body.series).toBeUndefined();
   });
 
-  it("passes the date window through to the repo", async () => {
+  it("narrows the window without narrowing the trailing figures", async () => {
     const repo = mockRepo();
-    await call(repo, "fundPerformance", { code: "162411", from: "2025-07-01", to: "2026-07-01" });
-    expect(repo.getNavSeries).toHaveBeenCalledWith("162411", {
-      from: "2025-07-01",
-      to: "2026-07-01",
-    });
+    const body = structured(
+      await call(repo, "fundPerformance", {
+        code: "162411",
+        from: "2026-01-01",
+        includeSeries: true,
+      }),
+    );
+
+    // The window applies to the report itself: 1.3 → 1.2 is a loss, where the
+    // full series is a gain.
+    expect((body.performance as Record<string, unknown>).cumulativeReturnPercent).toBeCloseTo(
+      -7.69,
+      1,
+    );
+    expect(body.series).toHaveLength(2);
+
+    // …but the trailing windows reach past `from`, or a narrow report would
+    // quietly quote a six-month return as 1Y.
+    const trailing = body.trailingReturns as { asOf: string; periods: { period: string }[] };
+    expect(trailing.asOf).toBe("2026-07-01");
+    expect(trailing.periods.map((entry) => entry.period)).toContain("1y");
+  });
+
+  it("ends the trailing windows at `to`", async () => {
+    const body = structured(
+      await call(mockRepo(), "fundPerformance", { code: "162411", to: "2026-02-01" }),
+    );
+    expect((body.trailingReturns as { asOf: string }).asOf).toBe("2026-01-01");
   });
 
   it("returns the series on request", async () => {
