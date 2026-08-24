@@ -74,6 +74,13 @@ and the parsers answer an unreadable response with an empty list — between the
 they can turn a blocked endpoint into a source that merely looks empty. The
 probe removes that tolerance for one fund, and exits non-zero if any step fails.
 
+The header line also names the route the provider took to its upstream when
+that can vary — `[direct]` or `[proxy https://…]` for iShares. A `403` means
+something different depending on which one it says, and nothing else in the
+report reveals it. If the universe step fails with a `403` from `AkamaiGHost`,
+the block is on this host's egress address rather than on the request, and
+[When iShares Is Blocked](/operations/ishares-relay) covers the fix.
+
 The Batch sync tab reports the other half: each provider card shows when its
 fund index last loaded and the error if the listing failed, which is why a
 provider showing zero funds is never ambiguous between "never synced" and

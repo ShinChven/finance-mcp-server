@@ -482,7 +482,10 @@ the [fintools-ishares-proxy](https://github.com/ShinChven/fintools-ishares-proxy
 Cloudflare Worker; unset, they go direct. It is per-provider rather than a
 process-wide `HTTP_PROXY` because eastmoney, SEC, Yahoo and CoinGecko all work
 direct from the same host. `--probe` prints which route was taken, and a refusal
-by the relay reports as the relay's, not as iShares bot protection.
+by the relay reports as the relay's, not as iShares bot protection. The relay
+adds tens of milliseconds; what dominates either route is whether iShares' own
+edge has the response. `docs-site/operations/ishares-relay.md` has the setup,
+the measurements, and what a relay cannot fix.
 
 **When a source fails, it says so rather than reading as empty.** The parsers
 answer an unreadable payload with an empty list — right for a pure function, and
