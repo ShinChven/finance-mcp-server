@@ -47,6 +47,7 @@ import { registerWatchlistRemoveTool } from "./tools/watchlist-remove.js";
 import { registerWatchlistsTool } from "./tools/watchlists.js";
 import { registerTrendingSymbolsTool } from "./tools/trending-symbols.js";
 import { registerWhoamiTool } from "./tools/whoami.js";
+import { MCP_SERVER_NAME } from "../../shared/brand.js";
 
 /**
  * Injectable dependencies. An object rather than positional parameters: every
@@ -81,7 +82,7 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
   const skills = deps.skills ?? createLazySkillsRepo();
 
   const server = new McpServer(
-    { name: "finance-mcp-server", version: "0.1.0" },
+    { name: MCP_SERVER_NAME, version: "0.1.0" },
     {
       instructions:
         "Six tool families. Yahoo Finance tools return global market data for stocks, ETFs, and indices " +

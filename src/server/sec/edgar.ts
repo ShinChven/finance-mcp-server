@@ -22,6 +22,7 @@ import {
   type MetricSeries,
   type TickerEntry,
 } from "./parse.js";
+import { BRAND_SLUG } from "../../shared/brand.js";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 /**
@@ -94,7 +95,7 @@ export class EdgarClient {
     // server entry has loaded .env.
     const contact =
       options.contactEmail ?? process.env["SEC_EDGAR_CONTACT_EMAIL"] ?? DEFAULT_CONTACT_EMAIL;
-    this.userAgent = `finance-mcp-server ${contact}`;
+    this.userAgent = `${BRAND_SLUG} ${contact}`;
   }
 
   private async throttle(): Promise<void> {

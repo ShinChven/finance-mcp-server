@@ -2,6 +2,7 @@ import { redirect, useSearchParams } from "react-router";
 import { Server } from "lucide-react";
 import { api } from "../lib/api.js";
 import { Card } from "../components/ui.js";
+import { BRAND_NAME } from "../../shared/brand.js";
 
 export async function loginLoader() {
   try {
@@ -31,7 +32,7 @@ export default function Login() {
         <div className="mx-auto mb-4 grid size-12 place-items-center rounded-xl bg-indigo-600">
           <Server className="size-6 text-white" />
         </div>
-        <h1 className="text-lg font-semibold">MCP Server Dashboard</h1>
+        <h1 className="text-lg font-semibold">{BRAND_NAME} Dashboard</h1>
         <p className="mt-1 mb-6 text-sm text-zinc-500 dark:text-zinc-400">
           Manage your access tokens and connected MCP clients.
         </p>

@@ -399,7 +399,7 @@ describe("EdgarClient", () => {
     }) as Fetcher);
 
     await edgar.fetchTickerMap();
-    expect(seen).toBe("finance-mcp-server test@example.com");
+    expect(seen).toBe("fintools test@example.com");
   });
 
   it("caches the ticker map instead of refetching it per lookup", async () => {

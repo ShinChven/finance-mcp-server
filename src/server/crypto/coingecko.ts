@@ -13,6 +13,8 @@
  * HTTP, throttling and caching here, shape knowledge in `parse()` below.
  */
 
+import { BRAND_SLUG } from "../../shared/brand.js";
+
 const REQUEST_TIMEOUT_MS = 15_000;
 const MARKETS_TTL_MS = 5 * 60 * 1_000;
 /** One entry per (currency, page, ordering); a handful covers normal use. */
@@ -148,7 +150,7 @@ export class CoinGeckoClient {
     const response = await this.fetchImpl(url, {
       headers: {
         Accept: "application/json",
-        "User-Agent": "finance-mcp-server",
+        "User-Agent": BRAND_SLUG,
         ...(this.apiKey !== undefined && { "x-cg-demo-api-key": this.apiKey }),
       },
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),

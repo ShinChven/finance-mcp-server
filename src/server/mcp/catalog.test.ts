@@ -16,7 +16,7 @@ describe("mcp tool catalog", () => {
   it("exposes every registered tool with browsable metadata", async () => {
     const catalog = await getMcpToolCatalog();
 
-    expect(catalog.server).toMatchObject({ name: "finance-mcp-server", version: "0.1.0" });
+    expect(catalog.server).toMatchObject({ name: "fintools", version: "0.1.0" });
     expect(catalog.server.instructions).toContain("Yahoo Finance");
     expect(catalog.tools.map((tool) => tool.name)).toEqual([
       "whoami",

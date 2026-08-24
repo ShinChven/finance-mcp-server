@@ -1,4 +1,4 @@
-# MCP Server
+# Fintools
 
 A containerized **Model Context Protocol (MCP) server** with a management dashboard.
 Users sign in with Google, manage their own access tokens and OAuth 2.1 clients;
@@ -23,7 +23,7 @@ push to `main`.
 - **OAuth 2.1 authorization server** — PKCE (S256) required, dynamic client
   registration (RFC 7591), discovery metadata (RFC 8414/9728), refresh token
   rotation with reuse detection, revocation (RFC 7009), consent screen.
-- **Finance MCP endpoint** — Streamable HTTP at `/mcp` with 10 read-only Yahoo
+- **Fintools MCP endpoint** — Streamable HTTP at `/mcp` with 10 read-only Yahoo
   Finance tools plus `whoami`; requests use the same PAT/OAuth 2.1 authorization
   layer as the rest of the MCP service.
 - **Cross-market fund relationship layer** — 6 further tools that answer *which

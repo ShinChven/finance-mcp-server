@@ -2,6 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { buildMcpServer } from "./server.js";
+import { BRAND_SLUG, MCP_SERVER_NAME } from "../../shared/brand.js";
 
 export interface McpToolCatalog {
   server: { name: string; version: string; instructions: string | null };
@@ -27,7 +28,7 @@ export function getMcpToolCatalog(): Promise<McpToolCatalog> {
 async function loadCatalog(): Promise<McpToolCatalog> {
   // No request auth: only tool metadata is read, never a tool handler.
   const server = buildMcpServer(null);
-  const client = new Client({ name: "finance-mcp-catalog", version: "0.1.0" });
+  const client = new Client({ name: `${BRAND_SLUG}-catalog`, version: "0.1.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   await client.connect(clientTransport);
@@ -37,7 +38,7 @@ async function loadCatalog(): Promise<McpToolCatalog> {
     const info = client.getServerVersion();
     return {
       server: {
-        name: info?.name ?? "finance-mcp-server",
+        name: info?.name ?? MCP_SERVER_NAME,
         version: info?.version ?? "0.0.0",
         instructions: client.getInstructions() ?? null,
       },

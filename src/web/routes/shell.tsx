@@ -25,6 +25,7 @@ import { api, ApiError } from "../lib/api.js";
 import { useRealtime } from "../lib/use-realtime.js";
 import { realtime, type RealtimeStatus } from "../lib/realtime.js";
 import type { Me } from "../lib/types.js";
+import { BRAND_NAME } from "../../shared/brand.js";
 
 export async function shellLoader({ request }: { request: Request }) {
   try {
@@ -240,7 +241,7 @@ export default function Shell() {
           <Menu className="size-5" />
         </button>
         <Server className="size-5 text-indigo-600 dark:text-indigo-400" />
-        <span className="font-semibold">MCP Server</span>
+        <span className="font-semibold">{BRAND_NAME}</span>
       </header>
 
       {navOpen && (
@@ -269,7 +270,7 @@ export default function Shell() {
           </span>
           {!railed && (
             <>
-              <span className="font-semibold">MCP Server</span>
+              <span className="font-semibold">{BRAND_NAME}</span>
               <RealtimeIndicator status={realtimeStatus} />
             </>
           )}

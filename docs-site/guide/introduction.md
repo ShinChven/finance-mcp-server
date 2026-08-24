@@ -1,6 +1,6 @@
-# What Is Finance MCP Server
+# What Is Fintools
 
-Finance MCP Server is a containerized [Model Context
+Fintools is a containerized [Model Context
 Protocol](https://modelcontextprotocol.io) server with a management dashboard.
 It gives an AI client — Claude, Claude Code, Codex, Cursor, VS Code, Antigravity,
 or anything that speaks MCP — a set of read-only market data tools, direct access
