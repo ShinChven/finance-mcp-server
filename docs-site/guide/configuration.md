@@ -48,6 +48,8 @@ by an admin cannot sign in, even with a valid Google account.
 |---|---|---|
 | `SEC_EDGAR_CONTACT_EMAIL` | recommended | EDGAR requires a descriptive `User-Agent` with a contact address on every request, or it starts rejecting them. A maintainer address is compiled in as the default — set your own for any real deployment. |
 | `COINGECKO_API_KEY` | no | `cryptoTickers` uses CoinGecko's public tier, which needs no key. A demo key only raises the rate limit. |
+| `ISHARES_PROXY_BASE` | no | Origin of a relay for the two iShares endpoints, no trailing slash. Set only when this host is blocked at Akamai's edge — see [When iShares Is Blocked](/operations/ishares-relay). Unset, iShares is fetched direct. |
+| `ISHARES_PROXY_TOKEN` | with `ISHARES_PROXY_BASE` | Bearer token for that relay. Both halves are required; one without the other stays direct. |
 
 Yahoo Finance needs no credentials: the data is read through the unofficial
 `yahoo-finance2` integration and may be delayed, unavailable or removed for

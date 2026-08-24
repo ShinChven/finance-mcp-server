@@ -147,6 +147,10 @@ export default defineConfig({
               link: '/operations/database',
             },
             { text: 'Fund Data Ingest', link: '/operations/ingest' },
+            {
+              text: 'When iShares Is Blocked',
+              link: '/operations/ishares-relay',
+            },
             { text: 'Upgrading', link: '/operations/upgrading' },
           ],
         },
