@@ -346,6 +346,21 @@ function decimate(series: ValuePoint[], threshold: number): ValuePoint[] {
 }
 
 /**
+ * A window's statistics, with the annualized figure suppressed under a year.
+ *
+ * `computePerformance` annualizes anything past 30 days, which is right for a
+ * caller that chose its own dates and knows what it asked for. A chart range is
+ * not that: a one-month window on a fund that happened to gain 5% would print
+ * "+90% a year" beside the line, which is the same noise-as-forecast the
+ * trailing windows already refuse to quote. One rule, both places.
+ */
+function windowPerformance(points: NavSeriesPoint[]): PerformanceResult | null {
+  const result = computePerformance(points);
+  if (result === null || result.days >= 365) return result;
+  return { ...result, annualizedReturnPercent: null };
+}
+
+/**
  * The plotted series for one fund over one window.
  *
  * Rebased to the window's own first observation rather than to an absolute NAV,
@@ -372,7 +387,13 @@ export function buildNavChartSeries(
   // fund whose NAV is three days stale would otherwise lose three days off the
   // left edge of every range for no reason the reader can see.
   const from = months === null ? null : monthsBefore(end.date, months);
-  const window = from === null ? series : series.filter((point) => point.date >= from);
+  // It starts on the observation the matching trailing return is measured
+  // from — the last one at or before the target, not the first one after it.
+  // Starting after the anchor rebases the line to a different day than the
+  // figure printed above it, and the two then disagree by however far the
+  // target happened to fall inside a weekend.
+  const anchor = from === null ? 0 : series.findLastIndex((point) => point.date <= from);
+  const window = series.slice(anchor === -1 ? 0 : anchor);
   const start = window[0];
   if (start === undefined || window.length < 2) return null;
 
@@ -392,7 +413,7 @@ export function buildNavChartSeries(
     })),
     // Measured over the window rather than the whole history, so the drawdown
     // printed beside the chart is the one the chart shows.
-    performance: computePerformance(
+    performance: windowPerformance(
       window.map((point) => ({
         navDate: point.date,
         nav: basis === "nav" ? point.value : null,

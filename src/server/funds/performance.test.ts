@@ -329,18 +329,85 @@ describe("buildNavChartSeries", () => {
     expect(result?.points.at(-1)?.changePercent).toBe(10);
   });
 
-  it("returns null when the window holds fewer than two observations", () => {
+  it("reaches back to the anchor observation on a sparse series", () => {
     const sparse = series([
       ["2020-01-01", 1, 1],
       ["2020-06-01", 1.1, 1.1],
     ]);
 
-    // Two years of history, but only one observation inside a one-month window
-    // — a single dot is not a line, so the caller says so instead of drawing
-    // a flat rule that would read as a month of going nowhere.
-    expect(buildNavChartSeries(sparse, { range: "1m" })).toBeNull();
-    expect(buildNavChartSeries(sparse, { range: "1y" })?.observations).toBe(2);
-    expect(buildNavChartSeries([sparse[0] as NavSeriesPoint], { range: "max" })).toBeNull();
+    // Nothing was published inside the last month, so the line is drawn from
+    // the observation the 1M return is measured from — a five-month span under
+    // a "1M" button, which the caption spells out. The alternative is a chart
+    // that rebases somewhere the printed figure does not, and disagrees with it.
+    const result = buildNavChartSeries(sparse, { range: "1m" });
+    expect(result?.startDate).toBe("2020-01-01");
+    expect(result?.points.at(-1)?.changePercent).toBe(10);
+  });
+
+  it("returns null when there is nothing to draw a line from", () => {
+    expect(buildNavChartSeries(series([["2020-01-01", 1, 1]]), { range: "max" })).toBeNull();
     expect(buildNavChartSeries([], { range: "max" })).toBeNull();
+    // Two rows, but neither carries a usable value.
+    expect(
+      buildNavChartSeries(
+        [
+          { navDate: "2020-01-01", nav: null, accNav: null },
+          { navDate: "2020-01-02", nav: null, accNav: null },
+        ],
+        { range: "max" },
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("buildNavChartSeries and computeTrailingReturns agree", () => {
+  /**
+   * The dialog prints both, one above the other. A chart whose own figure
+   * disagrees with the window named beside it discredits both numbers, and the
+   * disagreement is invisible without this: it only appears when the calendar
+   * target lands on a day the fund published nothing, which is two days in
+   * seven.
+   */
+  it("ends on the same return the matching trailing window reports", () => {
+    const points: NavSeriesPoint[] = [];
+    const start = Date.parse("2025-01-01T00:00:00Z");
+    for (let i = 0; i < 400; i++) {
+      const date = new Date(start + i * 86_400_000);
+      // Weekends unpublished, so the calendar target regularly falls on a gap.
+      if (date.getUTCDay() === 0 || date.getUTCDay() === 6) continue;
+      const value = 1 + Math.sin(i / 30) * 0.1 + i * 0.0004;
+      points.push({ navDate: date.toISOString().slice(0, 10), nav: value, accNav: value });
+    }
+
+    const trailing = computeTrailingReturns(points);
+    for (const range of ["1m", "3m", "6m", "1y"] as const) {
+      const chart = buildNavChartSeries(points, { range });
+      const window = trailing?.periods.find((period) => period.period === range);
+      if (chart === null || window === undefined) continue;
+
+      expect(chart.startDate).toBe(window.from);
+      expect(chart.points.at(-1)?.changePercent).toBeCloseTo(window.returnPercent, 2);
+    }
+  });
+
+  it("refuses to annualize a window shorter than a year", () => {
+    const points: NavSeriesPoint[] = [];
+    const start = Date.parse("2026-01-01T00:00:00Z");
+    for (let i = 0; i < 400; i++) {
+      const value = 1 + i * 0.0005;
+      points.push({
+        navDate: new Date(start + i * 86_400_000).toISOString().slice(0, 10),
+        nav: value,
+        accNav: value,
+      });
+    }
+
+    // A month of gains extrapolated to a year is a forecast, not a measurement.
+    expect(buildNavChartSeries(points, { range: "1m" })?.performance?.annualizedReturnPercent).toBeNull();
+    expect(
+      buildNavChartSeries(points, { range: "1y" })?.performance?.annualizedReturnPercent,
+    ).not.toBeNull();
+    // The rest of the window's statistics are unaffected.
+    expect(buildNavChartSeries(points, { range: "1m" })?.performance?.cumulativeReturnPercent).toBeGreaterThan(0);
   });
 });

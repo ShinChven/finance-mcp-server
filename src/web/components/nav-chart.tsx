@@ -99,10 +99,11 @@ export function NavChart({ code }: { code: string }) {
           {(query.error as Error).message}
         </p>
       ) : query.data.series === null ? (
+        // Not "this range is too long": a window always reaches back to the
+        // observation its return is measured from, so the only way to have
+        // nothing to draw is to have fewer than two usable observations at all.
         <p className="py-8 text-center text-xs text-zinc-400">
-          The cached NAV history does not cover{" "}
-          {NAV_RANGES.find((entry) => entry.id === range)?.title.toLowerCase() ?? range} — try a
-          longer window.
+          One NAV observation is cached for this fund — a line needs two.
         </p>
       ) : (
         <NavPlot series={query.data.series} />
