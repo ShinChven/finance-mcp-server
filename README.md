@@ -473,6 +473,17 @@ instead, which is what the product page itself calls. Both planes are keyless;
 the only requirement is a browser-like `User-Agent`, without which iShares
 serves an interstitial page rather than data.
 
+**iShares can be blocked on the caller rather than the request.** A browser-like
+`User-Agent` is enough from most networks, but from a host whose egress IP
+Akamai has already judged, the screener answers `403` from `AkamaiGHost` — the
+CDN's own block page — and the request never reaches iShares. Setting `ISHARES_PROXY_BASE`
+and `ISHARES_PROXY_TOKEN` routes those two requests, and only those two, through
+the [fintools-ishares-proxy](https://github.com/ShinChven/fintools-ishares-proxy)
+Cloudflare Worker; unset, they go direct. It is per-provider rather than a
+process-wide `HTTP_PROXY` because eastmoney, SEC, Yahoo and CoinGecko all work
+direct from the same host. `--probe` prints which route was taken, and a refusal
+by the relay reports as the relay's, not as iShares bot protection.
+
 **When a source fails, it says so rather than reading as empty.** The parsers
 answer an unreadable payload with an empty list — right for a pure function, and
 dangerous one layer up, where "no funds" is a statement no real provider makes.
