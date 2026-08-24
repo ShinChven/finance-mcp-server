@@ -32,6 +32,12 @@ export interface ProbeReport {
   provider: string;
   /** The fund the per-fund steps ran against, if any. */
   code: string | null;
+  /**
+   * How the provider reached its upstream, when it has something to say. A 403
+   * means something different depending on the answer, and nothing else in the
+   * report reveals it.
+   */
+  transport?: string;
   steps: ProbeStep[];
   ok: boolean;
 }
@@ -65,6 +71,7 @@ export async function probeProvider(
 ): Promise<ProbeReport> {
   const steps: ProbeStep[] = [];
   let code = requested ?? null;
+  const transport = provider.describeTransport?.();
 
   const universe = await timed("universe", async () => {
     const list = await provider.listUniverse();
@@ -77,7 +84,7 @@ export async function probeProvider(
   steps.push(universe);
 
   if (code === null) {
-    return { provider: provider.id, code: null, steps, ok: false };
+    return { provider: provider.id, code: null, steps, ok: false, ...(transport ? { transport } : {}) };
   }
   const target = code;
 
@@ -118,6 +125,7 @@ export async function probeProvider(
     code: target,
     steps,
     ok: steps.every((step) => step.ok),
+    ...(transport ? { transport } : {}),
   };
 }
 
@@ -130,6 +138,7 @@ export function describeProbe(report: ProbeReport): string {
   });
   const header =
     `${report.provider}${report.code === null ? "" : ` (${report.code})`}: ` +
-    (report.ok ? "all steps returned data" : "at least one step failed");
+    (report.ok ? "all steps returned data" : "at least one step failed") +
+    (report.transport === undefined ? "" : ` [${report.transport}]`);
   return [header, ...lines].join("\n");
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { IsharesClient } from "./client.js";
+import { IsharesClient, proxyFromEnv } from "./client.js";
 
 /**
  * What this fetch layer is for is telling data apart from everything else that
@@ -42,6 +42,9 @@ function client(body: string, init: ResponseInit = {}) {
     instance: new IsharesClient({
       fetchImpl: fetchImpl as unknown as typeof globalThis.fetch,
       minIntervalMs: 0,
+      // Explicitly direct: otherwise a developer with ISHARES_PROXY_BASE set in
+      // their environment would run a different suite than CI does.
+      proxy: null,
     }),
   };
 }
@@ -125,5 +128,78 @@ describe("IsharesClient", () => {
     const { instance } = client("Sorry, temporarily unavailable.");
 
     await expect(instance.fetchHoldings(product, "2026-01-01")).rejects.toThrow(/was not JSON/);
+  });
+});
+
+/**
+ * The relay exists because this source is blocked on the caller as much as on
+ * the request — from a host Akamai has judged, a browser-like User-Agent
+ * changes nothing. What these tests pin down is that routing through it stays
+ * invisible to everything above: the same URL is asked for, the same body comes
+ * back, and the one new failure mode is named rather than blamed on iShares.
+ */
+describe("egress proxy", () => {
+  const proxy = { base: "https://proxy.example.workers.dev", token: "s3cret" };
+
+  function proxied(response: Response) {
+    const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) => response);
+    return {
+      fetchImpl,
+      instance: new IsharesClient({
+        fetchImpl: fetchImpl as unknown as typeof globalThis.fetch,
+        minIntervalMs: 0,
+        proxy,
+      }),
+    };
+  }
+
+  it("asks the relay for the iShares URL, with the bearer token", async () => {
+    const { fetchImpl, instance } = proxied(new Response(HOLDINGS, { status: 200 }));
+
+    await instance.fetchHoldings(product, "2026-08-20");
+
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(url).toContain(`${proxy.base}/fetch?u=`);
+    const target = new URL(url as string).searchParams.get("u");
+    expect(target).toContain("https://www.ishares.com/varnish-api/");
+    expect(target).toContain("portfolioId=239726");
+    const headers = (init as RequestInit).headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer s3cret");
+    // The header iShares actually requires still has to survive the detour.
+    expect(headers["User-Agent"]).toContain("Mozilla/5.0");
+  });
+
+  it("blames the relay, not iShares, when the relay refuses", async () => {
+    const { instance } = proxied(
+      new Response('{"error":"missing or invalid bearer token"}', {
+        status: 401,
+        headers: { "x-proxy-error": "1" },
+      }),
+    );
+
+    await expect(instance.fetchProducts()).rejects.toThrow(/proxy refused the request \(401\)/);
+  });
+
+  it("still reports an iShares rejection as its own", async () => {
+    // Same status, no proxy marker: this one came from the far end, and the
+    // fix for it is a different one entirely.
+    const { instance } = proxied(new Response("nope", { status: 403 }));
+
+    await expect(instance.fetchProducts()).rejects.toThrow(/iShares request failed \(403\)/);
+  });
+
+  it("reports which route it takes", () => {
+    expect(new IsharesClient({ proxy }).describeTransport()).toBe(`proxy ${proxy.base}`);
+    expect(new IsharesClient({ proxy: null }).describeTransport()).toBe("direct");
+  });
+
+  it("stays direct unless both halves are configured", () => {
+    expect(proxyFromEnv({})).toBeNull();
+    expect(proxyFromEnv({ ISHARES_PROXY_BASE: proxy.base })).toBeNull();
+    expect(proxyFromEnv({ ISHARES_PROXY_TOKEN: proxy.token })).toBeNull();
+    expect(proxyFromEnv({ ISHARES_PROXY_BASE: `${proxy.base}/`, ISHARES_PROXY_TOKEN: "t" })).toEqual({
+      base: proxy.base,
+      token: "t",
+    });
   });
 });

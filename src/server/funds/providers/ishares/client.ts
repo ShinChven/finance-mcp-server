@@ -11,6 +11,16 @@
  * do require is a browser-like User-Agent: the default one gets an HTML
  * interstitial instead of data, which is why the header below is not decorative
  * and why a body that turns out to be HTML is raised rather than parsed.
+ *
+ * A browser-like User-Agent is not always enough, because the block is on the
+ * caller as well as on the request: from a host whose egress IP Akamai has
+ * already judged — rack8's, for one — the screener answers `403` from
+ * `AkamaiGHost` and the request never reaches iShares at all. `ISHARES_PROXY_BASE`
+ * routes these two requests, and only these two, through a relay that egresses
+ * somewhere else (see the `fintools-ishares-proxy` Worker). It is deliberately
+ * per-provider rather than a process-wide `HTTP_PROXY`: eastmoney, SEC, Yahoo
+ * and CoinGecko all work direct from the same host, and sending them through a
+ * relay would add a dependency and a hop for nothing.
  */
 
 import {
@@ -59,6 +69,26 @@ export const defaultEndpoints: IsharesEndpoints = {
 
 export type Fetcher = typeof globalThis.fetch;
 
+/** Where the two upstream requests are sent, when not sent straight to iShares. */
+export interface IsharesProxy {
+  /** Origin of the relay, e.g. `https://fintools-ishares-proxy.example.workers.dev`. */
+  base: string;
+  /** Shared secret, presented as `Authorization: Bearer <token>`. */
+  token: string;
+}
+
+/**
+ * Reads the relay out of the environment. Both halves are required: a base with
+ * no token would fail every request with the relay's own 401, which is a worse
+ * failure than the direct one it was meant to replace.
+ */
+export function proxyFromEnv(env: NodeJS.ProcessEnv = process.env): IsharesProxy | null {
+  const base = env.ISHARES_PROXY_BASE?.trim();
+  const token = env.ISHARES_PROXY_TOKEN?.trim();
+  if (!base || !token) return null;
+  return { base: base.replace(/\/+$/, ""), token };
+}
+
 /** Strips the UTF-8 byte-order mark these files are served with. */
 function stripBom(body: string): string {
   return body.charCodeAt(0) === 0xfeff ? body.slice(1) : body;
@@ -79,18 +109,32 @@ export interface IsharesClientOptions {
   fetchImpl?: Fetcher;
   endpoints?: IsharesEndpoints;
   minIntervalMs?: number;
+  /** Defaults to the environment; pass `null` to force a direct fetch. */
+  proxy?: IsharesProxy | null;
 }
 
 export class IsharesClient {
   private readonly fetchImpl: Fetcher;
   private readonly endpoints: IsharesEndpoints;
   private readonly minIntervalMs: number;
+  private readonly proxy: IsharesProxy | null;
   private lastRequestAt = 0;
 
   constructor(options: IsharesClientOptions = {}) {
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
     this.endpoints = options.endpoints ?? defaultEndpoints;
     this.minIntervalMs = options.minIntervalMs ?? 500;
+    this.proxy = options.proxy === undefined ? proxyFromEnv() : options.proxy;
+  }
+
+  /**
+   * How this client reaches iShares, for the probe to print. Which route was
+   * taken is the first thing worth knowing about a 403 from this source, and it
+   * is otherwise invisible: the URLs in an error are the iShares ones either
+   * way, because that is what was asked for.
+   */
+  describeTransport(): string {
+    return this.proxy === null ? "direct" : `proxy ${this.proxy.base}`;
   }
 
   private async throttle(): Promise<void> {
@@ -101,15 +145,33 @@ export class IsharesClient {
 
   private async get(url: string, accept: string): Promise<string> {
     await this.throttle();
-    const response = await this.fetchImpl(url, {
-      headers: {
-        "User-Agent": USER_AGENT,
-        Referer: `${ORIGIN}/us/products/etf-investments`,
-        Accept: accept,
-      },
+    const headers: Record<string, string> = {
+      "User-Agent": USER_AGENT,
+      Referer: `${ORIGIN}/us/products/etf-investments`,
+      Accept: accept,
+    };
+    // The relay forwards these headers verbatim and relays the answer
+    // unchanged, so everything below this line — the HTML check especially —
+    // reads the same response either way.
+    let requestUrl = url;
+    if (this.proxy !== null) {
+      requestUrl = `${this.proxy.base}/fetch?u=${encodeURIComponent(url)}`;
+      headers.Authorization = `Bearer ${this.proxy.token}`;
+    }
+    const response = await this.fetchImpl(requestUrl, {
+      headers,
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     if (!response.ok) {
+      // A refusal by the relay is not an answer from iShares, and saying so is
+      // the difference between rotating a token and chasing bot protection.
+      // The relay marks its own responses; iShares never sends this header.
+      if (response.headers.get("x-proxy-error") !== null) {
+        throw new Error(
+          `iShares proxy refused the request (${response.status}) — check ISHARES_PROXY_TOKEN ` +
+            `and the proxy's host allowlist: ${this.proxy?.base ?? requestUrl}`,
+        );
+      }
       throw new Error(`iShares request failed (${response.status}): ${url}`);
     }
     // The BOM is why this is not just `response.text()`: these files are served
