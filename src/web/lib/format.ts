@@ -56,3 +56,23 @@ export function formatRelative(value: string | null | undefined): string {
   else text = `${days}d`;
   return future ? `in ${text}` : `${text} ago`;
 }
+
+/**
+ * The colour a signed number is read in — green up, red down, grey flat.
+ *
+ * Shared by the watchlist and the fund returns so one convention covers both:
+ * a reader who has learnt what a green figure means on one page should not
+ * have to relearn it on the other.
+ */
+export function signClass(value: number | null | undefined): string {
+  if (value === null || value === undefined || value === 0) return "text-zinc-500";
+  return value > 0
+    ? "text-emerald-600 dark:text-emerald-400"
+    : "text-red-600 dark:text-red-400";
+}
+
+/** A percentage with an explicit sign, because an unsigned "3.20%" reads as a gain. */
+export function formatPercent(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+}

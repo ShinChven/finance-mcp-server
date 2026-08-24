@@ -34,7 +34,7 @@ import { FilterPills, SearchInput } from "../components/table.js";
 import { useToast } from "../components/toast.js";
 import { Button, Card, EmptyState, Input, Label, PageHeader, Spinner } from "../components/ui.js";
 import { api } from "../lib/api.js";
-import { formatRelative } from "../lib/format.js";
+import { formatPercent, formatRelative, signClass } from "../lib/format.js";
 import { useListParams } from "../lib/params.js";
 import type {
   AddItemsResult,
@@ -58,18 +58,6 @@ const LEVEL_FILTERS = [
 
 /** Quotes go stale quickly; a minute is often enough to matter and cheap enough to pay. */
 const QUOTE_REFRESH_MS = 60_000;
-
-function signClass(value: number | null | undefined): string {
-  if (value === null || value === undefined || value === 0) return "text-zinc-500";
-  return value > 0
-    ? "text-emerald-600 dark:text-emerald-400"
-    : "text-red-600 dark:text-red-400";
-}
-
-function formatPercent(value: number | null): string {
-  if (value === null) return "—";
-  return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
-}
 
 function formatPrice(value: number | null, currency: string | null): string {
   if (value === null) return "—";

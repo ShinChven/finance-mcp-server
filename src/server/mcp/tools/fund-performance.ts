@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { computePerformance } from "../../funds/performance.js";
+import { computePerformance, computeTrailingReturns } from "../../funds/performance.js";
 import type { FundCache } from "../../funds/ondemand.js";
 import { describeFundBrief } from "../../funds/present.js";
 import type { FundRepo } from "../../funds/repo.js";
@@ -29,8 +29,10 @@ export function registerFundPerformanceTool(
     {
       title: "Fund Performance",
       description:
-        "Cumulative and annualized return, maximum drawdown and volatility for a China public fund over a " +
-        "date window, computed from its ingested NAV history. Optionally returns the NAV series itself.",
+        "Cumulative and annualized return, maximum drawdown and volatility for a fund over a date window, " +
+        "computed from its ingested NAV history, plus its trailing returns over the standard windows " +
+        "(1D, 1M, 3M, 6M, 1Y, 3Y, 5Y and since the earliest NAV on record). Optionally returns the NAV " +
+        "series itself.",
       inputSchema: {
         code: fundCodeSchema,
         from: isoDate.optional(),
@@ -49,10 +51,16 @@ export function registerFundPerformanceTool(
           throw new Error(`Fund ${code} is not in the local index. Run the ingest job first.`);
         }
 
-        const series = await repo.getNavSeries(code, {
-          ...(from !== undefined ? { from } : {}),
-          ...(to !== undefined ? { to } : {}),
-        });
+        // The whole history in one query, narrowed in memory: the trailing
+        // windows reach back years further than `from` does, and asking the
+        // database twice for overlapping slices of a few thousand rows buys
+        // nothing. Both figures then end on the same observation.
+        const history = await repo.getNavSeries(code);
+        const series = history.filter(
+          (point) =>
+            (from === undefined || point.navDate >= from) &&
+            (to === undefined || point.navDate <= to),
+        );
 
         const performance = computePerformance(series);
         if (performance === null) {
@@ -61,9 +69,19 @@ export function registerFundPerformanceTool(
           );
         }
 
+        // Measured over the full history rather than the requested window, so a
+        // narrow `from` still gets a real 5Y figure instead of a truncated one.
+        const trailingReturns = computeTrailingReturns(
+          history,
+          to !== undefined ? { asOf: to } : {},
+        );
+
         return {
           fund: { ...describeFundBrief(fund), currency: fund.currency },
           performance,
+          // Absent periods are periods the NAV history does not reach back to,
+          // not zeros: a fund listed last year cannot quote 5Y.
+          ...(trailingReturns !== null ? { trailingReturns } : {}),
           ...(includeSeries === true ? { series } : {}),
           note:
             performance.basis === "accNav"

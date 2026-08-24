@@ -1,4 +1,4 @@
-import type { HoldingsCompleteness, ProviderId } from "../../shared/funds.js";
+import type { HoldingsCompleteness, ProviderId, TrailingPeriodId } from "../../shared/funds.js";
 import type { NoteSource, NoteStatus } from "../../shared/notes.js";
 import type { SkillSource, SkillStatus } from "../../shared/skills.js";
 import type {
@@ -199,6 +199,7 @@ export interface FundHoldingsResult {
     trackingIndex: string | null;
     holdingsCompleteness: HoldingsCompleteness;
     holdingsSyncedAt: string | null;
+    navSyncedAt: string | null;
     lastSyncError: string | null;
   };
   latestReport: string | null;
@@ -207,6 +208,25 @@ export interface FundHoldingsResult {
   enrichedPositions: number;
   items: HoldingRow[];
   reportDates: string[];
+  /** Null when the fund has too little NAV history to measure anything. */
+  trailingReturns: TrailingReturns | null;
+}
+
+/** One trailing window's return, as measured between two real NAV dates. */
+export interface TrailingReturn {
+  period: TrailingPeriodId;
+  from: string;
+  to: string;
+  days: number;
+  returnPercent: number;
+  annualizedPercent: number | null;
+}
+
+export interface TrailingReturns {
+  asOf: string;
+  basis: "accNav" | "nav";
+  /** Only the windows the NAV history reaches back to. */
+  periods: TrailingReturn[];
 }
 
 /** The counts shown before a sync is confirmed. */

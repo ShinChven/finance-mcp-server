@@ -8,12 +8,12 @@
 
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { completenessNote, PROVIDERS } from "../../shared/funds.js";
+import { completenessNote, PROVIDERS, TRAILING_PERIODS } from "../../shared/funds.js";
 import { Modal } from "./modal.js";
 import { EmptyState, Spinner } from "./ui.js";
 import { api } from "../lib/api.js";
-import { formatRelative } from "../lib/format.js";
-import type { FundHoldingsResult } from "../lib/types.js";
+import { formatPercent, formatRelative, signClass } from "../lib/format.js";
+import type { FundHoldingsResult, TrailingReturns } from "../lib/types.js";
 
 /**
  * Opening a fund that has never been synced fetches it there and then.
@@ -54,7 +54,12 @@ export function HoldingsDialog({
     },
   });
 
-  const uncached = query.data?.fund.holdingsSyncedAt === null;
+  // NAV counts as much as holdings here: the dialog now opens with a row of
+  // trailing returns, and a fund whose NAV step never ran would show eight em
+  // dashes with no way for the reader to ask for the data.
+  const uncached =
+    query.data !== undefined &&
+    (query.data.fund.holdingsSyncedAt === null || query.data.fund.navSyncedAt === null);
   useEffect(() => {
     if (!uncached || triggered) return;
     setTriggered(true);
@@ -87,25 +92,6 @@ export function HoldingsDialog({
 }
 
 function FundHoldings({ result, highlight }: { result: FundHoldingsResult; highlight: string }) {
-  if (result.items.length === 0) {
-    return (
-      <EmptyState
-        title="No holdings cached for this fund"
-        description={
-          result.fund.lastSyncError
-            ? `The last fetch failed: ${result.fund.lastSyncError}`
-            : "This fund published no positions in its latest report."
-        }
-      />
-    );
-  }
-
-  const full = result.fund.holdingsCompleteness === "full";
-  const enriched = result.enrichedPositions;
-  // A top-holdings list can run to hundreds of rows; without this the reader
-  // has to scan for the stock that put the fund in the results in the first place.
-  const needle = highlight.trim().toLowerCase();
-
   return (
     <>
       <div className="mb-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-zinc-500">
@@ -118,6 +104,37 @@ function FundHoldings({ result, highlight }: { result: FundHoldingsResult; highl
         <span>Cached {formatRelative(result.fund.holdingsSyncedAt)}</span>
       </div>
 
+      {/* Above the portfolio, and outside the empty case: a fund whose NAV is
+          cached but whose positions are not still has a return to report, and
+          it is the first thing anyone asks of a fund. */}
+      <TrailingReturnsStrip returns={result.trailingReturns} />
+
+      {result.items.length === 0 ? (
+        <EmptyState
+          title="No holdings cached for this fund"
+          description={
+            result.fund.lastSyncError
+              ? `The last fetch failed: ${result.fund.lastSyncError}`
+              : "This fund published no positions in its latest report."
+          }
+        />
+      ) : (
+        <HoldingsTable result={result} highlight={highlight} />
+      )}
+    </>
+  );
+}
+
+/** The disclosed portfolio itself, once there is one to show. */
+function HoldingsTable({ result, highlight }: { result: FundHoldingsResult; highlight: string }) {
+  const full = result.fund.holdingsCompleteness === "full";
+  const enriched = result.enrichedPositions;
+  // A top-holdings list can run to hundreds of rows; without this the reader
+  // has to scan for the stock that put the fund in the results in the first place.
+  const needle = highlight.trim().toLowerCase();
+
+  return (
+    <>
       {/* What the disclosed weight means depends entirely on the source: ~62%
           is normal for a top-holdings discloser and alarming for a full one.
           The sentence follows the fund's own convention rather than assuming. */}
@@ -188,6 +205,83 @@ function FundHoldings({ result, highlight }: { result: FundHoldingsResult; highl
         </table>
       </div>
     </>
+  );
+}
+
+/**
+ * What the fund has returned over each standard window.
+ *
+ * The holdings table says what a fund owns, never how it has done, and the two
+ * are read together — a sector bet is judged by what it returned. Each cell
+ * names the window it actually measured in its tooltip, because a 1Y figure
+ * anchored 361 days back is the honest answer for a fund whose NAV was not
+ * published on the anniversary, and a reader comparing funds needs to see when
+ * one of them is measured over a stale gap.
+ */
+function TrailingReturnsStrip({ returns }: { returns: TrailingReturns | null }) {
+  if (returns === null) {
+    return (
+      <p className="mb-3 text-xs text-zinc-400">
+        No NAV history is cached for this fund, so its returns cannot be measured.
+      </p>
+    );
+  }
+
+  // Keyed by period so the row can render every window in the shared order and
+  // show an em dash for the ones a young fund cannot reach back to — a missing
+  // 5Y is absent history, not a zero.
+  const measured = new Map(returns.periods.map((entry) => [entry.period, entry]));
+
+  return (
+    <div className="mb-3 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
+      {/* Four across in two rows until the dialog is wide enough for eight
+          columns to hold a figure like +126.40% without clipping it — the row
+          must never make the modal scroll sideways to reach the 5Y number. The
+          rules are the grid's own gap showing through, not `divide-*`, which
+          draws its borders in DOM order and would strand a vertical rule down
+          the left of the second row. */}
+      <div className="grid grid-cols-4 gap-px bg-zinc-200 md:grid-cols-8 dark:bg-zinc-800">
+        {TRAILING_PERIODS.map((period) => {
+          const entry = measured.get(period.id);
+          return (
+            <div
+              key={period.id}
+              className="bg-white px-1 py-2 text-center sm:px-2 dark:bg-zinc-900"
+              title={
+                entry
+                  ? `${period.title}: ${entry.from} → ${entry.to} (${entry.days} days)` +
+                    (entry.annualizedPercent === null
+                      ? ""
+                      : ` · ${formatPercent(entry.annualizedPercent)} a year`)
+                  : `${period.title}: the cached NAV history does not reach back this far`
+              }
+            >
+              <div className="text-[11px] font-medium text-zinc-500 uppercase">{period.label}</div>
+              <div
+                // A step down on a phone: four columns across a 375px screen
+                // leave ~75px a cell, and a long-lived fund's since-inception
+                // figure runs to four digits before the decimal point.
+                className={`text-xs tabular-nums sm:text-sm ${
+                  entry ? signClass(entry.returnPercent) : "text-zinc-400"
+                }`}
+              >
+                {entry ? formatPercent(entry.returnPercent) : "—"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Which NAV the figures came from, stated rather than assumed: unit NAV
+          drops on every distribution, so a long window measured from it is
+          understated by exactly the dividends the fund paid. */}
+      <p className="border-t border-zinc-200 px-3 py-1.5 text-[11px] text-zinc-400 dark:border-zinc-800">
+        NAV through {returns.asOf}.{" "}
+        {returns.basis === "accNav"
+          ? "Measured from cumulative NAV, so distributions count as return rather than as a loss."
+          : "Measured from unit NAV because no cumulative NAV is cached — distributions are excluded, so the longer windows understate the fund."}
+      </p>
+    </div>
   );
 }
 

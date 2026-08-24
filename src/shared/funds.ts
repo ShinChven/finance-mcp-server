@@ -219,6 +219,30 @@ export function completenessNote(completeness: HoldingsCompleteness): string {
 }
 
 /**
+ * The trailing windows a fund's return is quoted over.
+ *
+ * One list, shared by the computation, the MCP tool and the dashboard, because
+ * these labels are a contract: a reader comparing two funds must know that both
+ * "1Y" columns mean the same window, and a model reading `trailingReturns` must
+ * be able to name the period it is quoting. `months: null` is the whole
+ * available history, and `1d` is the change over the previous observation
+ * rather than a calendar day — NAV is published on trading days, so "yesterday"
+ * across a weekend or a holiday is not a fixed number of days back.
+ */
+export const TRAILING_PERIODS = [
+  { id: "1d", label: "1D", title: "Since the previous NAV", months: null },
+  { id: "1m", label: "1M", title: "1 month", months: 1 },
+  { id: "3m", label: "3M", title: "3 months", months: 3 },
+  { id: "6m", label: "6M", title: "6 months", months: 6 },
+  { id: "1y", label: "1Y", title: "1 year", months: 12 },
+  { id: "3y", label: "3Y", title: "3 years", months: 36 },
+  { id: "5y", label: "5Y", title: "5 years", months: 60 },
+  { id: "max", label: "Max", title: "Since the earliest NAV on record", months: null },
+] as const;
+
+export type TrailingPeriodId = (typeof TRAILING_PERIODS)[number]["id"];
+
+/**
  * Query-string booleans, parsed explicitly.
  *
  * NOT `z.coerce.boolean()`: that is `Boolean(value)`, and `Boolean("false")` is
