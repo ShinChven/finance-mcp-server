@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { WatchlistLevel } from "../db/schema.js";
 import type { YahooFinanceClient } from "../mcp/client.js";
-import { enrichItems, summarize } from "./live.js";
+import { dividendYieldPercent, enrichItems, summarize } from "./live.js";
 import type { FundSnapshot, WatchlistItemRow, WatchlistRepo } from "./repo.js";
 
 function item(
@@ -46,12 +46,26 @@ function fakeClient(quotes: unknown[], fail = false): YahooFinanceClient {
   } as unknown as YahooFinanceClient;
 }
 
-function fakeRepo(snapshots: FundSnapshot[]): WatchlistRepo {
+function fakeRepo(
+  snapshots: FundSnapshot[],
+  navWindows: Record<string, { navDate: string; nav: number | null; accNav: number | null }[]> = {},
+): WatchlistRepo {
   return {
     getFundSnapshots: vi.fn(async (codes: string[]) => {
       const map = new Map<string, FundSnapshot>();
       for (const snapshot of snapshots) {
         if (codes.includes(snapshot.code)) map.set(snapshot.code, snapshot);
+      }
+      return map;
+    }),
+    getFundNavWindows: vi.fn(async (codes: string[], since: string) => {
+      const map = new Map<string, { navDate: string; nav: number | null; accNav: number | null }[]>();
+      for (const [code, points] of Object.entries(navWindows)) {
+        if (!codes.includes(code)) continue;
+        map.set(
+          code,
+          points.filter((point) => point.navDate >= since),
+        );
       }
       return map;
     }),
@@ -253,5 +267,183 @@ describe("watchlist live values", () => {
       },
     );
     expect(summarize(enriched).approaching).toBe(1);
+  });
+});
+
+describe("quote statistics", () => {
+  it("carries the context the quote already returned", async () => {
+    const enriched = await enrichItems([item({ kind: "symbol", ref: "NVDA" })], {
+      client: fakeClient([
+        {
+          ...nvda,
+          regularMarketPreviousClose: 118,
+          regularMarketDayLow: 118.2,
+          regularMarketDayHigh: 121.9,
+          fiftyTwoWeekLow: 80,
+          fiftyTwoWeekHigh: 140,
+          regularMarketVolume: 41_000_000,
+          averageDailyVolume3Month: 38_000_000,
+          fiftyDayAverage: 115.4,
+          twoHundredDayAverage: 104.2,
+          marketCap: 2_960_000_000_000,
+          trailingPE: 51.3,
+          dividendYield: 0.03,
+          fiftyTwoWeekChangePercent: 34.5,
+        },
+      ]),
+      repo: fakeRepo([]),
+    });
+
+    const stats = enriched[0]?.live.stats;
+    expect(stats).toMatchObject({
+      previousClose: 118,
+      fiftyTwoWeekLow: 80,
+      fiftyTwoWeekHigh: 140,
+      volume: 41_000_000,
+      marketCap: 2_960_000_000_000,
+      trailingPe: 51.3,
+    });
+    // 120.5 sits (120.5 - 80) / (140 - 80) of the way up the year's range.
+    expect(stats?.fiftyTwoWeekPosition).toBeCloseTo(0.675, 3);
+  });
+
+  it("renders every statistic as absent when the quote omits them", async () => {
+    // A crypto pair or a thinly covered listing arrives like this: a price and
+    // almost nothing else. Absent must stay absent rather than become zero,
+    // which would read as a real reading of nought.
+    const enriched = await enrichItems([item({ kind: "symbol", ref: "BTC-USD" })], {
+      client: fakeClient([
+        { symbol: "BTC-USD", regularMarketPrice: 64_000, marketState: "REGULAR" },
+      ]),
+      repo: fakeRepo([]),
+    });
+
+    const stats = enriched[0]?.live.stats;
+    expect(enriched[0]?.live.available).toBe(true);
+    expect(stats).not.toBeNull();
+    expect(stats?.marketCap).toBeNull();
+    expect(stats?.trailingPe).toBeNull();
+    expect(stats?.fiftyTwoWeekPosition).toBeNull();
+    expect(stats?.dividendYieldPercent).toBeNull();
+    expect(enriched[0]?.live.returns).toBeNull();
+  });
+
+  it("treats dividendYield as a percentage and derives one only from the rate", () => {
+    // Documented as a percentage upstream, so it passes through untouched.
+    expect(dividendYieldPercent({ dividendYield: 1.42 })).toBe(1.42);
+    // Derived when absent, from figures whose units are ours.
+    expect(
+      dividendYieldPercent({ trailingAnnualDividendRate: 2, regularMarketPrice: 100 }),
+    ).toBe(2);
+    // Implausible values are dropped rather than printed beside real ones.
+    expect(dividendYieldPercent({ dividendYield: 4000 })).toBeNull();
+    expect(dividendYieldPercent({})).toBeNull();
+  });
+
+  it("shows an out-of-hours print only while the session says there is one", async () => {
+    const afterHours = await enrichItems([item({ kind: "symbol", ref: "NVDA" })], {
+      client: fakeClient([
+        {
+          ...nvda,
+          marketState: "POST",
+          postMarketPrice: 122.4,
+          postMarketChangePercent: 1.58,
+          postMarketTime: 1_775_020_000,
+        },
+      ]),
+      repo: fakeRepo([]),
+    });
+    expect(afterHours[0]?.live.extended).toMatchObject({ phase: "post", price: 122.4 });
+
+    // The same fields survive on the payload into the next session; a stale
+    // print must not be shown as though it were live.
+    const nextMorning = await enrichItems([item({ kind: "symbol", ref: "NVDA" })], {
+      client: fakeClient([{ ...nvda, marketState: "REGULAR", postMarketPrice: 122.4 }]),
+      repo: fakeRepo([]),
+    });
+    expect(nextMorning[0]?.live.extended).toBeNull();
+  });
+
+  it("quotes a symbol's year from the quote, labelled as a price return", async () => {
+    const enriched = await enrichItems([item({ kind: "symbol", ref: "NVDA" })], {
+      client: fakeClient([{ ...nvda, fiftyTwoWeekChangePercent: 34.5 }]),
+      repo: fakeRepo([]),
+    });
+
+    expect(enriched[0]?.live.returns).toEqual({
+      basis: "price",
+      periods: [{ period: "1y", returnPercent: 34.5, from: null, to: null }],
+    });
+  });
+
+  it("quotes a fund's trailing windows from cached NAV, and only the covered ones", async () => {
+    // A year and a bit of daily NAV: enough for every window the row offers,
+    // and deliberately not enough for the multi-year ones the fund page shows.
+    const points: { navDate: string; nav: number; accNav: number }[] = [];
+    const start = Date.UTC(2025, 6, 1);
+    for (let day = 0; day <= 420; day++) {
+      const date = new Date(start + day * 86_400_000).toISOString().slice(0, 10);
+      points.push({ navDate: date, nav: 1 + day * 0.001, accNav: 1.5 + day * 0.001 });
+    }
+    const latest = points.at(-1)!;
+
+    const enriched = await enrichItems([item({ kind: "fund", ref: "161125" })], {
+      client: fakeClient([]),
+      repo: fakeRepo(
+        [
+          {
+            code: "161125",
+            name: "标普500",
+            nav: latest.nav,
+            accNav: latest.accNav,
+            dailyReturn: 0.1,
+            navDate: latest.navDate,
+          },
+        ],
+        { "161125": points },
+      ),
+    });
+
+    const returns = enriched[0]?.live.returns;
+    expect(returns?.basis).toBe("accNav");
+    const periods = returns?.periods.map((entry) => entry.period) ?? [];
+    // Only the windows the bounded read can honestly cover: no `max` claiming
+    // the truncated start is inception, and no multi-year window at all.
+    expect(periods).toContain("1m");
+    expect(periods).toContain("1y");
+    expect(periods).not.toContain("max");
+    expect(periods).not.toContain("3y");
+    // Every window names the observations it really spans.
+    expect(returns?.periods.every((entry) => entry.from !== null && entry.to !== null)).toBe(true);
+  });
+
+  it("keeps a fund priced when its NAV history cannot be read", async () => {
+    const enriched = await enrichItems([item({ kind: "fund", ref: "161125" })], {
+      client: fakeClient([]),
+      repo: {
+        getFundSnapshots: vi.fn(async () =>
+          new Map([
+            [
+              "161125",
+              {
+                code: "161125",
+                name: "标普500",
+                nav: 1.5,
+                accNav: 2.1,
+                dailyReturn: 0.5,
+                navDate: "2026-08-15",
+              },
+            ],
+          ]),
+        ),
+        getFundNavWindows: vi.fn(async () => {
+          throw new Error("history table unavailable");
+        }),
+      } as unknown as WatchlistRepo,
+    });
+
+    expect(enriched[0]?.live.price).toBe(1.5);
+    expect(enriched[0]?.live.available).toBe(true);
+    expect(enriched[0]?.live.returns).toBeNull();
   });
 });

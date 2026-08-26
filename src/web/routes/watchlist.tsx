@@ -42,7 +42,13 @@ import type {
   WatchlistItemsResult,
   WatchlistSummary,
 } from "../lib/types.js";
-import { detectItemKind, KIND_LABELS, NEAR_LEVEL_PERCENT } from "../../shared/watchlist.js";
+import {
+  detectItemKind,
+  KIND_LABELS,
+  NEAR_LEVEL_PERCENT,
+  type WatchlistReturnPeriod,
+} from "../../shared/watchlist.js";
+import { RangeMeter } from "../components/instrument-stats.js";
 
 const KIND_FILTERS = [
   { value: "symbol", label: "Instruments" },
@@ -377,6 +383,8 @@ function useSortedItems(items: WatchlistItem[], sort: string): WatchlistItem[] {
           return item.live.price ?? Number.NEGATIVE_INFINITY;
         case "entry":
           return item.sinceEntryPercent ?? Number.NEGATIVE_INFINITY;
+        case "return1y":
+          return returnOver(item, "1y") ?? Number.NEGATIVE_INFINITY;
         case "levels": {
           // Closest first, whichever direction it is in: the question this
           // column answers is "what is about to happen", not "up or down".
@@ -499,11 +507,24 @@ const COLUMNS: {
   { key: "ref", label: "Item", sortable: true },
   { key: "price", label: "Last", sortable: true, align: "text-right" },
   { key: "change", label: "Change", sortable: true, align: "text-right" },
+  { key: "return1y", label: "1Y", sortable: true, align: "text-right", secondary: true },
   { key: "entry", label: "Since entry", sortable: true, align: "text-right", secondary: true },
+  { key: "range", label: "52-week", secondary: true },
   { key: "levels", label: "Levels", sortable: true },
   { key: "note", label: "Note", secondary: true },
   { key: "actions", label: "", align: "text-right" },
 ];
+
+/**
+ * A row's return over one window, or null.
+ *
+ * Kept as a lookup rather than an index because the periods a row carries
+ * depend on its source: a fund with enough cached NAV quotes four, a symbol
+ * quotes the one its quote knows.
+ */
+function returnOver(item: WatchlistItem, period: WatchlistReturnPeriod): number | null {
+  return item.live.returns?.periods.find((entry) => entry.period === period)?.returnPercent ?? null;
+}
 
 /**
  * With the panel open the table has roughly half the width it had, and the two
@@ -636,6 +657,25 @@ function ItemsTable({
                   {formatPercent(item.live.changePercent)}
                 </td>
                 <td
+                  className={`px-4 py-3 text-right tabular-nums ${signClass(
+                    returnOver(item, "1y"),
+                  )} ${narrow ? SECONDARY_HIDDEN : ""}`}
+                >
+                  {returnOver(item, "1y") === null ? (
+                    <span className="text-zinc-300 dark:text-zinc-600">—</span>
+                  ) : (
+                    <span
+                      title={
+                        item.live.returns?.basis === "price"
+                          ? "The quote's 52-week change; a price return, so dividends are excluded."
+                          : "Measured from cached NAV over the trailing year."
+                      }
+                    >
+                      {formatPercent(returnOver(item, "1y"))}
+                    </span>
+                  )}
+                </td>
+                <td
                   className={`px-4 py-3 text-right tabular-nums ${signClass(item.sinceEntryPercent)} ${
                     narrow ? SECONDARY_HIDDEN : ""
                   }`}
@@ -647,6 +687,22 @@ function ItemsTable({
                       <div>{formatPercent(item.sinceEntryPercent)}</div>
                       <div className="text-[10px] text-zinc-400">from {item.entryPrice}</div>
                     </>
+                  )}
+                </td>
+                <td className={`w-36 px-4 py-3 ${narrow ? SECONDARY_HIDDEN : ""}`}>
+                  {item.live.stats?.fiftyTwoWeekPosition === null ||
+                  item.live.stats === null ||
+                  item.live.stats.fiftyTwoWeekLow === null ||
+                  item.live.stats.fiftyTwoWeekHigh === null ? (
+                    <span className="text-xs text-zinc-300 dark:text-zinc-600">—</span>
+                  ) : (
+                    <RangeMeter
+                      low={item.live.stats.fiftyTwoWeekLow}
+                      high={item.live.stats.fiftyTwoWeekHigh}
+                      position={item.live.stats.fiftyTwoWeekPosition}
+                      label={`${item.ref} 52-week range`}
+                      compact
+                    />
                   )}
                 </td>
                 <td className="w-44 px-4 py-3">

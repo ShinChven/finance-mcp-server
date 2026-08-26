@@ -9,6 +9,7 @@
 
 import { useState } from "react";
 import { Check, Pencil, Plus, RotateCcw, Trash2, X } from "lucide-react";
+import { QuoteStatsPanel } from "./instrument-stats.js";
 import { Modal } from "./modal.js";
 import { Button, Card, Input, Label, Select } from "./ui.js";
 import { formatRelative } from "../lib/format.js";
@@ -218,6 +219,15 @@ export function LevelsPanel({
         >
           {formatMove(item.sinceEntryPercent)}
         </span>
+      </div>
+
+      <div className="mb-3">
+        <QuoteStatsPanel
+          stats={item.live.stats}
+          extended={item.live.extended}
+          returns={item.live.returns}
+          price={item.live.price}
+        />
       </div>
 
       <div className="mb-4">

@@ -213,6 +213,16 @@ function memoryRepo(seed: { lists?: WatchlistSummary[]; items?: WatchlistItemRow
       }
       return map;
     }),
+    getFundNavWindows: vi.fn(async (codes: string[]) => {
+      const map = new Map<string, { navDate: string; nav: number | null; accNav: number | null }[]>();
+      for (const code of codes) {
+        map.set(code, [
+          { navDate: "2025-08-15", nav: 1.2, accNav: 1.6 },
+          { navDate: "2026-08-15", nav: 1.5, accNav: 2 },
+        ]);
+      }
+      return map;
+    }),
   };
 
   return { repo, lists, items };

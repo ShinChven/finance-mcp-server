@@ -17,16 +17,65 @@ import {
   locateLevel,
   NEAR_LEVEL_PERCENT,
   percentChange,
+  rangePosition,
+  WATCHLIST_NAV_WINDOW_DAYS,
+  WATCHLIST_RETURN_PERIODS,
+  type ItemReturn,
+  type ItemReturns,
   type LevelPosition,
   type WatchlistItemKind,
   type WatchlistLevelKind,
   type WatchlistLevelSource,
   type WatchlistLevelStatus,
+  type WatchlistReturnPeriod,
 } from "../../shared/watchlist.js";
+import { computeTrailingReturns, type NavSeriesPoint } from "../funds/performance.js";
 import type { YahooFinanceClient } from "../mcp/client.js";
 import { yahooRequestOptions } from "../mcp/tools/runtime.js";
 import type { WatchlistLevel } from "../db/schema.js";
 import type { WatchlistItemRow, WatchlistRepo } from "./repo.js";
+
+/**
+ * The context a price needs to mean something.
+ *
+ * All of it arrives in the same `quote()` response the price does, so this
+ * block costs no extra request — it was being parsed and discarded. Every
+ * field is nullable because the upstream declares every one of them optional
+ * and coverage really does vary by instrument: an ETF has no P/E, many CN and
+ * HK listings carry no 52-week change, and a crypto pair has almost none of it.
+ * Absent is rendered as absent, never as zero.
+ */
+export interface QuoteStats {
+  previousClose: number | null;
+  dayLow: number | null;
+  dayHigh: number | null;
+  fiftyTwoWeekLow: number | null;
+  fiftyTwoWeekHigh: number | null;
+  /** 0 at the 52-week low, 1 at the high; null unless both ends are known. */
+  fiftyTwoWeekPosition: number | null;
+  volume: number | null;
+  averageVolume3Month: number | null;
+  fiftyDayAverage: number | null;
+  twoHundredDayAverage: number | null;
+  marketCap: number | null;
+  trailingPe: number | null;
+  /** Percent, not a fraction — see `dividendYieldPercent`. */
+  dividendYieldPercent: number | null;
+}
+
+/**
+ * A price from outside the regular session.
+ *
+ * Kept apart from `price` rather than replacing it: the day's change is
+ * measured against the regular close, and a pre-market print folded into the
+ * same field would silently redefine what every percentage on the row means.
+ */
+export interface ExtendedQuote {
+  phase: "pre" | "post";
+  price: number;
+  changePercent: number | null;
+  asOf: string | null;
+}
 
 export interface LiveValue {
   /** `market` for a Yahoo quote, `nav` for a fund's last published NAV. */
@@ -41,6 +90,12 @@ export interface LiveValue {
   asOf: string | null;
   available: boolean;
   unavailableReason?: string;
+  /** Null for funds, whose NAV carries none of this. */
+  stats: QuoteStats | null;
+  /** Present only while a pre- or post-market print is the latest one. */
+  extended: ExtendedQuote | null;
+  /** Trailing windows this item can quote; null when the source offers none. */
+  returns: ItemReturns | null;
 }
 
 /**
@@ -110,6 +165,9 @@ const UNAVAILABLE = (reason: string, basis: LiveValue["basis"]): LiveValue => ({
   asOf: null,
   available: false,
   unavailableReason: reason,
+  stats: null,
+  extended: null,
+  returns: null,
 });
 
 function num(value: unknown): number | null {
@@ -130,6 +188,92 @@ function isoTime(value: unknown): string | null {
 
 function key(kind: WatchlistItemKind, ref: string): string {
   return `${kind}:${ref}`;
+}
+
+/**
+ * A dividend yield, as a percentage, or null.
+ *
+ * `dividendYield` is documented as a percentage and is the field to trust.
+ * `trailingAnnualDividendYield` is not used at all, despite looking like a
+ * fallback: it has historically arrived as a fraction for some quote types and
+ * as a percentage for others, and there is no way to tell which from the value
+ * — 0.5 is a plausible half-percent yield and a plausible 50% one. Deriving
+ * from the annual rate instead keeps the arithmetic, and therefore the unit,
+ * ours.
+ *
+ * Anything above 100% is dropped rather than shown: at that point the field is
+ * far more likely to be misreported than real, and a row claiming a 4000% yield
+ * discredits every other number beside it.
+ */
+export function dividendYieldPercent(quote: Record<string, unknown>): number | null {
+  const direct = num(quote["dividendYield"]);
+  const rate = num(quote["trailingAnnualDividendRate"]);
+  const price = num(quote["regularMarketPrice"]);
+  const derived = rate !== null && price !== null && price > 0 ? (rate / price) * 100 : null;
+  const value = direct ?? derived;
+  if (value === null || value < 0 || value > 100) return null;
+  return Number(value.toFixed(2));
+}
+
+/** Everything in the quote payload that is context rather than the price. */
+function readStats(quote: Record<string, unknown>): QuoteStats {
+  const low = num(quote["fiftyTwoWeekLow"]);
+  const high = num(quote["fiftyTwoWeekHigh"]);
+  return {
+    previousClose: num(quote["regularMarketPreviousClose"]),
+    dayLow: num(quote["regularMarketDayLow"]),
+    dayHigh: num(quote["regularMarketDayHigh"]),
+    fiftyTwoWeekLow: low,
+    fiftyTwoWeekHigh: high,
+    fiftyTwoWeekPosition: rangePosition(low, high, num(quote["regularMarketPrice"])),
+    volume: num(quote["regularMarketVolume"]),
+    averageVolume3Month: num(quote["averageDailyVolume3Month"]),
+    fiftyDayAverage: num(quote["fiftyDayAverage"]),
+    twoHundredDayAverage: num(quote["twoHundredDayAverage"]),
+    marketCap: num(quote["marketCap"]),
+    trailingPe: num(quote["trailingPE"]),
+    dividendYieldPercent: dividendYieldPercent(quote),
+  };
+}
+
+/**
+ * The out-of-hours print, when there is one worth showing.
+ *
+ * Driven by `marketState` rather than by the mere presence of the fields: Yahoo
+ * keeps yesterday's post-market print on the payload all through the following
+ * morning, and showing that as "after hours" next to a live regular-session
+ * price would be a day-old number wearing a live label.
+ */
+function readExtended(quote: Record<string, unknown>): ExtendedQuote | null {
+  const state = str(quote["marketState"]) ?? "";
+  const phase = state.startsWith("PRE") ? "pre" : state.startsWith("POST") ? "post" : null;
+  if (phase === null) return null;
+  const price = num(quote[`${phase}MarketPrice`]);
+  if (price === null) return null;
+  return {
+    phase,
+    price,
+    changePercent: num(quote[`${phase}MarketChangePercent`]),
+    asOf: isoTime(quote[`${phase}MarketTime`]),
+  };
+}
+
+/**
+ * A symbol's trailing returns, from what the quote already knows.
+ *
+ * Only the year is answerable this way — `fiftyTwoWeekChangePercent` is the one
+ * trailing figure a quote carries — and it is a price return, so it understates
+ * a dividend payer. The shorter windows arrive with stored daily bars; until
+ * then the row offers the periods it can actually support rather than
+ * approximating the rest from moving averages.
+ */
+function symbolReturns(quote: Record<string, unknown>): ItemReturns | null {
+  const year = num(quote["fiftyTwoWeekChangePercent"]);
+  if (year === null) return null;
+  return {
+    basis: "price",
+    periods: [{ period: "1y", returnPercent: Number(year.toFixed(2)), from: null, to: null }],
+  };
 }
 
 async function quoteSymbols(
@@ -165,6 +309,9 @@ async function quoteSymbols(
       ...(num(quote["regularMarketPrice"]) === null
         ? { unavailableReason: "Yahoo returned no price for this symbol." }
         : {}),
+      stats: readStats(quote),
+      extended: readExtended(quote),
+      returns: symbolReturns(quote),
     });
   }
 
@@ -181,9 +328,60 @@ async function quoteSymbols(
   return values;
 }
 
+/** The earliest NAV date a watchlist row reads, as `YYYY-MM-DD`. */
+function navWindowStart(today: Date): string {
+  const start = new Date(today.getTime() - WATCHLIST_NAV_WINDOW_DAYS * 86_400_000);
+  return start.toISOString().slice(0, 10);
+}
+
+/**
+ * Trailing returns for the funds on a list, from cached NAV alone.
+ *
+ * Only the windows the bounded history can honestly cover survive: the series
+ * starts wherever `navWindowStart` put it, so `max` would report that arbitrary
+ * start as "since inception" and the multi-year windows would either be missing
+ * or measured from the wrong end. Filtering by the shared period list is what
+ * keeps a truncated read from turning into a wrong number.
+ *
+ * A failure here is not a failure of the row: the prices still render, just
+ * without their history.
+ */
+async function fundReturns(
+  codes: string[],
+  repo: WatchlistRepo,
+  today: Date,
+): Promise<Map<string, ItemReturns>> {
+  const returns = new Map<string, ItemReturns>();
+  if (codes.length === 0) return returns;
+
+  let windows: Map<string, NavSeriesPoint[]>;
+  try {
+    windows = await repo.getFundNavWindows(codes, navWindowStart(today));
+  } catch {
+    return returns;
+  }
+
+  const supported = new Set<string>(WATCHLIST_RETURN_PERIODS);
+  for (const [code, points] of windows) {
+    const trailing = computeTrailingReturns(points);
+    if (trailing === null) continue;
+    const periods: ItemReturn[] = trailing.periods
+      .filter((entry) => supported.has(entry.period))
+      .map((entry) => ({
+        period: entry.period as WatchlistReturnPeriod,
+        returnPercent: entry.returnPercent,
+        from: entry.from,
+        to: entry.to,
+      }));
+    if (periods.length > 0) returns.set(code, { basis: trailing.basis, periods });
+  }
+  return returns;
+}
+
 async function quoteFunds(
   codes: string[],
   repo: WatchlistRepo,
+  today: Date,
 ): Promise<{ values: Map<string, LiveValue>; names: Map<string, string> }> {
   const values = new Map<string, LiveValue>();
   const names = new Map<string, string>();
@@ -197,6 +395,8 @@ async function quoteFunds(
     for (const code of codes) values.set(code, UNAVAILABLE(reason, "nav"));
     return { values, names };
   }
+
+  const returns = await fundReturns(codes, repo, today);
 
   for (const code of codes) {
     const snapshot = snapshots.get(code);
@@ -227,6 +427,11 @@ async function quoteFunds(
       marketState: null,
       asOf: snapshot.navDate,
       available: true,
+      // A NAV carries no session, no volume and no multiple; the fund page is
+      // where a fund's own context lives.
+      stats: null,
+      extended: null,
+      returns: returns.get(code) ?? null,
     });
   }
   return { values, names };
@@ -293,7 +498,7 @@ export async function currentValues(
 
   const [symbolValues, fundResult] = await Promise.all([
     quoteSymbols(symbols, deps.client),
-    quoteFunds(codes, deps.repo),
+    quoteFunds(codes, deps.repo, new Date()),
   ]);
 
   const values = new Map<string, LiveValue>();

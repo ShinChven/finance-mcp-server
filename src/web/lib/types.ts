@@ -2,6 +2,7 @@ import type { HoldingsCompleteness, NavRangeId, ProviderId, TrailingPeriodId } f
 import type { NoteSource, NoteStatus } from "../../shared/notes.js";
 import type { SkillSource, SkillStatus } from "../../shared/skills.js";
 import type {
+  ItemReturns,
   WatchlistItemKind,
   WatchlistLevelKind,
   WatchlistLevelSource,
@@ -337,6 +338,38 @@ export interface WatchlistSummary {
   updatedAt: string;
 }
 
+/**
+ * The context around a price, from the same quote that carried the price.
+ *
+ * Every field is nullable and coverage varies by instrument, so each renders
+ * on its own: a tile with nothing behind it is omitted rather than shown as a
+ * dash, which is the difference between "not applicable here" and "broken".
+ */
+export interface QuoteStats {
+  previousClose: number | null;
+  dayLow: number | null;
+  dayHigh: number | null;
+  fiftyTwoWeekLow: number | null;
+  fiftyTwoWeekHigh: number | null;
+  /** 0 at the 52-week low, 1 at the high. */
+  fiftyTwoWeekPosition: number | null;
+  volume: number | null;
+  averageVolume3Month: number | null;
+  fiftyDayAverage: number | null;
+  twoHundredDayAverage: number | null;
+  marketCap: number | null;
+  trailingPe: number | null;
+  dividendYieldPercent: number | null;
+}
+
+/** A pre- or post-market print, kept apart from the regular-session price. */
+export interface ExtendedQuote {
+  phase: "pre" | "post";
+  price: number;
+  changePercent: number | null;
+  asOf: string | null;
+}
+
 /** What an item is currently worth, and where that number came from. */
 export interface LiveValue {
   /** `market` is an intraday quote; `nav` is a fund's last published NAV. */
@@ -349,6 +382,12 @@ export interface LiveValue {
   asOf: string | null;
   available: boolean;
   unavailableReason?: string;
+  /** Null for funds — a NAV carries no session, volume or multiple. */
+  stats: QuoteStats | null;
+  extended: ExtendedQuote | null;
+  /** Trailing windows the source can support: a year for symbols, up to
+   *  four windows for funds with enough cached NAV. */
+  returns: ItemReturns | null;
 }
 
 /**
