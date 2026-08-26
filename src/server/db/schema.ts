@@ -245,6 +245,18 @@ export const watchlistItems = pgTable(
      * backfilled: bought in May, tracked in August.
      */
     entryAt: timestamp("entry_at", { withTimezone: true }),
+    /**
+     * The currency the entry price and every level on this item are written in,
+     * captured from the same quote that captured the entry price.
+     *
+     * Levels are bare numbers, so without this a listing whose quote currency
+     * changes keeps computing distance-to-level, the rail and the `near` facet
+     * in the wrong unit with no visible symptom. Null on rows added before this
+     * existed, which is read as "assume it matches" rather than as a mismatch —
+     * refusing to price every historic row would be a worse failure than the
+     * one being guarded against.
+     */
+    currency: text("currency"),
     createdAt: createdAt(),
   },
   (t) => [
@@ -810,6 +822,87 @@ export const fundNav = pgTable(
   },
   (t) => [uniqueIndex("fund_nav_unique_idx").on(t.fundCode, t.navDate)],
 );
+
+/**
+ * Daily bars for anything quoted as a symbol.
+ *
+ * Persisted, where intraday deliberately is not: a closed session's bar never
+ * changes again, so it is the ideal thing to store, while an intraday point is
+ * superseded within the minute and storing it would be pure cost. Keeping
+ * these means a restart costs a database read rather than a burst of upstream
+ * requests, and it puts symbols on the same footing as funds, whose NAV has
+ * always been a table.
+ *
+ * `barDate` is the calendar date **at the exchange**, not in UTC: the New York
+ * close on 3 March is 04:00 UTC on the 4th, and filing it under the 4th would
+ * shift every American bar by a day. See `market/timezone.ts`.
+ *
+ * `close` is the raw print, which is what a user's price levels were set
+ * against; `adjClose` carries the dividend- and split-adjusted series, which is
+ * what long-horizon returns must be measured on. Keeping both is the same split
+ * the fund tables already make between unit and cumulative NAV.
+ */
+export const priceBars = pgTable(
+  "price_bars",
+  {
+    /** Yahoo symbol, stored exactly as `watchlist_items.ref` normalizes it. */
+    symbol: text("symbol").notNull(),
+    barDate: date("bar_date").notNull(),
+    open: doublePrecision("open"),
+    high: doublePrecision("high"),
+    low: doublePrecision("low"),
+    close: doublePrecision("close"),
+    adjClose: doublePrecision("adj_close"),
+    volume: doublePrecision("volume"),
+  },
+  (t) => [uniqueIndex("price_bars_unique_idx").on(t.symbol, t.barDate)],
+);
+
+/**
+ * What is known about a symbol's stored bars, so a read can tell a gap from an
+ * absence without scanning the bar table.
+ *
+ * `timezone` lives here rather than on every bar because it is a property of
+ * the listing, and re-deriving it per row would mean trusting whichever
+ * response happened to be last.
+ */
+export const priceBarMeta = pgTable("price_bar_meta", {
+  symbol: text("symbol").primaryKey(),
+  /** IANA zone from the upstream chart metadata; every `barDate` is in it. */
+  timezone: text("timezone").notNull(),
+  currency: text("currency"),
+  /** Earliest and latest bar held, so a window knows if it must fetch. */
+  firstBar: date("first_bar"),
+  lastBar: date("last_bar"),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/**
+ * Corporate actions that landed inside the stored range.
+ *
+ * Splits are kept because a level set before one is no longer a level: a
+ * four-for-one turns a $600 target into a line the price can never reach, and
+ * the factor here is what lets the UI say so and offer to rescale. Dividends
+ * are kept so the chart can mark them, which is what explains a fall that the
+ * adjusted series does not show.
+ */
+export const priceEvents = pgTable(
+  "price_events",
+  {
+    symbol: text("symbol").notNull(),
+    eventDate: date("event_date").notNull(),
+    kind: text("kind").$type<"split" | "dividend">().notNull(),
+    /** Split only: new shares per old, so 4-for-1 is 4. */
+    factor: doublePrecision("factor"),
+    /** Dividend only, per share, in the listing's currency. */
+    amount: doublePrecision("amount"),
+  },
+  (t) => [uniqueIndex("price_events_unique_idx").on(t.symbol, t.eventDate, t.kind)],
+);
+
+export type PriceBarRow = typeof priceBars.$inferSelect;
+export type PriceBarMetaRow = typeof priceBarMeta.$inferSelect;
+export type PriceEventRow = typeof priceEvents.$inferSelect;
 
 /** Derived from holdings × instrument metadata. `dimension` is `sector` or
  *  `market`; `coverage` records how much of the fund's disclosed weight could

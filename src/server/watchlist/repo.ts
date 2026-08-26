@@ -77,6 +77,8 @@ export interface AddItemRow {
   note?: string | null;
   entryPrice?: number | null;
   entryAt?: Date | null;
+  /** The unit the entry price and every level are in; see the schema. */
+  currency?: string | null;
   /** Written only for items that were actually inserted. */
   levels?: AddLevelRow[];
 }
@@ -197,6 +199,9 @@ export interface WatchlistRepo {
    * to drop any period the window cannot honestly cover.
    */
   getFundNavWindows(codes: string[], since: string): Promise<Map<string, NavSeriesPoint[]>>;
+
+  /** One item by id, scoped to its owner — for the per-item detail routes. */
+  getItem(userId: string, watchlistId: string, itemId: string): Promise<WatchlistItem | null>;
 }
 
 type Db = typeof Database;
@@ -447,6 +452,7 @@ export function createWatchlistRepo(db: Db): WatchlistRepo {
             // An entry price with no date is one captured right now; the two
             // only come apart when a caller backfills both.
             entryAt: row.entryAt ?? (typeof row.entryPrice === "number" ? new Date() : null),
+            currency: row.currency ?? null,
           })),
         )
         .onConflictDoNothing({
@@ -621,6 +627,16 @@ export function createWatchlistRepo(db: Db): WatchlistRepo {
 
       for (const row of rows) snapshots.set(row.code, row);
       return snapshots;
+    },
+
+    async getItem(userId, watchlistId, itemId) {
+      await requireOwned(userId, watchlistId);
+      const [row] = await db
+        .select()
+        .from(watchlistItems)
+        .where(and(eq(watchlistItems.id, itemId), eq(watchlistItems.watchlistId, watchlistId)))
+        .limit(1);
+      return row ?? null;
     },
 
     async getFundNavWindows(codes, since) {

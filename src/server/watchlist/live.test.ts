@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { WatchlistLevel } from "../db/schema.js";
 import type { YahooFinanceClient } from "../mcp/client.js";
-import { dividendYieldPercent, enrichItems, summarize } from "./live.js";
+import { dividendYieldPercent, enrichItems, summarize, withEntryPrices } from "./live.js";
 import type { FundSnapshot, WatchlistItemRow, WatchlistRepo } from "./repo.js";
 
 function item(
@@ -14,6 +14,7 @@ function item(
     note: null,
     entryPrice: null,
     entryAt: null,
+    currency: null,
     levels: [],
     createdAt: new Date("2026-08-01T00:00:00Z"),
     ...overrides,
@@ -445,5 +446,41 @@ describe("quote statistics", () => {
     expect(enriched[0]?.live.price).toBe(1.5);
     expect(enriched[0]?.live.available).toBe(true);
     expect(enriched[0]?.live.returns).toBeNull();
+  });
+});
+
+describe("currency", () => {
+  it("refuses to compare a quote in a different unit from the stored levels", async () => {
+    // The levels and entry price are bare numbers in the unit captured when the
+    // item was added. A listing that now quotes in something else would keep
+    // producing distances — in the wrong unit, with nothing on screen to say so.
+    const enriched = await enrichItems(
+      [item({ kind: "symbol", ref: "NVDA", currency: "USD", entryPrice: 100 })],
+      { client: fakeClient([{ ...nvda, currency: "HKD" }]), repo: fakeRepo([]) },
+    );
+
+    expect(enriched[0]?.live.available).toBe(false);
+    expect(enriched[0]?.live.unavailableReason).toContain("USD");
+    expect(enriched[0]?.live.unavailableReason).toContain("HKD");
+    expect(enriched[0]?.live.price).toBeNull();
+  });
+
+  it("prices a row that predates the stored currency rather than refusing it", async () => {
+    const enriched = await enrichItems(
+      [item({ kind: "symbol", ref: "NVDA", currency: null, entryPrice: 100 })],
+      { client: fakeClient([nvda]), repo: fakeRepo([]) },
+    );
+
+    expect(enriched[0]?.live.available).toBe(true);
+    expect(enriched[0]?.live.price).toBe(120.5);
+  });
+
+  it("captures the currency alongside the entry price when an item is added", async () => {
+    const rows = await withEntryPrices([{ kind: "symbol" as const, ref: "NVDA" }], {
+      client: fakeClient([nvda]),
+      repo: fakeRepo([]),
+    });
+
+    expect(rows[0]).toMatchObject({ entryPrice: 120.5, currency: "USD" });
   });
 });

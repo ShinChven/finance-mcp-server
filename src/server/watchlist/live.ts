@@ -127,6 +127,8 @@ export interface EnrichedItem {
   note: string | null;
   entryPrice: number | null;
   entryAt: string | null;
+  /** The unit `entryPrice` and every level are written in; null on old rows. */
+  currency: string | null;
   /** How the item has done since it went on the list — measured from entry. */
   sinceEntryPercent: number | null;
   /** Highest first, so the list reads like a ladder around the price. */
@@ -517,19 +519,44 @@ export async function currentValues(
  * that cannot be had leaves the row alone rather than failing the add — the
  * item still belongs on the list.
  */
-export async function withEntryPrices<T extends { kind: WatchlistItemKind; ref: string; entryPrice?: number | null }>(
-  rows: T[],
-  deps: ValueDeps,
-): Promise<T[]> {
+export async function withEntryPrices<
+  T extends {
+    kind: WatchlistItemKind;
+    ref: string;
+    entryPrice?: number | null;
+    currency?: string | null;
+  },
+>(rows: T[], deps: ValueDeps): Promise<T[]> {
   const missing = rows.filter((row) => row.entryPrice === undefined || row.entryPrice === null);
   if (missing.length === 0) return rows;
 
   const { values } = await currentValues(missing, deps);
   return rows.map((row) => {
     if (row.entryPrice !== undefined && row.entryPrice !== null) return row;
-    const price = values.get(key(row.kind, row.ref))?.price ?? null;
-    return price === null ? row : { ...row, entryPrice: price };
+    const value = values.get(key(row.kind, row.ref));
+    const price = value?.price ?? null;
+    // The currency is captured with the price, not separately: it is the unit
+    // that price and every level added later are written in, and capturing it
+    // from a second lookup would let the two disagree.
+    return price === null ? row : { ...row, entryPrice: price, currency: value?.currency ?? null };
   });
+}
+
+/**
+ * Whether a live quote may be compared against what this item stored.
+ *
+ * Levels and the entry price are bare numbers in the item's own currency. If a
+ * listing's quote currency changes — a re-listing, a symbol that now resolves
+ * somewhere else — every distance-to-level, the rail and the `near` facet keep
+ * computing in the wrong unit with nothing on screen to say so. Refusing to
+ * compare is the only honest failure.
+ *
+ * A null on either side is read as "assume it matches": rows added before the
+ * column existed carry none, and refusing to price all of them would be a worse
+ * failure than the one being guarded against.
+ */
+function currencyMismatch(stored: string | null, quoted: string | null): boolean {
+  return stored !== null && quoted !== null && stored !== quoted;
 }
 
 export async function enrichItems(
@@ -541,9 +568,16 @@ export async function enrichItems(
   const today = new Date();
 
   return items.map((item) => {
-    const live =
+    const quoted =
       values.get(key(item.kind, item.ref)) ??
       UNAVAILABLE("No value source for this item.", item.kind === "fund" ? "nav" : "market");
+    const live = currencyMismatch(item.currency, quoted.currency)
+      ? UNAVAILABLE(
+          `This item was tracked in ${item.currency} and now quotes in ${quoted.currency}. ` +
+            "Its levels and entry price are in the old unit, so nothing here can be compared until they are re-entered.",
+          quoted.basis,
+        )
+      : quoted;
     const levels = item.levels
       .map((level) => enrichLevel(level, live.price, today))
       .sort((a, b) => b.price - a.price);
@@ -556,6 +590,7 @@ export async function enrichItems(
       note: item.note,
       entryPrice: item.entryPrice,
       entryAt: item.entryAt?.toISOString() ?? null,
+      currency: item.currency,
       sinceEntryPercent: percentChange(item.entryPrice, live.price),
       levels,
       nearest: nearestLevels(levels),
