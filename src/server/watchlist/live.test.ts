@@ -449,6 +449,73 @@ describe("quote statistics", () => {
   });
 });
 
+describe("stored history", () => {
+  const bars = Array.from({ length: 300 }, (_, index) => ({
+    date: new Date(Date.parse("2026-01-01T00:00:00Z") + index * 86_400_000)
+      .toISOString()
+      .slice(0, 10),
+    close: 100 + index * 0.1,
+  }));
+  const barStore = { readMany: vi.fn(async () => new Map([["NVDA", bars]])) };
+
+  it("quotes the same four windows a fund does when bars are stored", async () => {
+    const enriched = await enrichItems([item({ kind: "symbol", ref: "NVDA" })], {
+      client: fakeClient([{ ...nvda, fiftyTwoWeekChangePercent: 34.5 }]),
+      repo: fakeRepo([]),
+      bars: barStore,
+    });
+
+    const returns = enriched[0]?.live.returns;
+    expect(returns?.basis).toBe("price");
+    // Four real windows beat the quote's single 52-week figure.
+    expect(returns?.periods.map((entry) => entry.period)).toContain("3m");
+    expect(returns?.periods.every((entry) => entry.from !== null)).toBe(true);
+    expect(enriched[0]?.spark?.length).toBeGreaterThan(1);
+  });
+
+  it("keeps the history when the quote provider is down", async () => {
+    // The bars are already in the database. Whether today's quote came back is
+    // a separate fact, and a row whose provider is down is exactly when its own
+    // past is worth the most.
+    const enriched = await enrichItems([item({ kind: "symbol", ref: "NVDA" })], {
+      client: fakeClient([], true),
+      repo: fakeRepo([]),
+      bars: barStore,
+    });
+
+    expect(enriched[0]?.live.available).toBe(false);
+    expect(enriched[0]?.live.returns).not.toBeNull();
+    expect(enriched[0]?.spark).not.toBeNull();
+  });
+
+  it("drops the history when the listing no longer quotes in the stored unit", async () => {
+    const enriched = await enrichItems(
+      [item({ kind: "symbol", ref: "NVDA", currency: "USD" })],
+      {
+        client: fakeClient([{ ...nvda, currency: "HKD" }]),
+        repo: fakeRepo([]),
+        bars: barStore,
+      },
+    );
+
+    expect(enriched[0]?.live.returns).toBeNull();
+    expect(enriched[0]?.spark).toBeNull();
+  });
+
+  it("falls back to the quote's own figure when nothing is stored", async () => {
+    const enriched = await enrichItems([item({ kind: "symbol", ref: "NVDA" })], {
+      client: fakeClient([{ ...nvda, fiftyTwoWeekChangePercent: 34.5 }]),
+      repo: fakeRepo([]),
+      bars: { readMany: vi.fn(async () => new Map()) },
+    });
+
+    expect(enriched[0]?.live.returns?.periods).toEqual([
+      { period: "1y", returnPercent: 34.5, from: null, to: null },
+    ]);
+    expect(enriched[0]?.spark).toBeNull();
+  });
+});
+
 describe("currency", () => {
   it("refuses to compare a quote in a different unit from the stored levels", async () => {
     // The levels and entry price are bare numbers in the unit captured when the

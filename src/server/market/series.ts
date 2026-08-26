@@ -199,10 +199,19 @@ export async function symbolSeries(
     });
   }
 
-  // A year of slack past the window, so the anchor observation that a window
-  // starts on is inside what was fetched rather than one bar off the edge.
-  const need = windowStart(range, toExchangeDate(Date.now(), "UTC"), "UTC");
-  const stored = await deps.bars.ensure(symbol, need === "0001-01-01" ? "0001-01-01" : need);
+  // The tail is brought current first, then the window is measured back from
+  // the series' own last observation rather than from today. Those differ
+  // whenever a listing is stale — a symbol whose last bar is a week old would
+  // otherwise lose a week off the left edge of every range, for a reason the
+  // reader cannot see anywhere on the chart.
+  const nominal = windowStart(range, toExchangeDate(Date.now(), "UTC"), "UTC");
+  const current = await deps.bars.ensure(symbol, nominal);
+  const anchored =
+    current.lastBar === null ? nominal : windowStart(range, current.lastBar, current.timezone);
+  // Re-read only when anchoring actually reaches further back; a symbol quoted
+  // today is answered by the read that already happened.
+  const stored =
+    anchored < nominal ? ((await deps.bars.read(symbol, anchored)) ?? current) : current;
 
   return build({
     ref: symbol,

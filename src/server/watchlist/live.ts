@@ -31,7 +31,6 @@ import {
 } from "../../shared/watchlist.js";
 import { computeTrailingReturns, type NavSeriesPoint } from "../funds/performance.js";
 import { computeTrailingWindows } from "../market/series-math.js";
-import type { BarStore } from "../market/bars.js";
 import type { YahooFinanceClient } from "../mcp/client.js";
 import { yahooRequestOptions } from "../mcp/tools/runtime.js";
 import type { WatchlistLevel } from "../db/schema.js";
@@ -491,6 +490,20 @@ function nearestLevels(levels: EnrichedLevel[]): EnrichedItem["nearest"] {
   };
 }
 
+/**
+ * The slice of the bar store this module needs: closes by date, read-only.
+ *
+ * Narrower than `BarStore` on purpose — declaring the whole store would let a
+ * future edit here reach for `ensure` and turn pricing a list into a fetch per
+ * row, which is the one thing this path must never do.
+ */
+export interface BarReader {
+  readMany(
+    symbols: string[],
+    since: string,
+  ): Promise<Map<string, { date: string; close: number | null }[]>>;
+}
+
 export interface ValueDeps {
   client: YahooFinanceClient;
   repo: WatchlistRepo;
@@ -504,7 +517,7 @@ export interface ValueDeps {
    * a list of fifty symbols must not become fifty requests behind a throttle
    * two deep just because it was scrolled past.
    */
-  bars?: Pick<BarStore, "readMany">;
+  bars?: BarReader;
 }
 
 /**
@@ -593,7 +606,7 @@ function currencyMismatch(stored: string | null, quoted: string | null): boolean
  */
 async function symbolHistory(
   symbols: string[],
-  bars: Pick<BarStore, "readMany">,
+  bars: BarReader,
   today: Date,
 ): Promise<Map<string, { returns: ItemReturns; spark: number[] }>> {
   const out = new Map<string, { returns: ItemReturns; spark: number[] }>();
@@ -667,7 +680,8 @@ export async function enrichItems(
     const quoted =
       values.get(key(item.kind, item.ref)) ??
       UNAVAILABLE("No value source for this item.", item.kind === "fund" ? "nav" : "market");
-    const live = currencyMismatch(item.currency, quoted.currency)
+    const mismatch = currencyMismatch(item.currency, quoted.currency);
+    const live = mismatch
       ? UNAVAILABLE(
           `This item was tracked in ${item.currency} and now quotes in ${quoted.currency}. ` +
             "Its levels and entry price are in the old unit, so nothing here can be compared until they are re-entered.",
@@ -695,11 +709,18 @@ export async function enrichItems(
       // Stored bars win over the quote's single 52-week figure where they
       // exist: four real windows beat one, and both are price returns, so the
       // column stays comparable either way.
+      //
+      // Gated on the currency mismatch rather than on the quote having
+      // succeeded. A history already in the database is a fact about the
+      // listing, not about whether today's quote came back — and a row whose
+      // provider is down is exactly when its own past is worth the most. A
+      // mismatch is different: there the listing is not the one these numbers
+      // describe, so the history goes with the price.
       live: {
         ...live,
-        returns: live.available ? (stored?.returns ?? live.returns) : live.returns,
+        returns: mismatch ? live.returns : (stored?.returns ?? live.returns),
       },
-      spark: live.available ? (stored?.spark ?? null) : null,
+      spark: mismatch ? null : (stored?.spark ?? null),
     };
   });
 }

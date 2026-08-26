@@ -28,6 +28,8 @@ function fakeStore(stored: Partial<StoredBars> & Pick<StoredBars, "bars">): BarS
     timezone: "America/New_York",
     currency: "USD",
     events: [],
+    firstBar: stored.bars[0]?.date ?? null,
+    lastBar: stored.bars.at(-1)?.date ?? null,
     ...stored,
   };
   return {
@@ -143,6 +145,24 @@ describe("symbolSeries", () => {
     // Points carry instants rather than dates, so the axis can be drawn in
     // exchange time rather than in whole days.
     expect(series?.points[0]?.t).toContain("T");
+  });
+
+  it("measures the window from the last observation, not from today", async () => {
+    // A listing whose last bar is months old must still show a full year ending
+    // at that bar. Anchoring to today instead silently trims the left edge by
+    // however stale the series is, and nothing on the chart says so.
+    const stale = bars(400, { start: "2024-01-02" });
+    const store = fakeStore({ bars: stale });
+    const series = await symbolSeries("STALE", "1y", {
+      bars: store,
+      provider: fakeProvider(),
+      navHistory: noNav,
+    });
+
+    expect(series?.endDate).toBe(stale.at(-1)!.date);
+    // A year back from that last bar, not a year back from now.
+    expect(series?.startDate.slice(0, 4)).toBe("2024");
+    expect(series?.observations).toBeGreaterThan(300);
   });
 
   it("returns null rather than a flat rule when there is nothing to draw", async () => {

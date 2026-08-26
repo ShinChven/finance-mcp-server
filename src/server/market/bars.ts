@@ -50,6 +50,15 @@ export interface StoredBars {
   currency: string | null;
   bars: DailyBar[];
   events: PriceEvent[];
+  /**
+   * The full extent held, regardless of the slice returned.
+   *
+   * A caller windowing back from the series' own last observation needs to know
+   * what that observation is before it can ask for the right slice — and asking
+   * for a slice that turns out to be empty tells it nothing.
+   */
+  firstBar: string | null;
+  lastBar: string | null;
 }
 
 /** The earliest date worth holding for any window the product offers. */
@@ -115,7 +124,14 @@ export function createBarStore(db: Db, provider: MarketDataProvider): BarStore {
         .orderBy(asc(priceEvents.eventDate)),
     ]);
 
-    return { timezone: meta.timezone, currency: meta.currency, bars, events };
+    return {
+      timezone: meta.timezone,
+      currency: meta.currency,
+      bars,
+      events,
+      firstBar: meta.firstBar,
+      lastBar: meta.lastBar,
+    };
   }
 
   async function write(
@@ -186,21 +202,31 @@ export function createBarStore(db: Db, provider: MarketDataProvider): BarStore {
   async function fetchAndStore(symbol: string, since: string): Promise<StoredBars> {
     const meta = await readMeta(symbol);
 
-    // Only the tail is re-fetched when the history already reaches far enough
-    // back; a full window is pulled when it does not. `lastBar` is stepped back
-    // a few days so a revised close or a late-published bar is picked up.
-    const wantFrom = since < earliestUseful() ? earliestUseful() : since;
+    // The first fetch for a symbol pulls the whole useful history rather than
+    // just the window that was asked for. It is one request either way, and it
+    // means every later range is answerable from storage — where fetching only
+    // the requested window would leave `max` and `5y` re-fetching forever
+    // because the stored history never reaches as far back as they ask.
+    //
+    // After that only the tail moves, stepped back a few days so a revised
+    // close or a late-published bar is picked up.
     const from =
-      meta !== null && meta.firstBar !== null && meta.firstBar <= wantFrom && meta.lastBar !== null
+      meta !== null && meta.lastBar !== null
         ? new Date(Date.parse(`${meta.lastBar}T00:00:00Z`) - 5 * 86_400_000)
             .toISOString()
             .slice(0, 10)
-        : wantFrom;
+        : earliestUseful();
 
     const fetched = await provider.fetchDailyBars(symbol, { from });
     await write(symbol, fetched);
     const stored = await readStored(symbol, since);
-    return stored ?? { ...fetched, bars: fetched.bars, events: fetched.events };
+    return (
+      stored ?? {
+        ...fetched,
+        firstBar: fetched.bars[0]?.date ?? null,
+        lastBar: fetched.bars.at(-1)?.date ?? null,
+      }
+    );
   }
 
   return {
@@ -208,10 +234,13 @@ export function createBarStore(db: Db, provider: MarketDataProvider): BarStore {
 
     async ensure(symbol, since) {
       const meta = await readMeta(symbol);
+      // Whatever is stored is the whole history the provider had, because the
+      // first fetch asks for all of it. So freshness is only a question of when
+      // the tail was last checked — not of how far back this caller asked, which
+      // is what would otherwise make `max` re-fetch on every single open.
       const fresh =
         meta !== null &&
         meta.firstBar !== null &&
-        meta.firstBar <= since &&
         Date.now() - meta.syncedAt.getTime() < BAR_FRESHNESS_MS;
 
       if (fresh) {

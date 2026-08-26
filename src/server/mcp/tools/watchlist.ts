@@ -91,7 +91,10 @@ export function registerWatchlistTool(
         return {
           watchlist: header,
           summary: summarize(enriched),
-          items: enriched,
+          // The sparkline is dropped: it is a drawing, and twenty-odd closes
+          // per row is real payload for something an assistant cannot read.
+          // Anything it would have shown is available through `chart`.
+          items: enriched.map(({ spark: _spark, ...item }) => item),
           note:
             "`live.basis` says what the number is: `market` is an intraday Yahoo quote, `nav` is a " +
             "fund's last published net asset value, which moves once per trading day. Items with " +
