@@ -9,6 +9,7 @@ import type {
   WatchlistLevelStatus,
 } from "../../shared/watchlist.js";
 
+import type { PriceSeries } from "../../shared/series.js";
 import type { JsonSchemaNode } from "./json-schema.js";
 import type { UserPreferences } from "../../shared/preferences.js";
 
@@ -414,6 +415,12 @@ export interface WatchlistLevel {
   distancePercent: number | null;
 }
 
+export interface SeriesResult {
+  item: { id: string; ref: string; kind: WatchlistItemKind };
+  /** Null when the window holds fewer than two observations. */
+  series: PriceSeries | null;
+}
+
 export interface WatchlistItem {
   id: string;
   kind: WatchlistItemKind;
@@ -422,6 +429,8 @@ export interface WatchlistItem {
   note: string | null;
   entryPrice: number | null;
   entryAt: string | null;
+  /** The unit the entry price and every level are in; null on older rows. */
+  currency: string | null;
   /** Measured from the entry price, not from yesterday's close. */
   sinceEntryPercent: number | null;
   /** Highest price first. */

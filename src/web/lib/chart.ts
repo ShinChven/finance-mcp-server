@@ -114,3 +114,82 @@ export function nearestIndex(points: PlotPoint[], x: number): number {
 function round(value: number): number {
   return Math.round(value * 100) / 100;
 }
+
+/**
+ * A vertical scale that is guaranteed to contain the marks drawn on it.
+ *
+ * A watchlist chart draws the reader's own levels across the price line, and a
+ * scale fitted to the prices alone would put a stop 20% below the window
+ * somewhere off the bottom of the box — the one level most worth seeing.
+ *
+ * The clamp is what stops the opposite failure. A level far outside the
+ * window's own span would compress the price line into a flat rule to make room
+ * for it, destroying the shape to show one number. Past `maxSpanMultiple` times
+ * the price span, the level is left outside the domain and the caller draws it
+ * as an edge marker instead.
+ */
+export interface Domain {
+  low: number;
+  high: number;
+  /** Values that did not fit, for the caller to render against an edge. */
+  clamped: number[];
+}
+
+export function domainWithLevels(
+  values: number[],
+  levels: number[],
+  options: { maxSpanMultiple?: number; padding?: number } = {},
+): Domain {
+  const maxSpanMultiple = options.maxSpanMultiple ?? 3;
+  const padding = options.padding ?? 0.04;
+
+  let low = Infinity;
+  let high = -Infinity;
+  for (const value of values) {
+    if (value < low) low = value;
+    if (value > high) high = value;
+  }
+  if (!Number.isFinite(low) || !Number.isFinite(high)) return { low: 0, high: 1, clamped: [] };
+
+  // A flat series has no span of its own to measure a level against, so the
+  // reach is taken from the level of the price itself.
+  const span = high - low || Math.abs(high) * 0.02 || 1;
+  const reach = span * maxSpanMultiple;
+
+  const clamped: number[] = [];
+  for (const level of levels) {
+    if (level < low - reach || level > high + reach) {
+      clamped.push(level);
+      continue;
+    }
+    if (level < low) low = level;
+    if (level > high) high = level;
+  }
+
+  const pad = (high - low || span) * padding;
+  return { low: low - pad, high: high + pad, clamped };
+}
+
+/** Maps a value onto the box through an explicit domain. */
+export function plotInDomain(value: number, domain: Domain, box: ChartBox): number {
+  const span = domain.high - domain.low;
+  const usable = box.height - box.padTop - box.padBottom;
+  const normalized = span === 0 ? 0.5 : (value - domain.low) / span;
+  return box.padTop + (1 - normalized) * usable;
+}
+
+/** The same mapping for a whole series, with x spread over real elapsed time. */
+export function plotInDomainSeries(
+  xs: number[],
+  values: number[],
+  domain: Domain,
+  box: ChartBox,
+): PlotPoint[] {
+  const xMin = xs[0] ?? 0;
+  const xMax = xs.at(-1) ?? 0;
+  const xSpan = xMax - xMin;
+  return values.map((value, index) => ({
+    x: xSpan === 0 ? box.width / 2 : (((xs[index] ?? xMin) - xMin) / xSpan) * box.width,
+    y: plotInDomain(value, domain, box),
+  }));
+}

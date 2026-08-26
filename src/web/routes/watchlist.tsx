@@ -28,7 +28,9 @@ import {
   Trash2,
 } from "lucide-react";
 import { Modal, ConfirmDialog } from "../components/modal.js";
-import { LevelsPanel, NearestSummary, PriceRail } from "../components/price-levels.js";
+import { NearestSummary, PriceRail } from "../components/price-levels.js";
+import { ItemDetail, type DetailTab } from "../components/item-detail.js";
+import { DEFAULT_SERIES_RANGE, isSeriesRange } from "../../shared/series.js";
 import { parseLevelLines, type LevelDraft, type LevelPatch } from "../lib/levels.js";
 import { FilterPills, SearchInput } from "../components/table.js";
 import { useToast } from "../components/toast.js";
@@ -204,6 +206,11 @@ export default function WatchlistPage() {
     onError: (error: Error) => toast("error", error.message),
   });
 
+  // The chart is the default view, so it is the tab that leaves no `?tab=` in
+  // the URL; anything unrecognised falls back to it rather than showing nothing.
+  const detailTab: DetailTab =
+    params.tab === "levels" || params.tab === "stats" ? params.tab : "chart";
+
   const selected = lists.data?.items.find((list) => list.id === selectedId) ?? null;
   const sorted = useSortedItems(items.data?.items ?? [], params.sort);
   // Resolved from the refetched list rather than held in state, so the panel
@@ -234,7 +241,9 @@ export default function WatchlistPage() {
       ) : (
         <div
           className={`grid gap-4 ${
-            openItem === null ? "lg:grid-cols-[16rem_1fr]" : "lg:grid-cols-[16rem_1fr_22rem]"
+            openItem === null
+              ? "lg:grid-cols-[16rem_1fr]"
+              : "lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[15rem_minmax(0,1fr)_30rem]"
           }`}
         >
           <ListSidebar
@@ -298,13 +307,22 @@ export default function WatchlistPage() {
           </div>
 
           {openItem && (
-            <LevelsPanel
+            <ItemDetail
               item={openItem}
+              listId={selectedId}
+              tab={detailTab}
+              range={isSeriesRange(params.range) ? params.range : DEFAULT_SERIES_RANGE}
               busy={addLevels.isPending || updateLevel.isPending || removeLevel.isPending}
-              onAdd={(levels) => addLevels.mutate({ itemId: openItem.id, levels })}
-              onUpdate={(levelId, patch) => updateLevel.mutate({ levelId, patch })}
-              onRemove={(levelId) => removeLevel.mutate(levelId)}
-              onClose={() => params.update({ item: "" })}
+              // Discrete choices, so both push history: the back button steps
+              // through the ranges and tabs a reader tried.
+              onTab={(next) => params.update({ tab: next === "chart" ? "" : next })}
+              onRange={(next) =>
+                params.update({ range: next === DEFAULT_SERIES_RANGE ? "" : next })
+              }
+              onAddLevels={(levels) => addLevels.mutate({ itemId: openItem.id, levels })}
+              onUpdateLevel={(levelId, patch) => updateLevel.mutate({ levelId, patch })}
+              onRemoveLevel={(levelId) => removeLevel.mutate(levelId)}
+              onClose={() => params.update({ item: "", tab: "" })}
             />
           )}
         </div>
