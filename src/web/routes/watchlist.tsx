@@ -31,6 +31,7 @@ import { Modal, ConfirmDialog } from "../components/modal.js";
 import { NearestSummary, PriceRail } from "../components/price-levels.js";
 import { ItemDetail, type DetailTab } from "../components/item-detail.js";
 import { DEFAULT_SERIES_RANGE, isSeriesRange } from "../../shared/series.js";
+import { useMe } from "./shell.js";
 import { parseLevelLines, type LevelDraft, type LevelPatch } from "../lib/levels.js";
 import { FilterPills, SearchInput } from "../components/table.js";
 import { useToast } from "../components/toast.js";
@@ -77,6 +78,7 @@ function formatPrice(value: number | null, currency: string | null): string {
 }
 
 export default function WatchlistPage() {
+  const me = useMe();
   const toast = useToast();
   const queryClient = useQueryClient();
   const params = useListParams();
@@ -312,6 +314,7 @@ export default function WatchlistPage() {
               listId={selectedId}
               tab={detailTab}
               range={isSeriesRange(params.range) ? params.range : DEFAULT_SERIES_RANGE}
+              palette={me.preferences.directionPalette ?? "classic"}
               busy={addLevels.isPending || updateLevel.isPending || removeLevel.isPending}
               // Discrete choices, so both push history: the back button steps
               // through the ranges and tabs a reader tried.

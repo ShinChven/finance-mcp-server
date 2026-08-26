@@ -105,6 +105,27 @@ function PreferencesTab() {
         </Select>
         <p className="mt-1 text-xs text-zinc-400">Default page size for lists across the dashboard.</p>
       </div>
+      <div>
+        <Label>Rise and fall colours</Label>
+        <Select
+          value={me.preferences.directionPalette ?? "classic"}
+          onChange={(e) =>
+            save.mutate({
+              directionPalette: e.target.value as UserPreferences["directionPalette"],
+            })
+          }
+          className="w-full"
+        >
+          <option value="classic">Green and red</option>
+          <option value="accessible">Teal and orange</option>
+        </Select>
+        <p className="mt-1 text-xs text-zinc-400">
+          Green and red are what every finance product uses, and they are the hardest pair to tell
+          apart with the commonest form of colour blindness — they clear the separation threshold,
+          but only just. Teal and orange clear it with room to spare. Either way, direction is also
+          carried by the sign and by which side of the baseline a point sits on.
+        </p>
+      </div>
     </Card>
   );
 }

@@ -409,6 +409,8 @@ export interface WatchlistLevel {
   hitAt: string | null;
   validUntil: string | null;
   expired: boolean;
+  /** When it was recorded — what a later split is dated against. */
+  createdAt: string;
   /** Where the level sits relative to the live price; null without one. */
   side: "above" | "below" | "inside" | "at" | null;
   /** Signed move needed to reach it, as a percentage of the live price. */

@@ -117,6 +117,8 @@ export interface EnrichedLevel extends LevelPosition {
   hitAt: string | null;
   validUntil: string | null;
   expired: boolean;
+  /** When the level was recorded — what a later split is dated against. */
+  createdAt: string;
 }
 
 export interface EnrichedItem {
@@ -456,6 +458,7 @@ function enrichLevel(level: WatchlistLevel, price: number | null, today: Date): 
     status: level.status,
     hitAt: level.hitAt?.toISOString() ?? null,
     validUntil: level.validUntil,
+    createdAt: level.createdAt.toISOString(),
     expired: isLevelExpired(level.validUntil, today),
     ...position,
   };

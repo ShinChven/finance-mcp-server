@@ -19,8 +19,10 @@ import {
   type SeriesRangeId,
 } from "../../shared/series.js";
 import { api } from "../lib/api.js";
+import type { DirectionPalette } from "../../shared/preferences.js";
 import type { LevelDraft, LevelPatch } from "../lib/levels.js";
 import type { SeriesResult, WatchlistItem } from "../lib/types.js";
+import { describeFactor, staleLevels } from "../lib/splits.js";
 import { Card } from "./ui.js";
 import { QuoteStatsPanel } from "./instrument-stats.js";
 import { LevelsPanel, PriceRail } from "./price-levels.js";
@@ -39,6 +41,7 @@ export function ItemDetail({
   listId,
   tab,
   range,
+  palette,
   busy,
   onTab,
   onRange,
@@ -51,6 +54,7 @@ export function ItemDetail({
   listId: string;
   tab: DetailTab;
   range: SeriesRangeId;
+  palette: DirectionPalette;
   busy: boolean;
   onTab: (next: DetailTab) => void;
   onRange: (next: SeriesRangeId) => void;
@@ -75,6 +79,11 @@ export function ItemDetail({
     staleTime: 5 * 60 * 1_000,
     retry: false,
   });
+
+  // Only against the events in the window actually drawn: a split from six
+  // years ago is not news about a level recorded last week, and the reader can
+  // widen the range if they want the whole history checked.
+  const stale = staleLevels(item.levels, series.data?.series?.events ?? []);
 
   return (
     <Card className="h-fit p-4">
@@ -116,6 +125,40 @@ export function ItemDetail({
 
       {tab === "chart" && (
         <>
+          {stale.length > 0 && (
+            <div className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs dark:border-amber-500/40 dark:bg-amber-500/10">
+              <p className="text-amber-800 dark:text-amber-200">
+                {stale.length === 1 ? "A level was" : `${stale.length} levels were`} recorded
+                before a {describeFactor(stale[0]!.factor)} split. The stored{" "}
+                {stale.length === 1 ? "number is" : "numbers are"} in pre-split prices.
+              </p>
+              <ul className="mt-1.5 space-y-1">
+                {stale.map((entry) => (
+                  <li key={entry.level.id} className="flex items-center justify-between gap-2">
+                    <span className="tabular-nums text-zinc-600 dark:text-zinc-300">
+                      {entry.level.label ?? entry.level.price} → {entry.suggested}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() =>
+                        onUpdateLevel(entry.level.id, {
+                          price: entry.suggested,
+                          ...(entry.suggestedHigh === null
+                            ? {}
+                            : { priceHigh: entry.suggestedHigh }),
+                        })
+                      }
+                      className="cursor-pointer rounded bg-amber-600 px-2 py-0.5 font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                    >
+                      Rescale
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {series.isError ? (
             <p className="py-6 text-center text-xs text-amber-600 dark:text-amber-400">
               {(series.error as Error).message}
@@ -127,6 +170,7 @@ export function ItemDetail({
               range={usableRange}
               onRange={onRange}
               pending={series.isPending}
+              palette={palette}
             />
           )}
           <div className="mt-3">

@@ -37,6 +37,7 @@ import {
 } from "../lib/chart.js";
 import { formatPercent, signClass } from "../lib/format.js";
 import type { WatchlistItem, WatchlistLevel } from "../lib/types.js";
+import type { DirectionPalette } from "../../shared/preferences.js";
 
 /**
  * Fixed user space, scaled to the container through the viewBox.
@@ -60,14 +61,33 @@ function isDone(level: WatchlistLevel): boolean {
  * falls outside the lightness band and collapses to a deuteranopia separation
  * of 6.5 against its counterpart. Holding 600 measures 8.6 in both themes.
  */
-const TONE = {
-  up: "text-emerald-600 dark:text-emerald-600",
-  down: "text-red-600 dark:text-red-600",
-  flat: "text-zinc-500",
-} as const;
+const TONES: Record<DirectionPalette, { up: string; down: string; flat: string }> = {
+  classic: {
+    up: "text-emerald-600 dark:text-emerald-600",
+    down: "text-red-600 dark:text-red-600",
+    flat: "text-zinc-500",
+  },
+  accessible: {
+    up: "text-teal-600 dark:text-teal-600",
+    down: "text-orange-600 dark:text-orange-600",
+    flat: "text-zinc-500",
+  },
+};
 
-function toneFor(change: number): string {
-  return change > 0 ? TONE.up : change < 0 ? TONE.down : TONE.flat;
+/** Level rules take the same pair, so the chart never speaks in two palettes. */
+const LEVEL_STROKES: Record<DirectionPalette, { below: string; above: string }> = {
+  classic: { below: "stroke-emerald-600", above: "stroke-red-600" },
+  accessible: { below: "stroke-teal-600", above: "stroke-orange-600" },
+};
+
+const ZONE_FILLS: Record<DirectionPalette, { below: string; above: string }> = {
+  classic: { below: "fill-emerald-500/10", above: "fill-rose-500/10" },
+  accessible: { below: "fill-teal-500/10", above: "fill-orange-500/10" },
+};
+
+function toneFor(change: number, palette: DirectionPalette): string {
+  const tones = TONES[palette];
+  return change > 0 ? tones.up : change < 0 ? tones.down : tones.flat;
 }
 
 export function PriceChart({
@@ -76,12 +96,14 @@ export function PriceChart({
   range,
   onRange,
   pending,
+  palette,
 }: {
   item: WatchlistItem;
   series: PriceSeries | null;
   range: SeriesRangeId;
   onRange: (next: SeriesRangeId) => void;
   pending: boolean;
+  palette: DirectionPalette;
 }) {
   const ranges = rangesFor(item.kind);
 
@@ -112,13 +134,21 @@ export function PriceChart({
           Not enough price history to draw a line over this window.
         </p>
       ) : (
-        <Plot item={item} series={series} />
+        <Plot item={item} series={series} palette={palette} />
       )}
     </div>
   );
 }
 
-function Plot({ item, series }: { item: WatchlistItem; series: PriceSeries }) {
+function Plot({
+  item,
+  series,
+  palette,
+}: {
+  item: WatchlistItem;
+  series: PriceSeries;
+  palette: DirectionPalette;
+}) {
   const [hover, setHover] = useState<number | null>(null);
 
   const values = series.points.map((point) => point.value);
@@ -136,7 +166,7 @@ function Plot({ item, series }: { item: WatchlistItem; series: PriceSeries }) {
   const plot = plotInDomainSeries(xs, values, domain, BOX);
 
   const change = series.points.at(-1)?.changePercent ?? 0;
-  const tone = toneFor(change);
+  const tone = toneFor(change, palette);
   const gradientId = `price-fill-${item.id}-${series.range}`;
 
   const active = hover === null ? null : series.points[hover];
@@ -220,7 +250,9 @@ function Plot({ item, series }: { item: WatchlistItem; series: PriceSeries }) {
                   width={BOX.width}
                   height={Math.max(1, bottom - top)}
                   className={
-                    level.side === "below" ? "fill-emerald-500/10" : "fill-rose-500/10"
+                    level.side === "below"
+                      ? ZONE_FILLS[palette].below
+                      : ZONE_FILLS[palette].above
                   }
                 />
               );
@@ -262,9 +294,9 @@ function Plot({ item, series }: { item: WatchlistItem; series: PriceSeries }) {
                 y2={y}
                 className={
                   level.side === "below"
-                    ? "stroke-emerald-600"
+                    ? LEVEL_STROKES[palette].below
                     : level.side === "above"
-                      ? "stroke-red-600"
+                      ? LEVEL_STROKES[palette].above
                       : "stroke-indigo-500"
                 }
                 strokeWidth="1"
