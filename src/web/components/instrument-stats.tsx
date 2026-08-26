@@ -253,3 +253,67 @@ export function QuoteStatsPanel({
     </div>
   );
 }
+
+/**
+ * A month of closes in the width of a table cell.
+ *
+ * No axis, no labels, no hover: at this size every one of those would cost more
+ * legibility than it adds, and the row already carries the numbers. What the
+ * shape is for is the thing a percentage cannot say — whether the month was a
+ * drift or a round trip.
+ *
+ * The endpoint is marked, because the eye reads a line's end as "now" and a
+ * sparkline without one reads as still running.
+ */
+export function Sparkline({
+  values,
+  label,
+  className = "",
+}: {
+  values: number[];
+  label: string;
+  className?: string;
+}) {
+  if (values.length < 2) return null;
+
+  const width = 64;
+  const height = 18;
+  let low = Infinity;
+  let high = -Infinity;
+  for (const value of values) {
+    if (value < low) low = value;
+    if (value > high) high = value;
+  }
+  // A month that did not move is drawn down the middle rather than against the
+  // top edge, where a zero span would otherwise put it.
+  const span = high - low;
+  const y = (value: number): number =>
+    span === 0 ? height / 2 : 1 + (1 - (value - low) / span) * (height - 2);
+  const x = (index: number): number => (index / (values.length - 1)) * width;
+
+  const path = values.map((value, index) => `${index === 0 ? "M" : "L"}${x(index).toFixed(1)} ${y(value).toFixed(1)}`).join(" ");
+  const first = values[0]!;
+  const last = values.at(-1)!;
+  const rising = last >= first;
+
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className={`h-4 w-16 ${rising ? "text-emerald-600" : "text-red-600"} ${className}`}
+      role="img"
+      aria-label={`${label}: ${rising ? "up" : "down"} over the last month`}
+      preserveAspectRatio="none"
+    >
+      <path
+        d={path}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+      />
+      <circle cx={x(values.length - 1)} cy={y(last)} r="1.6" fill="currentColor" />
+    </svg>
+  );
+}

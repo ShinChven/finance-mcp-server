@@ -38,6 +38,26 @@ export function HoldingsDialog({
   highlight: string;
   onClose: () => void;
 }) {
+  return (
+    <FundDetailModal code={code} highlight={highlight} onClose={onClose} />
+  );
+}
+
+/**
+ * The fund itself, without a frame around it.
+ *
+ * Split out so a fund on a watchlist shows the same returns, chart and
+ * portfolio that the Funds page shows. Two renderings of the same fund that
+ * could disagree would be one rendering too many, and the drill-down and the
+ * watchlist pane are the same act — reading the cache.
+ */
+export function FundDetail({
+  code,
+  highlight = "",
+}: {
+  code: string;
+  highlight?: string;
+}) {
   const queryClient = useQueryClient();
   const [triggered, setTriggered] = useState(false);
 
@@ -70,7 +90,7 @@ export function HoldingsDialog({
   }, [uncached, triggered]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <Modal title={query.data?.fund.name ?? code} onClose={onClose} size="xl">
+    <>
       {query.isPending ? (
         <Spinner />
       ) : query.isError ? (
@@ -90,6 +110,28 @@ export function HoldingsDialog({
       ) : query.data ? (
         <FundHoldings result={query.data} highlight={highlight} />
       ) : null}
+    </>
+  );
+}
+
+/** The Funds page drill-down: the same body, in a dialog. */
+function FundDetailModal({
+  code,
+  highlight,
+  onClose,
+}: {
+  code: string;
+  highlight: string;
+  onClose: () => void;
+}) {
+  const query = useQuery({
+    queryKey: ["fund-holdings", code],
+    queryFn: () => api<FundHoldingsResult>(`/api/funds/${code}/holdings`),
+  });
+
+  return (
+    <Modal title={query.data?.fund.name ?? code} onClose={onClose} size="xl">
+      <FundDetail code={code} highlight={highlight} />
     </Modal>
   );
 }

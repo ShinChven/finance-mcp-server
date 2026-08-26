@@ -24,17 +24,28 @@ import type { LevelDraft, LevelPatch } from "../lib/levels.js";
 import type { SeriesResult, WatchlistItem } from "../lib/types.js";
 import { describeFactor, staleLevels } from "../lib/splits.js";
 import { Card } from "./ui.js";
+import { FundDetail } from "./fund-holdings.js";
 import { QuoteStatsPanel } from "./instrument-stats.js";
 import { LevelsPanel, PriceRail } from "./price-levels.js";
 import { PriceChart } from "./price-chart.js";
 
 export type DetailTab = "chart" | "levels" | "stats";
 
-const TABS: { id: DetailTab; label: string }[] = [
-  { id: "chart", label: "Chart" },
-  { id: "levels", label: "Levels" },
-  { id: "stats", label: "Stats" },
-];
+/**
+ * A fund's third tab is its portfolio, not its session statistics.
+ *
+ * A NAV carries no volume, no multiple and no day range, so a Stats tab on a
+ * fund would be an empty panel. What a fund does have — trailing returns and
+ * disclosed holdings — is exactly what the Funds page already renders, so the
+ * tab shows that same component rather than a second version of it.
+ */
+function tabsFor(kind: WatchlistItem["kind"]): { id: DetailTab; label: string }[] {
+  return [
+    { id: "chart", label: "Chart" },
+    { id: "levels", label: "Levels" },
+    { id: "stats", label: kind === "fund" ? "Fund" : "Stats" },
+  ];
+}
 
 export function ItemDetail({
   item,
@@ -106,7 +117,7 @@ export function ItemDetail({
         aria-label={`${item.ref} detail`}
         className="mb-3 flex gap-1 border-b border-zinc-200 dark:border-zinc-800"
       >
-        {TABS.map((entry) => (
+        {tabsFor(item.kind).map((entry) => (
           <button
             key={entry.id}
             role="tab"
@@ -189,14 +200,17 @@ export function ItemDetail({
         />
       )}
 
-      {tab === "stats" && (
-        <QuoteStatsPanel
-          stats={item.live.stats}
-          extended={item.live.extended}
-          returns={item.live.returns}
-          price={item.live.price}
-        />
-      )}
+      {tab === "stats" &&
+        (item.kind === "fund" ? (
+          <FundDetail code={item.ref} />
+        ) : (
+          <QuoteStatsPanel
+            stats={item.live.stats}
+            extended={item.live.extended}
+            returns={item.live.returns}
+            price={item.live.price}
+          />
+        ))}
     </Card>
   );
 }

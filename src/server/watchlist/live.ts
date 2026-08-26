@@ -30,6 +30,8 @@ import {
   type WatchlistReturnPeriod,
 } from "../../shared/watchlist.js";
 import { computeTrailingReturns, type NavSeriesPoint } from "../funds/performance.js";
+import { computeTrailingWindows } from "../market/series-math.js";
+import type { BarStore } from "../market/bars.js";
 import type { YahooFinanceClient } from "../mcp/client.js";
 import { yahooRequestOptions } from "../mcp/tools/runtime.js";
 import type { WatchlistLevel } from "../db/schema.js";
@@ -143,6 +145,13 @@ export interface EnrichedItem {
   nearest: { above: EnrichedLevel | null; below: EnrichedLevel | null };
   addedAt: string;
   live: LiveValue;
+  /**
+   * A month of closes for the row's sparkline, when bars are stored for it.
+   *
+   * Raw values rather than a drawn path: the cell decides its own geometry, and
+   * a server that shipped SVG would be deciding how wide the column is.
+   */
+  spark: number[] | null;
 }
 
 export interface WatchlistTotals {
@@ -485,6 +494,17 @@ function nearestLevels(levels: EnrichedLevel[]): EnrichedItem["nearest"] {
 export interface ValueDeps {
   client: YahooFinanceClient;
   repo: WatchlistRepo;
+  /**
+   * Stored daily bars, when the caller has them.
+   *
+   * Optional because two callers price watchlists and only one is on a request
+   * path with a database handle to spare. With it, a symbol quotes the same
+   * four trailing windows a fund does and carries a sparkline; without it, it
+   * falls back to the one figure its quote knows. Reads only — never fetches:
+   * a list of fifty symbols must not become fifty requests behind a throttle
+   * two deep just because it was scrolled past.
+   */
+  bars?: Pick<BarStore, "readMany">;
 }
 
 /**
@@ -562,13 +582,86 @@ function currencyMismatch(stored: string | null, quoted: string | null): boolean
   return stored !== null && quoted !== null && stored !== quoted;
 }
 
+/**
+ * Trailing windows and a sparkline for the symbols on a list, from stored bars.
+ *
+ * The same four windows a fund quotes, on the same terms: anchored to
+ * observations that exist, and only the ones the stored history reaches back
+ * to. A symbol nobody has opened yet has no bars and simply falls back to the
+ * 52-week figure its quote carries — which is why this returns a partial map
+ * rather than throwing when a symbol is missing.
+ */
+async function symbolHistory(
+  symbols: string[],
+  bars: Pick<BarStore, "readMany">,
+  today: Date,
+): Promise<Map<string, { returns: ItemReturns; spark: number[] }>> {
+  const out = new Map<string, { returns: ItemReturns; spark: number[] }>();
+  if (symbols.length === 0) return out;
+
+  let stored: Map<string, { date: string; close: number | null }[]>;
+  try {
+    stored = await bars.readMany(symbols, navWindowStart(today));
+  } catch {
+    return out;
+  }
+
+  const supported = new Set<string>(WATCHLIST_RETURN_PERIODS);
+  for (const [symbol, rows] of stored) {
+    const series = rows
+      .map((row) => ({ date: row.date, value: row.close }))
+      .filter((point): point is { date: string; value: number } =>
+        point.value !== null && point.value > 0,
+      );
+    if (series.length < 2) continue;
+
+    const windows = computeTrailingWindows(
+      series,
+      WATCHLIST_RETURN_PERIODS.map((period) => ({
+        id: period,
+        months: period === "1y" ? 12 : Number(period.replace("m", "")),
+      })),
+    );
+    if (windows === null) continue;
+
+    const periods: ItemReturn[] = windows.periods
+      .filter((entry) => supported.has(entry.period))
+      .map((entry) => ({
+        period: entry.period,
+        returnPercent: entry.returnPercent,
+        from: entry.from,
+        to: entry.to,
+      }));
+    if (periods.length === 0) continue;
+
+    // A month of closes, thinned to what a 60-pixel cell can actually show.
+    const month = series.slice(-22);
+    out.set(symbol, {
+      // Raw closes, so this is a price return and excludes dividends — the same
+      // basis the quote's own 52-week figure uses, which is what makes the two
+      // interchangeable in one column.
+      returns: { basis: "price", periods },
+      spark: month.map((point) => point.value),
+    });
+  }
+  return out;
+}
+
 export async function enrichItems(
   items: WatchlistItemRow[],
   deps: ValueDeps,
 ): Promise<EnrichedItem[]> {
-  const { values, names } = await currentValues(items, deps);
-
   const today = new Date();
+  const [{ values, names }, history] = await Promise.all([
+    currentValues(items, deps),
+    deps.bars === undefined
+      ? Promise.resolve(new Map<string, { returns: ItemReturns; spark: number[] }>())
+      : symbolHistory(
+          [...new Set(items.filter((i) => i.kind === "symbol").map((i) => i.ref))],
+          deps.bars,
+          today,
+        ),
+  ]);
 
   return items.map((item) => {
     const quoted =
@@ -581,6 +674,7 @@ export async function enrichItems(
           quoted.basis,
         )
       : quoted;
+    const stored = history.get(item.ref);
     const levels = item.levels
       .map((level) => enrichLevel(level, live.price, today))
       .sort((a, b) => b.price - a.price);
@@ -598,7 +692,14 @@ export async function enrichItems(
       levels,
       nearest: nearestLevels(levels),
       addedAt: item.createdAt.toISOString(),
-      live,
+      // Stored bars win over the quote's single 52-week figure where they
+      // exist: four real windows beat one, and both are price returns, so the
+      // column stays comparable either way.
+      live: {
+        ...live,
+        returns: live.available ? (stored?.returns ?? live.returns) : live.returns,
+      },
+      spark: live.available ? (stored?.spark ?? null) : null,
     };
   });
 }

@@ -192,7 +192,13 @@ export const watchlistRoutes = new Hono<AppEnv>()
       return c.json({ watchlist: list, total, items, summary: null });
     }
 
-    const enriched = await enrichItems(items, { client: yahooFinanceClient, repo });
+    const enriched = await enrichItems(items, {
+      client: yahooFinanceClient,
+      repo,
+      // Read-only: whatever bars are already stored enrich the rows, and a
+      // symbol nobody has opened simply falls back to what its quote knows.
+      bars: (await loadSeriesDeps()).bars,
+    });
     // The summary describes the whole list, not the level facet: "3 of 40
     // approaching" is the number that makes the filter worth clicking.
     const summary = summarize(enriched);

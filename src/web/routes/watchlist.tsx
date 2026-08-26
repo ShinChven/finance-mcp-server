@@ -51,7 +51,7 @@ import {
   NEAR_LEVEL_PERCENT,
   type WatchlistReturnPeriod,
 } from "../../shared/watchlist.js";
-import { RangeMeter } from "../components/instrument-stats.js";
+import { RangeMeter, Sparkline } from "../components/instrument-stats.js";
 
 const KIND_FILTERS = [
   { value: "symbol", label: "Instruments" },
@@ -528,6 +528,7 @@ const COLUMNS: {
   { key: "ref", label: "Item", sortable: true },
   { key: "price", label: "Last", sortable: true, align: "text-right" },
   { key: "change", label: "Change", sortable: true, align: "text-right" },
+  { key: "spark", label: "1M", secondary: true },
   { key: "return1y", label: "1Y", sortable: true, align: "text-right", secondary: true },
   { key: "entry", label: "Since entry", sortable: true, align: "text-right", secondary: true },
   { key: "range", label: "52-week", secondary: true },
@@ -676,6 +677,13 @@ function ItemsTable({
                 </td>
                 <td className={`px-4 py-3 text-right tabular-nums ${signClass(item.live.changePercent)}`}>
                   {formatPercent(item.live.changePercent)}
+                </td>
+                <td className={`px-4 py-3 ${narrow ? SECONDARY_HIDDEN : ""}`}>
+                  {item.spark === null ? (
+                    <span className="text-xs text-zinc-300 dark:text-zinc-600">—</span>
+                  ) : (
+                    <Sparkline values={item.spark} label={item.ref} />
+                  )}
                 </td>
                 <td
                   className={`px-4 py-3 text-right tabular-nums ${signClass(

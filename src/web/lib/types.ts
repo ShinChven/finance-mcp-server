@@ -441,6 +441,8 @@ export interface WatchlistItem {
   nearest: { above: WatchlistLevel | null; below: WatchlistLevel | null };
   addedAt: string;
   live: LiveValue;
+  /** A month of closes for the row's sparkline; null when none are stored. */
+  spark: number[] | null;
 }
 
 export interface WatchlistTotals {

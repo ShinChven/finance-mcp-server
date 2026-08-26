@@ -219,15 +219,39 @@ function Plot({
       <div className="relative">
         <svg
           viewBox={`0 0 ${BOX.width} ${BOX.height}`}
-          className={`w-full ${tone}`}
+          className={`w-full rounded outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 ${tone}`}
           role="img"
-          aria-label={`${item.ref} from ${series.startDate} to ${series.endDate}, ${formatPercent(change)}. ${drawable.length} price levels drawn.`}
+          // Focusable and walkable, because a chart whose only readout is a
+          // hover tooltip has no readout at all for anyone not using a mouse.
+          tabIndex={0}
+          aria-label={`${item.ref} from ${series.startDate} to ${series.endDate}, ${formatPercent(change)}. ${drawable.length} price levels drawn. Use the arrow keys to read individual observations.`}
           onPointerMove={(event) => {
             const rect = event.currentTarget.getBoundingClientRect();
             if (rect.width === 0) return;
             setHover(nearestIndex(plot, ((event.clientX - rect.left) / rect.width) * BOX.width));
           }}
           onPointerLeave={() => setHover(null)}
+          onFocus={() => setHover((current) => current ?? series.points.length - 1)}
+          onBlur={() => setHover(null)}
+          onKeyDown={(event) => {
+            const last = series.points.length - 1;
+            const step =
+              event.key === "ArrowRight"
+                ? 1
+                : event.key === "ArrowLeft"
+                  ? -1
+                  : event.key === "Home"
+                    ? -Infinity
+                    : event.key === "End"
+                      ? Infinity
+                      : null;
+            if (step === null) return;
+            event.preventDefault();
+            setHover((current) => {
+              const from = current ?? last;
+              return Math.max(0, Math.min(last, step === Infinity ? last : step === -Infinity ? 0 : from + step));
+            });
+          }}
         >
           <defs>
             <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
@@ -392,6 +416,14 @@ function Plot({
           </div>
         )}
       </div>
+
+      {/* What the crosshair is on, for a screen reader. Visually hidden because
+          the tooltip already shows it to anyone who can see the chart. */}
+      <p aria-live="polite" className="sr-only">
+        {active === null || active === undefined
+          ? ""
+          : `${series.intraday ? new Date(active.t).toLocaleString() : active.t}: ${active.value}, ${formatPercent(active.changePercent)}`}
+      </p>
 
       {domain.clamped.length > 0 && (
         <p className="text-[10px] text-zinc-400">
