@@ -27,6 +27,11 @@ import {
   WATCHLIST_ITEM_KINDS,
 } from "../../shared/watchlist.js";
 import { yahooFinanceClient } from "../mcp/client.js";
+import { seriesQuerySchema } from "../../shared/series.js";
+import { BarFetchRefused, createBarStore } from "../market/bars.js";
+import { createTokenBucket } from "../market/budget.js";
+import { createYahooMarketProvider } from "../market/providers/yahoo.js";
+import { priceSeries, type SeriesDeps } from "../market/series.js";
 import { audit } from "../lib/audit.js";
 import { clientIp, type AppEnv } from "../lib/http.js";
 import { requireAuth } from "../middleware/session.js";
@@ -39,6 +44,29 @@ import {
 } from "../watchlist/repo.js";
 
 const repo = createLazyWatchlistRepo();
+
+/**
+ * Built once so the in-flight de-duplication and the token bucket are shared
+ * across requests — a per-request store would de-duplicate nothing.
+ *
+ * The database import is deferred the same way the repo defers it, so building
+ * the routes in a test never requires a configured database.
+ */
+const marketProvider = createYahooMarketProvider(yahooFinanceClient);
+const seriesBudget = createTokenBucket();
+
+let seriesDeps: Promise<SeriesDeps> | undefined;
+function loadSeriesDeps(): Promise<SeriesDeps> {
+  seriesDeps ??= import("../db/index.js").then((module) => ({
+    bars: createBarStore(module.db, marketProvider),
+    provider: marketProvider,
+    navHistory: async (code: string, since: string) => {
+      const windows = await repo.getFundNavWindows([code], since);
+      return windows.get(code) ?? [];
+    },
+  }));
+  return seriesDeps;
+}
 
 const itemQuerySchema = z.object({
   q: z.string().trim().max(200).optional(),
@@ -176,7 +204,13 @@ export const watchlistRoutes = new Hono<AppEnv>()
       return c.json({ watchlist: list, total, items, summary: null });
     }
 
-    const enriched = await enrichItems(items, { client: yahooFinanceClient, repo });
+    const enriched = await enrichItems(items, {
+      client: yahooFinanceClient,
+      repo,
+      // Read-only: whatever bars are already stored enrich the rows, and a
+      // symbol nobody has opened simply falls back to what its quote knows.
+      bars: (await loadSeriesDeps()).bars,
+    });
     // The summary describes the whole list, not the level facet: "3 of 40
     // approaching" is the number that makes the filter worth clicking.
     const summary = summarize(enriched);
@@ -314,5 +348,52 @@ export const watchlistRoutes = new Hono<AppEnv>()
       const status = errorStatus(error);
       if (status !== null) return c.json({ error: (error as Error).message }, status);
       throw error;
+    }
+  })
+
+  /**
+   * One item's price history.
+   *
+   * Bars only — no levels. They are edited in the pane beside the chart and
+   * this payload is cached, so carrying them would serve a stale stop after
+   * every edit until the cache expired. The client already holds them from the
+   * items query and overlays them itself.
+   */
+  .get("/:id/items/:itemId/series", zValidator("query", seriesQuerySchema), async (c) => {
+    const user = c.get("user");
+    // Charged before any work: the point is to bound outbound requests made on
+    // this account's behalf, and a refusal must be cheaper than the fetch.
+    const allowed = seriesBudget.take(user.id);
+    if (!allowed.ok) {
+      return c.json(
+        {
+          error: "Too many price histories requested. Give it a moment and try again.",
+          retryAfterSeconds: allowed.retryAfterSeconds,
+        },
+        429,
+        { "Retry-After": String(allowed.retryAfterSeconds) },
+      );
+    }
+
+    try {
+      const item = await repo.getItem(user.id, c.req.param("id"), c.req.param("itemId"));
+      if (item === null) return c.json({ error: "item not found" }, 404);
+
+      const series = await priceSeries(item, c.req.valid("query").range, await loadSeriesDeps());
+      // Null is a real answer — a listing with one observation cannot be drawn
+      // — so it is not a 404, which would read as "no such item".
+      return c.json({ item: { id: item.id, ref: item.ref, kind: item.kind }, series });
+    } catch (error) {
+      if (error instanceof BarFetchRefused) {
+        return c.json({ error: error.message }, 503, { "Retry-After": "5" });
+      }
+      const status = errorStatus(error);
+      if (status !== null) return c.json({ error: (error as Error).message }, status);
+      // An upstream that is down degrades to a chart that says so, rather than
+      // a 500 that takes the whole pane with it.
+      return c.json(
+        { error: `Price history unavailable: ${(error as Error).message}`, series: null },
+        502,
+      );
     }
   });

@@ -17,16 +17,66 @@ import {
   locateLevel,
   NEAR_LEVEL_PERCENT,
   percentChange,
+  rangePosition,
+  WATCHLIST_NAV_WINDOW_DAYS,
+  WATCHLIST_RETURN_PERIODS,
+  type ItemReturn,
+  type ItemReturns,
   type LevelPosition,
   type WatchlistItemKind,
   type WatchlistLevelKind,
   type WatchlistLevelSource,
   type WatchlistLevelStatus,
+  type WatchlistReturnPeriod,
 } from "../../shared/watchlist.js";
+import { computeTrailingReturns, type NavSeriesPoint } from "../funds/performance.js";
+import { computeTrailingWindows } from "../market/series-math.js";
 import type { YahooFinanceClient } from "../mcp/client.js";
 import { yahooRequestOptions } from "../mcp/tools/runtime.js";
 import type { WatchlistLevel } from "../db/schema.js";
 import type { WatchlistItemRow, WatchlistRepo } from "./repo.js";
+
+/**
+ * The context a price needs to mean something.
+ *
+ * All of it arrives in the same `quote()` response the price does, so this
+ * block costs no extra request — it was being parsed and discarded. Every
+ * field is nullable because the upstream declares every one of them optional
+ * and coverage really does vary by instrument: an ETF has no P/E, many CN and
+ * HK listings carry no 52-week change, and a crypto pair has almost none of it.
+ * Absent is rendered as absent, never as zero.
+ */
+export interface QuoteStats {
+  previousClose: number | null;
+  dayLow: number | null;
+  dayHigh: number | null;
+  fiftyTwoWeekLow: number | null;
+  fiftyTwoWeekHigh: number | null;
+  /** 0 at the 52-week low, 1 at the high; null unless both ends are known. */
+  fiftyTwoWeekPosition: number | null;
+  volume: number | null;
+  averageVolume3Month: number | null;
+  fiftyDayAverage: number | null;
+  twoHundredDayAverage: number | null;
+  marketCap: number | null;
+  trailingPe: number | null;
+  /** Percent, not a fraction — see `dividendYieldPercent`. */
+  dividendYieldPercent: number | null;
+}
+
+/**
+ * A price from outside the regular session.
+ *
+ * Kept apart from `price` rather than replacing it: the day's change is
+ * measured against the regular close, and a pre-market print folded into the
+ * same field would silently redefine what every percentage on the row means.
+ */
+export interface ExtendedQuote {
+  phase: "pre" | "post";
+  price: number;
+  changePercent: number | null;
+  asOf: string | null;
+}
 
 export interface LiveValue {
   /** `market` for a Yahoo quote, `nav` for a fund's last published NAV. */
@@ -41,6 +91,12 @@ export interface LiveValue {
   asOf: string | null;
   available: boolean;
   unavailableReason?: string;
+  /** Null for funds, whose NAV carries none of this. */
+  stats: QuoteStats | null;
+  /** Present only while a pre- or post-market print is the latest one. */
+  extended: ExtendedQuote | null;
+  /** Trailing windows this item can quote; null when the source offers none. */
+  returns: ItemReturns | null;
 }
 
 /**
@@ -62,6 +118,8 @@ export interface EnrichedLevel extends LevelPosition {
   hitAt: string | null;
   validUntil: string | null;
   expired: boolean;
+  /** When the level was recorded — what a later split is dated against. */
+  createdAt: string;
 }
 
 export interface EnrichedItem {
@@ -72,6 +130,8 @@ export interface EnrichedItem {
   note: string | null;
   entryPrice: number | null;
   entryAt: string | null;
+  /** The unit `entryPrice` and every level are written in; null on old rows. */
+  currency: string | null;
   /** How the item has done since it went on the list — measured from entry. */
   sinceEntryPercent: number | null;
   /** Highest first, so the list reads like a ladder around the price. */
@@ -84,6 +144,13 @@ export interface EnrichedItem {
   nearest: { above: EnrichedLevel | null; below: EnrichedLevel | null };
   addedAt: string;
   live: LiveValue;
+  /**
+   * A month of closes for the row's sparkline, when bars are stored for it.
+   *
+   * Raw values rather than a drawn path: the cell decides its own geometry, and
+   * a server that shipped SVG would be deciding how wide the column is.
+   */
+  spark: number[] | null;
 }
 
 export interface WatchlistTotals {
@@ -110,6 +177,9 @@ const UNAVAILABLE = (reason: string, basis: LiveValue["basis"]): LiveValue => ({
   asOf: null,
   available: false,
   unavailableReason: reason,
+  stats: null,
+  extended: null,
+  returns: null,
 });
 
 function num(value: unknown): number | null {
@@ -130,6 +200,92 @@ function isoTime(value: unknown): string | null {
 
 function key(kind: WatchlistItemKind, ref: string): string {
   return `${kind}:${ref}`;
+}
+
+/**
+ * A dividend yield, as a percentage, or null.
+ *
+ * `dividendYield` is documented as a percentage and is the field to trust.
+ * `trailingAnnualDividendYield` is not used at all, despite looking like a
+ * fallback: it has historically arrived as a fraction for some quote types and
+ * as a percentage for others, and there is no way to tell which from the value
+ * — 0.5 is a plausible half-percent yield and a plausible 50% one. Deriving
+ * from the annual rate instead keeps the arithmetic, and therefore the unit,
+ * ours.
+ *
+ * Anything above 100% is dropped rather than shown: at that point the field is
+ * far more likely to be misreported than real, and a row claiming a 4000% yield
+ * discredits every other number beside it.
+ */
+export function dividendYieldPercent(quote: Record<string, unknown>): number | null {
+  const direct = num(quote["dividendYield"]);
+  const rate = num(quote["trailingAnnualDividendRate"]);
+  const price = num(quote["regularMarketPrice"]);
+  const derived = rate !== null && price !== null && price > 0 ? (rate / price) * 100 : null;
+  const value = direct ?? derived;
+  if (value === null || value < 0 || value > 100) return null;
+  return Number(value.toFixed(2));
+}
+
+/** Everything in the quote payload that is context rather than the price. */
+function readStats(quote: Record<string, unknown>): QuoteStats {
+  const low = num(quote["fiftyTwoWeekLow"]);
+  const high = num(quote["fiftyTwoWeekHigh"]);
+  return {
+    previousClose: num(quote["regularMarketPreviousClose"]),
+    dayLow: num(quote["regularMarketDayLow"]),
+    dayHigh: num(quote["regularMarketDayHigh"]),
+    fiftyTwoWeekLow: low,
+    fiftyTwoWeekHigh: high,
+    fiftyTwoWeekPosition: rangePosition(low, high, num(quote["regularMarketPrice"])),
+    volume: num(quote["regularMarketVolume"]),
+    averageVolume3Month: num(quote["averageDailyVolume3Month"]),
+    fiftyDayAverage: num(quote["fiftyDayAverage"]),
+    twoHundredDayAverage: num(quote["twoHundredDayAverage"]),
+    marketCap: num(quote["marketCap"]),
+    trailingPe: num(quote["trailingPE"]),
+    dividendYieldPercent: dividendYieldPercent(quote),
+  };
+}
+
+/**
+ * The out-of-hours print, when there is one worth showing.
+ *
+ * Driven by `marketState` rather than by the mere presence of the fields: Yahoo
+ * keeps yesterday's post-market print on the payload all through the following
+ * morning, and showing that as "after hours" next to a live regular-session
+ * price would be a day-old number wearing a live label.
+ */
+function readExtended(quote: Record<string, unknown>): ExtendedQuote | null {
+  const state = str(quote["marketState"]) ?? "";
+  const phase = state.startsWith("PRE") ? "pre" : state.startsWith("POST") ? "post" : null;
+  if (phase === null) return null;
+  const price = num(quote[`${phase}MarketPrice`]);
+  if (price === null) return null;
+  return {
+    phase,
+    price,
+    changePercent: num(quote[`${phase}MarketChangePercent`]),
+    asOf: isoTime(quote[`${phase}MarketTime`]),
+  };
+}
+
+/**
+ * A symbol's trailing returns, from what the quote already knows.
+ *
+ * Only the year is answerable this way — `fiftyTwoWeekChangePercent` is the one
+ * trailing figure a quote carries — and it is a price return, so it understates
+ * a dividend payer. The shorter windows arrive with stored daily bars; until
+ * then the row offers the periods it can actually support rather than
+ * approximating the rest from moving averages.
+ */
+function symbolReturns(quote: Record<string, unknown>): ItemReturns | null {
+  const year = num(quote["fiftyTwoWeekChangePercent"]);
+  if (year === null) return null;
+  return {
+    basis: "price",
+    periods: [{ period: "1y", returnPercent: Number(year.toFixed(2)), from: null, to: null }],
+  };
 }
 
 async function quoteSymbols(
@@ -165,6 +321,9 @@ async function quoteSymbols(
       ...(num(quote["regularMarketPrice"]) === null
         ? { unavailableReason: "Yahoo returned no price for this symbol." }
         : {}),
+      stats: readStats(quote),
+      extended: readExtended(quote),
+      returns: symbolReturns(quote),
     });
   }
 
@@ -181,9 +340,60 @@ async function quoteSymbols(
   return values;
 }
 
+/** The earliest NAV date a watchlist row reads, as `YYYY-MM-DD`. */
+function navWindowStart(today: Date): string {
+  const start = new Date(today.getTime() - WATCHLIST_NAV_WINDOW_DAYS * 86_400_000);
+  return start.toISOString().slice(0, 10);
+}
+
+/**
+ * Trailing returns for the funds on a list, from cached NAV alone.
+ *
+ * Only the windows the bounded history can honestly cover survive: the series
+ * starts wherever `navWindowStart` put it, so `max` would report that arbitrary
+ * start as "since inception" and the multi-year windows would either be missing
+ * or measured from the wrong end. Filtering by the shared period list is what
+ * keeps a truncated read from turning into a wrong number.
+ *
+ * A failure here is not a failure of the row: the prices still render, just
+ * without their history.
+ */
+async function fundReturns(
+  codes: string[],
+  repo: WatchlistRepo,
+  today: Date,
+): Promise<Map<string, ItemReturns>> {
+  const returns = new Map<string, ItemReturns>();
+  if (codes.length === 0) return returns;
+
+  let windows: Map<string, NavSeriesPoint[]>;
+  try {
+    windows = await repo.getFundNavWindows(codes, navWindowStart(today));
+  } catch {
+    return returns;
+  }
+
+  const supported = new Set<string>(WATCHLIST_RETURN_PERIODS);
+  for (const [code, points] of windows) {
+    const trailing = computeTrailingReturns(points);
+    if (trailing === null) continue;
+    const periods: ItemReturn[] = trailing.periods
+      .filter((entry) => supported.has(entry.period))
+      .map((entry) => ({
+        period: entry.period as WatchlistReturnPeriod,
+        returnPercent: entry.returnPercent,
+        from: entry.from,
+        to: entry.to,
+      }));
+    if (periods.length > 0) returns.set(code, { basis: trailing.basis, periods });
+  }
+  return returns;
+}
+
 async function quoteFunds(
   codes: string[],
   repo: WatchlistRepo,
+  today: Date,
 ): Promise<{ values: Map<string, LiveValue>; names: Map<string, string> }> {
   const values = new Map<string, LiveValue>();
   const names = new Map<string, string>();
@@ -197,6 +407,8 @@ async function quoteFunds(
     for (const code of codes) values.set(code, UNAVAILABLE(reason, "nav"));
     return { values, names };
   }
+
+  const returns = await fundReturns(codes, repo, today);
 
   for (const code of codes) {
     const snapshot = snapshots.get(code);
@@ -227,6 +439,11 @@ async function quoteFunds(
       marketState: null,
       asOf: snapshot.navDate,
       available: true,
+      // A NAV carries no session, no volume and no multiple; the fund page is
+      // where a fund's own context lives.
+      stats: null,
+      extended: null,
+      returns: returns.get(code) ?? null,
     });
   }
   return { values, names };
@@ -249,6 +466,7 @@ function enrichLevel(level: WatchlistLevel, price: number | null, today: Date): 
     status: level.status,
     hitAt: level.hitAt?.toISOString() ?? null,
     validUntil: level.validUntil,
+    createdAt: level.createdAt.toISOString(),
     expired: isLevelExpired(level.validUntil, today),
     ...position,
   };
@@ -272,9 +490,34 @@ function nearestLevels(levels: EnrichedLevel[]): EnrichedItem["nearest"] {
   };
 }
 
+/**
+ * The slice of the bar store this module needs: closes by date, read-only.
+ *
+ * Narrower than `BarStore` on purpose — declaring the whole store would let a
+ * future edit here reach for `ensure` and turn pricing a list into a fetch per
+ * row, which is the one thing this path must never do.
+ */
+export interface BarReader {
+  readMany(
+    symbols: string[],
+    since: string,
+  ): Promise<Map<string, { date: string; close: number | null }[]>>;
+}
+
 export interface ValueDeps {
   client: YahooFinanceClient;
   repo: WatchlistRepo;
+  /**
+   * Stored daily bars, when the caller has them.
+   *
+   * Optional because two callers price watchlists and only one is on a request
+   * path with a database handle to spare. With it, a symbol quotes the same
+   * four trailing windows a fund does and carries a sparkline; without it, it
+   * falls back to the one figure its quote knows. Reads only — never fetches:
+   * a list of fifty symbols must not become fifty requests behind a throttle
+   * two deep just because it was scrolled past.
+   */
+  bars?: BarReader;
 }
 
 /**
@@ -293,7 +536,7 @@ export async function currentValues(
 
   const [symbolValues, fundResult] = await Promise.all([
     quoteSymbols(symbols, deps.client),
-    quoteFunds(codes, deps.repo),
+    quoteFunds(codes, deps.repo, new Date()),
   ]);
 
   const values = new Map<string, LiveValue>();
@@ -312,33 +555,140 @@ export async function currentValues(
  * that cannot be had leaves the row alone rather than failing the add — the
  * item still belongs on the list.
  */
-export async function withEntryPrices<T extends { kind: WatchlistItemKind; ref: string; entryPrice?: number | null }>(
-  rows: T[],
-  deps: ValueDeps,
-): Promise<T[]> {
+export async function withEntryPrices<
+  T extends {
+    kind: WatchlistItemKind;
+    ref: string;
+    entryPrice?: number | null;
+    currency?: string | null;
+  },
+>(rows: T[], deps: ValueDeps): Promise<T[]> {
   const missing = rows.filter((row) => row.entryPrice === undefined || row.entryPrice === null);
   if (missing.length === 0) return rows;
 
   const { values } = await currentValues(missing, deps);
   return rows.map((row) => {
     if (row.entryPrice !== undefined && row.entryPrice !== null) return row;
-    const price = values.get(key(row.kind, row.ref))?.price ?? null;
-    return price === null ? row : { ...row, entryPrice: price };
+    const value = values.get(key(row.kind, row.ref));
+    const price = value?.price ?? null;
+    // The currency is captured with the price, not separately: it is the unit
+    // that price and every level added later are written in, and capturing it
+    // from a second lookup would let the two disagree.
+    return price === null ? row : { ...row, entryPrice: price, currency: value?.currency ?? null };
   });
+}
+
+/**
+ * Whether a live quote may be compared against what this item stored.
+ *
+ * Levels and the entry price are bare numbers in the item's own currency. If a
+ * listing's quote currency changes — a re-listing, a symbol that now resolves
+ * somewhere else — every distance-to-level, the rail and the `near` facet keep
+ * computing in the wrong unit with nothing on screen to say so. Refusing to
+ * compare is the only honest failure.
+ *
+ * A null on either side is read as "assume it matches": rows added before the
+ * column existed carry none, and refusing to price all of them would be a worse
+ * failure than the one being guarded against.
+ */
+function currencyMismatch(stored: string | null, quoted: string | null): boolean {
+  return stored !== null && quoted !== null && stored !== quoted;
+}
+
+/**
+ * Trailing windows and a sparkline for the symbols on a list, from stored bars.
+ *
+ * The same four windows a fund quotes, on the same terms: anchored to
+ * observations that exist, and only the ones the stored history reaches back
+ * to. A symbol nobody has opened yet has no bars and simply falls back to the
+ * 52-week figure its quote carries — which is why this returns a partial map
+ * rather than throwing when a symbol is missing.
+ */
+async function symbolHistory(
+  symbols: string[],
+  bars: BarReader,
+  today: Date,
+): Promise<Map<string, { returns: ItemReturns; spark: number[] }>> {
+  const out = new Map<string, { returns: ItemReturns; spark: number[] }>();
+  if (symbols.length === 0) return out;
+
+  let stored: Map<string, { date: string; close: number | null }[]>;
+  try {
+    stored = await bars.readMany(symbols, navWindowStart(today));
+  } catch {
+    return out;
+  }
+
+  const supported = new Set<string>(WATCHLIST_RETURN_PERIODS);
+  for (const [symbol, rows] of stored) {
+    const series = rows
+      .map((row) => ({ date: row.date, value: row.close }))
+      .filter((point): point is { date: string; value: number } =>
+        point.value !== null && point.value > 0,
+      );
+    if (series.length < 2) continue;
+
+    const windows = computeTrailingWindows(
+      series,
+      WATCHLIST_RETURN_PERIODS.map((period) => ({
+        id: period,
+        months: period === "1y" ? 12 : Number(period.replace("m", "")),
+      })),
+    );
+    if (windows === null) continue;
+
+    const periods: ItemReturn[] = windows.periods
+      .filter((entry) => supported.has(entry.period))
+      .map((entry) => ({
+        period: entry.period,
+        returnPercent: entry.returnPercent,
+        from: entry.from,
+        to: entry.to,
+      }));
+    if (periods.length === 0) continue;
+
+    // A month of closes, thinned to what a 60-pixel cell can actually show.
+    const month = series.slice(-22);
+    out.set(symbol, {
+      // Raw closes, so this is a price return and excludes dividends — the same
+      // basis the quote's own 52-week figure uses, which is what makes the two
+      // interchangeable in one column.
+      returns: { basis: "price", periods },
+      spark: month.map((point) => point.value),
+    });
+  }
+  return out;
 }
 
 export async function enrichItems(
   items: WatchlistItemRow[],
   deps: ValueDeps,
 ): Promise<EnrichedItem[]> {
-  const { values, names } = await currentValues(items, deps);
-
   const today = new Date();
+  const [{ values, names }, history] = await Promise.all([
+    currentValues(items, deps),
+    deps.bars === undefined
+      ? Promise.resolve(new Map<string, { returns: ItemReturns; spark: number[] }>())
+      : symbolHistory(
+          [...new Set(items.filter((i) => i.kind === "symbol").map((i) => i.ref))],
+          deps.bars,
+          today,
+        ),
+  ]);
 
   return items.map((item) => {
-    const live =
+    const quoted =
       values.get(key(item.kind, item.ref)) ??
       UNAVAILABLE("No value source for this item.", item.kind === "fund" ? "nav" : "market");
+    const mismatch = currencyMismatch(item.currency, quoted.currency);
+    const live = mismatch
+      ? UNAVAILABLE(
+          `This item was tracked in ${item.currency} and now quotes in ${quoted.currency}. ` +
+            "Its levels and entry price are in the old unit, so nothing here can be compared until they are re-entered.",
+          quoted.basis,
+        )
+      : quoted;
+    const stored = history.get(item.ref);
     const levels = item.levels
       .map((level) => enrichLevel(level, live.price, today))
       .sort((a, b) => b.price - a.price);
@@ -351,11 +701,26 @@ export async function enrichItems(
       note: item.note,
       entryPrice: item.entryPrice,
       entryAt: item.entryAt?.toISOString() ?? null,
+      currency: item.currency,
       sinceEntryPercent: percentChange(item.entryPrice, live.price),
       levels,
       nearest: nearestLevels(levels),
       addedAt: item.createdAt.toISOString(),
-      live,
+      // Stored bars win over the quote's single 52-week figure where they
+      // exist: four real windows beat one, and both are price returns, so the
+      // column stays comparable either way.
+      //
+      // Gated on the currency mismatch rather than on the quote having
+      // succeeded. A history already in the database is a fact about the
+      // listing, not about whether today's quote came back — and a row whose
+      // provider is down is exactly when its own past is worth the most. A
+      // mismatch is different: there the listing is not the one these numbers
+      // describe, so the history goes with the price.
+      live: {
+        ...live,
+        returns: mismatch ? live.returns : (stored?.returns ?? live.returns),
+      },
+      spark: mismatch ? null : (stored?.spark ?? null),
     };
   });
 }

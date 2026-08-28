@@ -71,6 +71,32 @@ export function signClass(value: number | null | undefined): string {
     : "text-red-600 dark:text-red-400";
 }
 
+/**
+ * A large count as a short one: 1.24B, 837M, 12.4K.
+ *
+ * Turnover and market capitalisation are read for their order of magnitude, and
+ * a fifteen-digit figure in a table column is read for nothing at all. Below a
+ * thousand the number is printed whole — abbreviating there would lose
+ * precision to save no space.
+ */
+export function formatCompact(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  const abs = Math.abs(value);
+  const units: [number, string][] = [
+    [1e12, "T"],
+    [1e9, "B"],
+    [1e6, "M"],
+    [1e3, "K"],
+  ];
+  for (const [size, suffix] of units) {
+    if (abs >= size) {
+      const scaled = value / size;
+      return `${scaled.toFixed(Math.abs(scaled) < 10 ? 2 : 1)}${suffix}`;
+    }
+  }
+  return value.toLocaleString();
+}
+
 /** A percentage with an explicit sign, because an unsigned "3.20%" reads as a gain. */
 export function formatPercent(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";

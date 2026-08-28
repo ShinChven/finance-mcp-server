@@ -8,9 +8,9 @@
  */
 
 import { useState } from "react";
-import { Check, Pencil, Plus, RotateCcw, Trash2, X } from "lucide-react";
+import { Check, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { Modal } from "./modal.js";
-import { Button, Card, Input, Label, Select } from "./ui.js";
+import { Button, Input, Label, Select } from "./ui.js";
 import { formatRelative } from "../lib/format.js";
 import { parseLevelLines, type LevelDraft, type LevelPatch } from "../lib/levels.js";
 import type { WatchlistItem, WatchlistLevel } from "../lib/types.js";
@@ -166,14 +166,12 @@ export function LevelsPanel({
   onAdd,
   onUpdate,
   onRemove,
-  onClose,
 }: {
   item: WatchlistItem;
   busy: boolean;
   onAdd: (levels: LevelDraft[]) => void;
   onUpdate: (levelId: string, patch: LevelPatch) => void;
   onRemove: (levelId: string) => void;
-  onClose: () => void;
 }) {
   const [editing, setEditing] = useState<WatchlistLevel | null>(null);
   const price = item.live.price;
@@ -181,21 +179,7 @@ export function LevelsPanel({
   const rest = item.levels.filter((level) => level.side !== "above");
 
   return (
-    <Card className="h-fit p-4">
-      <div className="mb-3 flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="font-mono text-sm font-medium">{item.ref}</div>
-          {item.name && <div className="truncate text-xs text-zinc-400">{item.name}</div>}
-        </div>
-        <button
-          onClick={onClose}
-          aria-label="Close price levels"
-          className="cursor-pointer rounded p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-        >
-          <X className="size-4" />
-        </button>
-      </div>
-
+    <>
       <div className="mb-3 flex items-baseline justify-between gap-2 text-xs">
         <span className="text-zinc-500">
           {item.entryPrice === null ? (
@@ -272,7 +256,7 @@ export function LevelsPanel({
           }}
         />
       )}
-    </Card>
+    </>
   );
 }
 

@@ -11,7 +11,7 @@
  * one of them a lookup away from another account's list.
  */
 
-import { and, asc, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, or, sql, type SQL } from "drizzle-orm";
 import type { db as Database } from "../db/index.js";
 import { isUniqueViolation } from "../lib/pg-errors.js";
 import {
@@ -34,6 +34,7 @@ import {
   type WatchlistLevelSource,
   type WatchlistLevelStatus,
 } from "../../shared/watchlist.js";
+import type { NavSeriesPoint } from "../funds/performance.js";
 import { watchlistRepoWithEvents } from "../realtime/repo-events.js";
 
 export interface WatchlistSummary extends Watchlist {
@@ -77,6 +78,8 @@ export interface AddItemRow {
   note?: string | null;
   entryPrice?: number | null;
   entryAt?: Date | null;
+  /** The unit the entry price and every level are in; see the schema. */
+  currency?: string | null;
   /** Written only for items that were actually inserted. */
   levels?: AddLevelRow[];
 }
@@ -196,6 +199,19 @@ export interface WatchlistRepo {
 
   /** Latest cached NAV per fund code, for `fund` items. */
   getFundSnapshots(codes: string[]): Promise<Map<string, FundSnapshot>>;
+
+  /**
+   * NAV observations per fund over a bounded window, for trailing returns.
+   *
+   * Bounded rather than complete: a list of fifty funds against full histories
+   * is a five-figure row count on every load, and the windows a row quotes stop
+   * at a year. `since` is the earliest date to read, and the caller is expected
+   * to drop any period the window cannot honestly cover.
+   */
+  getFundNavWindows(codes: string[], since: string): Promise<Map<string, NavSeriesPoint[]>>;
+
+  /** One item by id, scoped to its owner — for the per-item detail routes. */
+  getItem(userId: string, watchlistId: string, itemId: string): Promise<WatchlistItem | null>;
 }
 
 type Db = typeof Database;
@@ -544,6 +560,7 @@ export function createWatchlistRepo(db: Db): WatchlistRepo {
             // An entry price with no date is one captured right now; the two
             // only come apart when a caller backfills both.
             entryAt: row.entryAt ?? (typeof row.entryPrice === "number" ? new Date() : null),
+            currency: row.currency ?? null,
           })),
         )
         .onConflictDoNothing({
@@ -718,6 +735,40 @@ export function createWatchlistRepo(db: Db): WatchlistRepo {
 
       for (const row of rows) snapshots.set(row.code, row);
       return snapshots;
+    },
+
+    async getItem(userId, watchlistId, itemId) {
+      await requireOwned(userId, watchlistId);
+      const [row] = await db
+        .select()
+        .from(watchlistItems)
+        .where(and(eq(watchlistItems.id, itemId), eq(watchlistItems.watchlistId, watchlistId)))
+        .limit(1);
+      return row ?? null;
+    },
+
+    async getFundNavWindows(codes, since) {
+      const windows = new Map<string, NavSeriesPoint[]>();
+      if (codes.length === 0) return windows;
+
+      const rows = await db
+        .select({
+          fundCode: fundNav.fundCode,
+          navDate: fundNav.navDate,
+          nav: fundNav.nav,
+          accNav: fundNav.accNav,
+        })
+        .from(fundNav)
+        .where(and(inArray(fundNav.fundCode, codes), gte(fundNav.navDate, since)))
+        .orderBy(fundNav.fundCode, asc(fundNav.navDate));
+
+      for (const row of rows) {
+        const series = windows.get(row.fundCode);
+        const point = { navDate: row.navDate, nav: row.nav, accNav: row.accNav };
+        if (series === undefined) windows.set(row.fundCode, [point]);
+        else series.push(point);
+      }
+      return windows;
     },
   };
 }

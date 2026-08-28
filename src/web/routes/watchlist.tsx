@@ -35,7 +35,10 @@ import {
   Trash2,
 } from "lucide-react";
 import { Modal, ConfirmDialog } from "../components/modal.js";
-import { LevelsPanel, NearestSummary, PriceRail } from "../components/price-levels.js";
+import { NearestSummary, PriceRail } from "../components/price-levels.js";
+import { ItemDetail, type DetailTab } from "../components/item-detail.js";
+import { DEFAULT_SERIES_RANGE, isSeriesRange } from "../../shared/series.js";
+import { useMe } from "./shell.js";
 import { parseLevelLines, type LevelDraft, type LevelPatch } from "../lib/levels.js";
 import { FilterPills, SearchInput } from "../components/table.js";
 import { useToast } from "../components/toast.js";
@@ -50,7 +53,13 @@ import type {
   WatchlistItemsResult,
   WatchlistSummary,
 } from "../lib/types.js";
-import { detectItemKind, KIND_LABELS, NEAR_LEVEL_PERCENT } from "../../shared/watchlist.js";
+import {
+  detectItemKind,
+  KIND_LABELS,
+  NEAR_LEVEL_PERCENT,
+  type WatchlistReturnPeriod,
+} from "../../shared/watchlist.js";
+import { RangeMeter, Sparkline } from "../components/instrument-stats.js";
 
 const KIND_FILTERS = [
   { value: "symbol", label: "Instruments" },
@@ -77,6 +86,7 @@ function formatPrice(value: number | null, currency: string | null): string {
 }
 
 export default function WatchlistPage() {
+  const me = useMe();
   const toast = useToast();
   const queryClient = useQueryClient();
   const params = useListParams();
@@ -206,6 +216,11 @@ export default function WatchlistPage() {
     onError: (error: Error) => toast("error", error.message),
   });
 
+  // The chart is the default view, so it is the tab that leaves no `?tab=` in
+  // the URL; anything unrecognised falls back to it rather than showing nothing.
+  const detailTab: DetailTab =
+    params.tab === "levels" || params.tab === "stats" ? params.tab : "chart";
+
   /**
    * A dropped row is placed in the cache before the request goes out.
    *
@@ -286,7 +301,9 @@ export default function WatchlistPage() {
       ) : (
         <div
           className={`grid gap-4 ${
-            openItem === null ? "lg:grid-cols-[16rem_1fr]" : "lg:grid-cols-[16rem_1fr_22rem]"
+            openItem === null
+              ? "lg:grid-cols-[16rem_1fr]"
+              : "lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[15rem_minmax(0,1fr)_30rem]"
           }`}
         >
           <ListSidebar
@@ -363,13 +380,23 @@ export default function WatchlistPage() {
           </div>
 
           {openItem && (
-            <LevelsPanel
+            <ItemDetail
               item={openItem}
+              listId={selectedId}
+              tab={detailTab}
+              range={isSeriesRange(params.range) ? params.range : DEFAULT_SERIES_RANGE}
+              palette={me.preferences.directionPalette ?? "classic"}
               busy={addLevels.isPending || updateLevel.isPending || removeLevel.isPending}
-              onAdd={(levels) => addLevels.mutate({ itemId: openItem.id, levels })}
-              onUpdate={(levelId, patch) => updateLevel.mutate({ levelId, patch })}
-              onRemove={(levelId) => removeLevel.mutate(levelId)}
-              onClose={() => params.update({ item: "" })}
+              // Discrete choices, so both push history: the back button steps
+              // through the ranges and tabs a reader tried.
+              onTab={(next) => params.update({ tab: next === "chart" ? "" : next })}
+              onRange={(next) =>
+                params.update({ range: next === DEFAULT_SERIES_RANGE ? "" : next })
+              }
+              onAddLevels={(levels) => addLevels.mutate({ itemId: openItem.id, levels })}
+              onUpdateLevel={(levelId, patch) => updateLevel.mutate({ levelId, patch })}
+              onRemoveLevel={(levelId) => removeLevel.mutate(levelId)}
+              onClose={() => params.update({ item: "", tab: "" })}
             />
           )}
         </div>
@@ -448,6 +475,8 @@ function useSortedItems(items: WatchlistItem[], sort: string): WatchlistItem[] {
           return item.live.price ?? Number.NEGATIVE_INFINITY;
         case "entry":
           return item.sinceEntryPercent ?? Number.NEGATIVE_INFINITY;
+        case "return1y":
+          return returnOver(item, "1y") ?? Number.NEGATIVE_INFINITY;
         case "levels": {
           // Closest first, whichever direction it is in: the question this
           // column answers is "what is about to happen", not "up or down".
@@ -662,11 +691,25 @@ const COLUMNS: {
   { key: "ref", label: "Item", sortable: true },
   { key: "price", label: "Last", sortable: true, align: "text-right" },
   { key: "change", label: "Change", sortable: true, align: "text-right" },
+  { key: "spark", label: "1M", secondary: true },
+  { key: "return1y", label: "1Y", sortable: true, align: "text-right", secondary: true },
   { key: "entry", label: "Since entry", sortable: true, align: "text-right", secondary: true },
+  { key: "range", label: "52-week", secondary: true },
   { key: "levels", label: "Levels", sortable: true },
   { key: "note", label: "Note", secondary: true },
   { key: "actions", label: "", align: "text-right" },
 ];
+
+/**
+ * A row's return over one window, or null.
+ *
+ * Kept as a lookup rather than an index because the periods a row carries
+ * depend on its source: a fund with enough cached NAV quotes four, a symbol
+ * quotes the one its quote knows.
+ */
+function returnOver(item: WatchlistItem, period: WatchlistReturnPeriod): number | null {
+  return item.live.returns?.periods.find((entry) => entry.period === period)?.returnPercent ?? null;
+}
 
 /**
  * With the panel open the table has roughly half the width it had, and the two
@@ -828,6 +871,32 @@ function ItemsTable({
                 <td className={`px-4 py-3 text-right tabular-nums ${signClass(item.live.changePercent)}`}>
                   {formatPercent(item.live.changePercent)}
                 </td>
+                <td className={`px-4 py-3 ${narrow ? SECONDARY_HIDDEN : ""}`}>
+                  {item.spark === null ? (
+                    <span className="text-xs text-zinc-300 dark:text-zinc-600">—</span>
+                  ) : (
+                    <Sparkline values={item.spark} label={item.ref} />
+                  )}
+                </td>
+                <td
+                  className={`px-4 py-3 text-right tabular-nums ${signClass(
+                    returnOver(item, "1y"),
+                  )} ${narrow ? SECONDARY_HIDDEN : ""}`}
+                >
+                  {returnOver(item, "1y") === null ? (
+                    <span className="text-zinc-300 dark:text-zinc-600">—</span>
+                  ) : (
+                    <span
+                      title={
+                        item.live.returns?.basis === "price"
+                          ? "The quote's 52-week change; a price return, so dividends are excluded."
+                          : "Measured from cached NAV over the trailing year."
+                      }
+                    >
+                      {formatPercent(returnOver(item, "1y"))}
+                    </span>
+                  )}
+                </td>
                 <td
                   className={`px-4 py-3 text-right tabular-nums ${signClass(item.sinceEntryPercent)} ${
                     narrow ? SECONDARY_HIDDEN : ""
@@ -840,6 +909,22 @@ function ItemsTable({
                       <div>{formatPercent(item.sinceEntryPercent)}</div>
                       <div className="text-[10px] text-zinc-400">from {item.entryPrice}</div>
                     </>
+                  )}
+                </td>
+                <td className={`w-36 px-4 py-3 ${narrow ? SECONDARY_HIDDEN : ""}`}>
+                  {item.live.stats?.fiftyTwoWeekPosition === null ||
+                  item.live.stats === null ||
+                  item.live.stats.fiftyTwoWeekLow === null ||
+                  item.live.stats.fiftyTwoWeekHigh === null ? (
+                    <span className="text-xs text-zinc-300 dark:text-zinc-600">—</span>
+                  ) : (
+                    <RangeMeter
+                      low={item.live.stats.fiftyTwoWeekLow}
+                      high={item.live.stats.fiftyTwoWeekHigh}
+                      position={item.live.stats.fiftyTwoWeekPosition}
+                      label={`${item.ref} 52-week range`}
+                      compact
+                    />
                   )}
                 </td>
                 <td className="w-44 px-4 py-3">

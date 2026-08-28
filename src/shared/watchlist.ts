@@ -277,6 +277,76 @@ export function locateLevel(
  */
 export const NEAR_LEVEL_PERCENT = 2;
 
+/* ------------------------------------------------------------------ *
+ * Trailing returns and quote statistics
+ * ------------------------------------------------------------------ */
+
+/**
+ * The windows a watchlist row quotes.
+ *
+ * Deliberately shorter than the fund page's set. The NAV history behind a fund
+ * row is read in a bounded window so that opening a list of fifty funds cannot
+ * pull a decade of observations each, and a period that truncation could
+ * distort is not offered at all rather than offered wrong: `max`, `3y` and `5y`
+ * stay on the fund page, where the whole series is loaded.
+ */
+export const WATCHLIST_RETURN_PERIODS = ["1m", "3m", "6m", "1y"] as const;
+
+export type WatchlistReturnPeriod = (typeof WATCHLIST_RETURN_PERIODS)[number];
+
+/**
+ * How far back a fund row reads NAV.
+ *
+ * Sized to cover a year with slack for holidays and suspensions, and no more:
+ * every extra day is rows fetched for every fund on every list load.
+ */
+export const WATCHLIST_NAV_WINDOW_DAYS = 400;
+
+export interface ItemReturn {
+  period: WatchlistReturnPeriod;
+  returnPercent: number;
+  /**
+   * The observations the window really spans, where the source names them. A
+   * fund's NAV dates do; a 52-week figure lifted from a quote does not, and
+   * inventing dates for it would make it look more precise than it is.
+   */
+  from: string | null;
+  to: string | null;
+}
+
+/**
+ * What a row's returns are measured on.
+ *
+ * `price` is a quote's own 52-week change, which excludes dividends; `accNav`
+ * includes distributions and `nav` does not. Carried rather than assumed
+ * because one column shows all three, and a fund's year and a stock's year are
+ * not quite the same measurement.
+ */
+export type ReturnBasis = "price" | "accNav" | "nav";
+
+export interface ItemReturns {
+  basis: ReturnBasis;
+  periods: ItemReturn[];
+}
+
+/**
+ * Where a price sits in a range: 0 at the low, 1 at the high.
+ *
+ * Clamped rather than extrapolated. A quote whose last price has already broken
+ * the 52-week range it was published with should read as "at the high", not as
+ * 1.04 of a bar that only goes to 1 — the overshoot is a staleness artefact of
+ * the two fields being published at different moments, not a fact about the
+ * instrument.
+ */
+export function rangePosition(
+  low: number | null,
+  high: number | null,
+  price: number | null,
+): number | null {
+  if (low === null || high === null || price === null || high <= low) return null;
+  return Math.min(1, Math.max(0, (price - low) / (high - low)));
+}
+
 /** A level past its shelf life is shown greyed out, not deleted. */
 export function isLevelExpired(validUntil: string | null, today = new Date()): boolean {
   if (validUntil === null) return false;

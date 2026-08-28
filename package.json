@@ -9,7 +9,7 @@
     "start": "node dist/server/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:db": "vitest run src/server/funds/repo-live.test.ts",
+    "test:db": "vitest run src/server/funds/repo-live.test.ts src/server/market/bars-live.test.ts",
     "lint": "oxlint src",
     "ingest": "node dist/server/funds/ingest-cli.js",
     "db:generate": "drizzle-kit generate",

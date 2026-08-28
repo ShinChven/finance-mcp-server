@@ -93,7 +93,10 @@ export function registerWatchlistTool(
         return {
           watchlist: header,
           summary: summarize(enriched),
-          items: enriched,
+          // The sparkline is dropped: it is a drawing, and twenty-odd closes
+          // per row is real payload for something an assistant cannot read.
+          // Anything it would have shown is available through `chart`.
+          items: enriched.map(({ spark: _spark, ...item }) => item),
           note:
             "`live.basis` says what the number is: `market` is an intraday Yahoo quote, `nav` is a " +
             "fund's last published net asset value, which moves once per trading day. Items with " +
@@ -103,7 +106,15 @@ export function registerWatchlistTool(
             "`side: above` means the level is overhead, and `distancePercent` is the move needed to " +
             "reach it, as a percentage of the current price. `nearest` is the first active level in " +
             "each direction. `sinceEntryPercent` is measured from `entryPrice` instead, which is what " +
-            "the item was worth when it went on the list — not a cost basis, and not a position.",
+            "the item was worth when it went on the list — not a cost basis, and not a position. " +
+            "`live.stats` carries what the quote knows beyond the price — day and 52-week ranges, " +
+            "turnover against its 3-month average, moving averages, market cap, P/E, yield — and every " +
+            "field of it can be null, because coverage varies by instrument: an ETF has no P/E, and a " +
+            "crypto pair has almost none of it. Null means the source does not publish it, never zero. " +
+            "`live.returns.basis` says what the trailing figures measure: `price` is a symbol's " +
+            "52-week change and excludes dividends, `accNav` includes a fund's distributions and " +
+            "`nav` does not — so a fund's year and a stock's year are not the same measurement. " +
+            "`live.extended` appears only while a pre- or post-market print is the current one.",
         };
       }),
   );

@@ -5,6 +5,7 @@ import {
   isLevelExpired,
   locateLevel,
   normalizeRef,
+  rangePosition,
   percentChange,
 } from "./watchlist.js";
 
@@ -72,5 +73,28 @@ describe("price levels", () => {
 
   it("honours a repeated id once, keeping the order the same length", () => {
     expect(applyOrder(["a", "b", "c"], ["b", "b", "a"])).toEqual(["b", "a", "c"]);
+  });
+});
+
+describe("rangePosition", () => {
+  it("places a price between the bounds", () => {
+    expect(rangePosition(80, 140, 110)).toBeCloseTo(0.5, 6);
+    expect(rangePosition(80, 140, 80)).toBe(0);
+    expect(rangePosition(80, 140, 140)).toBe(1);
+  });
+
+  it("clamps a price that has already broken the range it was published with", () => {
+    // The last price and the 52-week bounds are published at different moments,
+    // so an overshoot is a staleness artefact. It reads as "at the high", not
+    // as 1.08 of a bar that only goes to 1.
+    expect(rangePosition(80, 140, 145)).toBe(1);
+    expect(rangePosition(80, 140, 70)).toBe(0);
+  });
+
+  it("declines to place anything without both bounds and a real span", () => {
+    expect(rangePosition(null, 140, 110)).toBeNull();
+    expect(rangePosition(80, null, 110)).toBeNull();
+    expect(rangePosition(80, 140, null)).toBeNull();
+    expect(rangePosition(100, 100, 100)).toBeNull();
   });
 });

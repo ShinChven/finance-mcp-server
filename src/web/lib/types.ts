@@ -2,12 +2,14 @@ import type { HoldingsCompleteness, NavRangeId, ProviderId, TrailingPeriodId } f
 import type { NoteSource, NoteStatus } from "../../shared/notes.js";
 import type { SkillSource, SkillStatus } from "../../shared/skills.js";
 import type {
+  ItemReturns,
   WatchlistItemKind,
   WatchlistLevelKind,
   WatchlistLevelSource,
   WatchlistLevelStatus,
 } from "../../shared/watchlist.js";
 
+import type { PriceSeries } from "../../shared/series.js";
 import type { JsonSchemaNode } from "./json-schema.js";
 import type { UserPreferences } from "../../shared/preferences.js";
 
@@ -339,6 +341,38 @@ export interface WatchlistSummary {
   updatedAt: string;
 }
 
+/**
+ * The context around a price, from the same quote that carried the price.
+ *
+ * Every field is nullable and coverage varies by instrument, so each renders
+ * on its own: a tile with nothing behind it is omitted rather than shown as a
+ * dash, which is the difference between "not applicable here" and "broken".
+ */
+export interface QuoteStats {
+  previousClose: number | null;
+  dayLow: number | null;
+  dayHigh: number | null;
+  fiftyTwoWeekLow: number | null;
+  fiftyTwoWeekHigh: number | null;
+  /** 0 at the 52-week low, 1 at the high. */
+  fiftyTwoWeekPosition: number | null;
+  volume: number | null;
+  averageVolume3Month: number | null;
+  fiftyDayAverage: number | null;
+  twoHundredDayAverage: number | null;
+  marketCap: number | null;
+  trailingPe: number | null;
+  dividendYieldPercent: number | null;
+}
+
+/** A pre- or post-market print, kept apart from the regular-session price. */
+export interface ExtendedQuote {
+  phase: "pre" | "post";
+  price: number;
+  changePercent: number | null;
+  asOf: string | null;
+}
+
 /** What an item is currently worth, and where that number came from. */
 export interface LiveValue {
   /** `market` is an intraday quote; `nav` is a fund's last published NAV. */
@@ -351,6 +385,12 @@ export interface LiveValue {
   asOf: string | null;
   available: boolean;
   unavailableReason?: string;
+  /** Null for funds — a NAV carries no session, volume or multiple. */
+  stats: QuoteStats | null;
+  extended: ExtendedQuote | null;
+  /** Trailing windows the source can support: a year for symbols, up to
+   *  four windows for funds with enough cached NAV. */
+  returns: ItemReturns | null;
 }
 
 /**
@@ -371,10 +411,18 @@ export interface WatchlistLevel {
   hitAt: string | null;
   validUntil: string | null;
   expired: boolean;
+  /** When it was recorded — what a later split is dated against. */
+  createdAt: string;
   /** Where the level sits relative to the live price; null without one. */
   side: "above" | "below" | "inside" | "at" | null;
   /** Signed move needed to reach it, as a percentage of the live price. */
   distancePercent: number | null;
+}
+
+export interface SeriesResult {
+  item: { id: string; ref: string; kind: WatchlistItemKind };
+  /** Null when the window holds fewer than two observations. */
+  series: PriceSeries | null;
 }
 
 export interface WatchlistItem {
@@ -385,6 +433,8 @@ export interface WatchlistItem {
   note: string | null;
   entryPrice: number | null;
   entryAt: string | null;
+  /** The unit the entry price and every level are in; null on older rows. */
+  currency: string | null;
   /** Measured from the entry price, not from yesterday's close. */
   sinceEntryPercent: number | null;
   /** Highest price first. */
@@ -393,6 +443,8 @@ export interface WatchlistItem {
   nearest: { above: WatchlistLevel | null; below: WatchlistLevel | null };
   addedAt: string;
   live: LiveValue;
+  /** A month of closes for the row's sparkline; null when none are stored. */
+  spark: number[] | null;
 }
 
 export interface WatchlistTotals {

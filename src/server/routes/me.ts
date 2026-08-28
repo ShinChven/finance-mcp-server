@@ -29,6 +29,7 @@ const updateSchema = z.object({
     .object({
       theme: z.enum(["system", "light", "dark"]).optional(),
       pageSize: z.union([z.literal(10), z.literal(20), z.literal(50)]).optional(),
+      directionPalette: z.enum(["classic", "accessible"]).optional(),
     })
     .optional(),
 });
