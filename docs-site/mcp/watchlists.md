@@ -62,6 +62,15 @@ Three things follow from how they are stored:
 Levels an agent writes are marked `source: "agent"` and shown as such on the
 dashboard, next to the ones the user typed.
 
+## Items come back in the user's own order
+
+A watchlist is ordered by hand — dragged into shape on the dashboard — and
+`watchlist` reads it back in that order rather than by add date. The order is
+information: why three names sit at the top of a list is in the user's head, not
+in any column an agent could sort by. There is no tool for rewriting it, for the
+same reason there is none for deleting a list: rearranging someone's list is not
+a correction an assistant should make on its own.
+
 ## The entry price is captured, not asked for
 
 Adding an item records what it was worth at that moment. It is the one price

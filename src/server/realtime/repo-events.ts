@@ -126,6 +126,13 @@ export function watchlistRepoWithEvents(repo: WatchlistRepo): WatchlistRepo {
       },
     },
     updateItem: { action: "updated", ids: (result, args) => (result === null ? null : argAt(args, 1)) },
+    // A reorder that changed nothing returns false and stays silent, so two
+    // tabs settling on the same order do not ping-pong refetches at each other.
+    reorderWatchlists: { action: "updated", ids: (result) => (result === true ? [] : null) },
+    reorderItems: {
+      action: "updated",
+      ids: (result, args) => (result === true ? argAt(args, 1) : null),
+    },
     removeItems: { action: "deleted", ids: (result, args) => (nonEmpty(result) ? argAt(args, 1) : null) },
     // Levels hang off an item, but the client keys on the list, so a level
     // write is an update to the list that holds it.

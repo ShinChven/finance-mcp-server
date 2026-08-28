@@ -209,6 +209,15 @@ export const watchlists = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     description: text("description"),
+    /**
+     * Where the user dragged this list, ascending. Stored rather than derived
+     * because the order a person arranges their lists in is information no
+     * other column carries: `updated_at` reorders itself the moment an agent
+     * touches a list, which is exactly what a hand-arranged sidebar must not
+     * do. Ties fall back to `updated_at`, so a list created before this column
+     * existed still lands somewhere sensible.
+     */
+    position: integer("position").notNull().default(0),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -218,6 +227,7 @@ export const watchlists = pgTable(
     // ambiguous.
     uniqueIndex("watchlists_user_name_idx").on(t.userId, sql`lower(${t.name})`),
     index("watchlists_user_updated_idx").on(t.userId, t.updatedAt),
+    index("watchlists_user_position_idx").on(t.userId, t.position),
   ],
 );
 
@@ -245,11 +255,19 @@ export const watchlistItems = pgTable(
      * backfilled: bought in May, tracked in August.
      */
     entryAt: timestamp("entry_at", { withTimezone: true }),
+    /**
+     * Hand-arranged order within the list, ascending. Newly added items take
+     * the position *before* everything else, matching the old default order —
+     * most recently added first — so adding something never buries it at the
+     * bottom of a long list.
+     */
+    position: integer("position").notNull().default(0),
     createdAt: createdAt(),
   },
   (t) => [
     uniqueIndex("watchlist_items_unique_idx").on(t.watchlistId, t.kind, t.ref),
     index("watchlist_items_list_idx").on(t.watchlistId, t.createdAt),
+    index("watchlist_items_position_idx").on(t.watchlistId, t.position),
   ],
 );
 

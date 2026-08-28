@@ -3,6 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { describe, expect, it, vi } from "vitest";
 import type { McpAuth } from "../../lib/http.js";
+import { applyOrder } from "../../../shared/watchlist.js";
 import type { WatchlistLevel } from "../../db/schema.js";
 import type {
   AddItemRow,
@@ -104,6 +105,7 @@ function memoryRepo(seed: { lists?: WatchlistSummary[]; items?: WatchlistItemRow
         name: input.name,
         description: null,
         itemCount: 0,
+        position: lists.size,
         createdAt: new Date("2026-08-01T00:00:00Z"),
         updatedAt: new Date("2026-08-01T00:00:00Z"),
       };
@@ -135,6 +137,8 @@ function memoryRepo(seed: { lists?: WatchlistSummary[]; items?: WatchlistItemRow
         const item: WatchlistItemRow = {
           id: `item-${++counter}`,
           watchlistId,
+          // Newly added items lead the list, as they do in the database.
+          position: -counter,
           kind: row.kind,
           ref: row.ref,
           name: row.name ?? null,
@@ -151,6 +155,27 @@ function memoryRepo(seed: { lists?: WatchlistSummary[]; items?: WatchlistItemRow
       return { added, skipped };
     }),
     updateItem: vi.fn(async () => null),
+    // Ordering is not something the MCP tools write, but the interface carries
+    // it; the stand-in honours it so a tool that started to would be caught.
+    reorderWatchlists: vi.fn(async (userId: string, ids: string[]) => {
+      const owned = [...lists.values()].filter((entry) => entry.userId === userId);
+      const order = applyOrder(
+        [...owned].sort((a, b) => a.position - b.position).map((entry) => entry.id),
+        ids,
+      );
+      for (const entry of owned) lists.set(entry.id, { ...entry, position: order.indexOf(entry.id) });
+      return true;
+    }),
+    reorderItems: vi.fn(async (userId: string, watchlistId: string, ids: string[]) => {
+      if (ownedList(userId, watchlistId) === null) throw new Error("Watchlist not found.");
+      const owned = items.filter((item) => item.watchlistId === watchlistId);
+      const order = applyOrder(
+        [...owned].sort((a, b) => a.position - b.position).map((item) => item.id),
+        ids,
+      );
+      for (const item of owned) item.position = order.indexOf(item.id);
+      return true;
+    }),
     removeItems: vi.fn(async (userId: string, watchlistId: string, selector: { refs?: string[] }) => {
       if (ownedList(userId, watchlistId) === null) throw new Error("Watchlist not found.");
       const refs = new Set(selector.refs ?? []);
@@ -258,6 +283,7 @@ function list(id: string, name: string, userId = "user-1"): WatchlistSummary {
     name,
     description: null,
     itemCount: 0,
+    position: 0,
     createdAt: new Date("2026-08-01T00:00:00Z"),
     updatedAt: new Date("2026-08-01T00:00:00Z"),
   };
@@ -389,6 +415,7 @@ describe("watchlist tools", () => {
         {
           id: "item-1",
           watchlistId: "list-1",
+          position: 0,
           kind: "symbol",
           ref: "NVDA",
           name: null,

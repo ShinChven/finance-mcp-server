@@ -71,6 +71,13 @@
       "when": 1787470723045,
       "tag": "0009_watchlist_target_to_level",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1787881577762,
+      "tag": "0010_watchlist_manual_order",
+      "breakpoints": true
     }
   ]
 }
