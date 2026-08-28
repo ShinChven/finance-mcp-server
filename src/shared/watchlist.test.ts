@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyOrder,
   detectItemKind,
   isLevelExpired,
   locateLevel,
@@ -58,6 +59,20 @@ describe("price levels", () => {
     expect(isLevelExpired(null, today)).toBe(false);
     expect(isLevelExpired("2026-08-23", today)).toBe(false);
     expect(isLevelExpired("2026-08-22", today)).toBe(true);
+  });
+
+  it("applies a requested order and keeps what it did not name behind it", () => {
+    expect(applyOrder(["a", "b", "c"], ["c", "a", "b"])).toEqual(["c", "a", "b"]);
+    // A reorder sent from a filtered view names only what the user could see.
+    expect(applyOrder(["a", "b", "c", "d"], ["d", "b"])).toEqual(["d", "b", "a", "c"]);
+  });
+
+  it("ignores ids it does not hold, so a stale client cannot add rows", () => {
+    expect(applyOrder(["a", "b"], ["deleted", "b", "a"])).toEqual(["b", "a"]);
+  });
+
+  it("honours a repeated id once, keeping the order the same length", () => {
+    expect(applyOrder(["a", "b", "c"], ["b", "b", "a"])).toEqual(["b", "a", "c"]);
   });
 });
 

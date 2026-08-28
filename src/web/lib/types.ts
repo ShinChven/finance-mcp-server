@@ -335,6 +335,8 @@ export interface WatchlistSummary {
   name: string;
   description: string | null;
   itemCount: number;
+  /** Ascending sidebar order; written by dragging, never read directly. */
+  position: number;
   createdAt: string;
   updatedAt: string;
 }

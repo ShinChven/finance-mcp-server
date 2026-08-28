@@ -186,6 +186,44 @@ export const addItemsSchema = z.object({
   items: z.array(watchlistItemInputSchema).min(1).max(MAX_ITEMS_PER_ADD),
 });
 
+/**
+ * A hand-arranged order, sent whole.
+ *
+ * The client sends every id it can see, in the order it wants them, rather
+ * than "move id X to index 3": an index-based patch is meaningless the moment
+ * two devices reorder the same list, and the whole array is small enough
+ * (capped at the list cap) that sending it costs nothing. Ids the server holds
+ * but the payload omits keep their relative order behind the named ones, so
+ * reordering a filtered view can never silently drop what was filtered out.
+ */
+export const reorderSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1).max(MAX_ITEMS_PER_WATCHLIST),
+});
+
+/**
+ * The stored ids in the order the caller asked for.
+ *
+ * Ids the caller did not name keep their relative order *behind* the named
+ * ones, and ids it named that do not exist are dropped. That is what makes a
+ * reorder sent from a filtered or stale view safe: the worst case is that
+ * something the client could not see moves to the end, never that it vanishes
+ * or that the write is rejected.
+ */
+export function applyOrder(current: string[], requested: string[]): string[] {
+  const known = new Set(current);
+  const placed = new Set<string>();
+  const named: string[] = [];
+  for (const id of requested) {
+    // A repeated id is honoured at its first mention; honouring it twice would
+    // produce an order shorter than the list it is meant to describe.
+    if (known.has(id) && !placed.has(id)) {
+      placed.add(id);
+      named.push(id);
+    }
+  }
+  return [...named, ...current.filter((id) => !placed.has(id))];
+}
+
 export const updateItemSchema = z.object({
   note: itemNoteSchema.nullable().optional(),
   entryPrice: priceSchema.nullable().optional(),

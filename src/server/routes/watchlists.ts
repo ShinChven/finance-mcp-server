@@ -20,6 +20,7 @@ import {
   createWatchlistSchema,
   detectItemKind,
   normalizeRef,
+  reorderSchema,
   updateItemSchema,
   updateLevelSchema,
   updateWatchlistSchema,
@@ -70,7 +71,8 @@ function loadSeriesDeps(): Promise<SeriesDeps> {
 const itemQuerySchema = z.object({
   q: z.string().trim().max(200).optional(),
   kind: z.enum(WATCHLIST_ITEM_KINDS).optional(),
-  sort: z.enum(["added", "ref"]).optional(),
+  /** `manual` — the order the user dragged the rows into — is the default. */
+  sort: z.enum(["manual", "added", "ref"]).optional(),
   /**
    * Level facet. `near` is the "what should I look at today" view; both it and
    * `hit` are applied after pricing, because neither is knowable from the
@@ -129,6 +131,16 @@ export const watchlistRoutes = new Hono<AppEnv>()
     }
   })
 
+  /**
+   * The sidebar order, as a whole array.
+   *
+   * Registered before `/:id` so `reorder` is never read as a watchlist id.
+   */
+  .post("/reorder", zValidator("json", reorderSchema), async (c) => {
+    const moved = await repo.reorderWatchlists(c.get("user").id, c.req.valid("json").ids);
+    return c.json({ ok: true, moved });
+  })
+
   .patch("/:id", zValidator("json", updateWatchlistSchema), async (c) => {
     const user = c.get("user");
     const body = c.req.valid("json");
@@ -185,7 +197,7 @@ export const watchlistRoutes = new Hono<AppEnv>()
     const { items, total } = await repo.listItems(user.id, id, {
       ...(query.q !== undefined && { q: query.q }),
       ...(query.kind !== undefined && { kind: query.kind }),
-      sort: query.sort ?? "added",
+      sort: query.sort ?? "manual",
     });
 
     if (query.quotes === "false") {
@@ -231,6 +243,22 @@ export const watchlistRoutes = new Hono<AppEnv>()
       const priced = await withEntryPrices(rows, { client: yahooFinanceClient, repo });
       const result = await repo.addItems(user.id, c.req.param("id"), priced);
       return c.json(result, 201);
+    } catch (error) {
+      const status = errorStatus(error);
+      if (status !== null) return c.json({ error: (error as Error).message }, status);
+      throw error;
+    }
+  })
+
+  /** Same contract as the list reorder, scoped to one list's items. */
+  .post("/:id/items/reorder", zValidator("json", reorderSchema), async (c) => {
+    try {
+      const moved = await repo.reorderItems(
+        c.get("user").id,
+        c.req.param("id"),
+        c.req.valid("json").ids,
+      );
+      return c.json({ ok: true, moved });
     } catch (error) {
       const status = errorStatus(error);
       if (status !== null) return c.json({ error: (error as Error).message }, status);
