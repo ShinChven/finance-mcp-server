@@ -9,6 +9,12 @@
  * interesting columns — price, change, distance to the nearest level — are
  * computed per request and never stored, so the database cannot order by them.
  *
+ * Both panes are drag-orderable, and that order is stored: it is the one thing
+ * about a watchlist that no computed column can express — why these three sit
+ * at the top is in the user's head, not in the data. Dragging is therefore only
+ * offered in the manual order, with no search or filter narrowing the view;
+ * anything else would write an order the next render immediately overrides.
+ *
  * An item's price levels open in a third pane rather than in the row: there can
  * be twenty of them, and a row that tried to show them all would show none of
  * the other items. Which one is open lives in `?item=`, like every other piece
@@ -21,6 +27,7 @@ import {
   ArrowDown,
   ArrowUp,
   CircleAlert,
+  GripVertical,
   Pencil,
   Plus,
   RefreshCw,
@@ -34,6 +41,7 @@ import { FilterPills, SearchInput } from "../components/table.js";
 import { useToast } from "../components/toast.js";
 import { Button, Card, EmptyState, Input, Label, PageHeader, Spinner } from "../components/ui.js";
 import { api } from "../lib/api.js";
+import { sortByIds, useDragOrder } from "../lib/drag-order.js";
 import { formatPercent, formatRelative, signClass } from "../lib/format.js";
 import { useListParams } from "../lib/params.js";
 import type {
@@ -198,8 +206,58 @@ export default function WatchlistPage() {
     onError: (error: Error) => toast("error", error.message),
   });
 
+  /**
+   * A dropped row is placed in the cache before the request goes out.
+   *
+   * Not for speed — the write is one small statement — but because the items
+   * query refetches every quote, and without this the row would sit in its new
+   * slot on a preview that the arriving response could still contradict. Moving
+   * the cached order first means the refetch confirms what is already on
+   * screen. A failed write puts the server's order back.
+   */
+  const reorderLists = useMutation({
+    mutationFn: (ids: string[]) => api("/api/watchlists/reorder", { method: "POST", body: { ids } }),
+    onSuccess: () => invalidate(),
+    onError: (error: Error) => {
+      toast("error", error.message);
+      invalidate();
+    },
+  });
+
+  const reorderItems = useMutation({
+    mutationFn: (ids: string[]) =>
+      api(`/api/watchlists/${selectedId}/items/reorder`, { method: "POST", body: { ids } }),
+    onSuccess: () => invalidate(),
+    onError: (error: Error) => {
+      toast("error", error.message);
+      invalidate();
+    },
+  });
+
+  function commitListOrder(ids: string[]): void {
+    queryClient.setQueryData<{ items: WatchlistSummary[] }>(["watchlists"], (previous) =>
+      previous === undefined ? previous : { ...previous, items: sortByIds(previous.items, ids) },
+    );
+    reorderLists.mutate(ids);
+  }
+
+  function commitItemOrder(ids: string[]): void {
+    queryClient.setQueryData<WatchlistItemsResult>(
+      ["watchlist-items", selectedId, itemsQuery],
+      (previous) =>
+        previous === undefined ? previous : { ...previous, items: sortByIds(previous.items, ids) },
+    );
+    reorderItems.mutate(ids);
+  }
+
   const selected = lists.data?.items.find((list) => list.id === selectedId) ?? null;
   const sorted = useSortedItems(items.data?.items ?? [], params.sort);
+  /**
+   * Dragging writes an absolute order, so it is only offered when the table is
+   * showing one: a column sort overrides it on the next render, and a search or
+   * filter hides the rows a dropped item was placed between.
+   */
+  const narrowed = params.sort !== "" || params.q !== "" || params.kind !== "" || params.level !== "";
   // Resolved from the refetched list rather than held in state, so the panel
   // shows the same prices the table does after every refresh.
   const openItem = items.data?.items.find((item) => item.id === params.item) ?? null;
@@ -235,6 +293,7 @@ export default function WatchlistPage() {
             lists={lists.data?.items ?? []}
             selectedId={selectedId}
             onSelect={(id) => params.update({ list: id })}
+            onReorder={commitListOrder}
           />
 
           <div className="min-w-0">
@@ -247,6 +306,16 @@ export default function WatchlistPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <FilterPills params={params} paramKey="kind" options={KIND_FILTERS} />
                 <FilterPills params={params} paramKey="level" options={LEVEL_FILTERS} />
+                {narrowed && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    title="Clear the search, filters and column sort to drag rows into your own order"
+                    onClick={() => params.update({ sort: "", q: "", kind: "", level: "" })}
+                  >
+                    <GripVertical className="size-3.5" /> My order
+                  </Button>
+                )}
                 <Button variant="secondary" size="sm" onClick={() => void items.refetch()}>
                   <RefreshCw className={`size-3.5 ${items.isFetching ? "animate-spin" : ""}`} />
                   Refresh
@@ -284,6 +353,8 @@ export default function WatchlistPage() {
               sort={params.sort}
               openItemId={params.item}
               narrow={openItem !== null}
+              reorderable={!narrowed}
+              onReorder={commitItemOrder}
               onSort={(next) => params.update({ sort: next })}
               onOpen={(id) => params.update({ item: id === params.item ? "" : id })}
               onEdit={setEditingItem}
@@ -405,34 +476,124 @@ function useSortedItems(items: WatchlistItem[], sort: string): WatchlistItem[] {
   }, [items, sort]);
 }
 
+/**
+ * The grab handle.
+ *
+ * Its own control rather than the whole row: on a phone a draggable row and a
+ * scrollable page want the same gesture, and only one of them can have it.
+ * Giving the drag to a handle leaves the row tappable and the page scrollable,
+ * which is why every touch reorder UI that works looks like this. It is sized
+ * for a fingertip rather than a cursor, and it is a real `<button>`, so the
+ * arrow keys the hook binds reach it from the keyboard too.
+ */
+function DragHandle({
+  label,
+  active,
+  disabled,
+  handleProps,
+}: {
+  label: string;
+  active: boolean;
+  disabled: boolean;
+  handleProps: ReturnType<ReturnType<typeof useDragOrder>["handleProps"]>;
+}) {
+  return (
+    <button
+      {...handleProps}
+      type="button"
+      aria-label={disabled ? `${label} — clear the sort and filters to reorder` : `Reorder ${label}`}
+      title={
+        disabled
+          ? "Clear the search, filters and column sort to reorder"
+          : "Drag to reorder, or focus and use the arrow keys"
+      }
+      // No `onClick`: the handle's whole job happens on pointer down, and a
+      // click here would also open the row underneath it.
+      onClick={(event) => event.stopPropagation()}
+      // The default focus ring is suppressed in favour of an indigo one: the
+      // handle takes focus on pointer down (see the hook) so that the arrow
+      // keys work after a drag, and the browser's own ring on that is loud.
+      className={`-my-1 shrink-0 rounded-md p-2 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 ${
+        disabled
+          ? "cursor-not-allowed text-zinc-200 dark:text-zinc-700"
+          : `cursor-grab text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300 ${
+              active ? "cursor-grabbing text-indigo-500 dark:text-indigo-400" : ""
+            }`
+      }`}
+    >
+      <GripVertical className="size-4" />
+    </button>
+  );
+}
+
+/**
+ * What a row looks like while it is the one being moved. An outline rather than
+ * a ring, because this class also lands on a `<tr>`, and a table row paints an
+ * outline far more reliably than it paints a box-shadow.
+ */
+const DRAGGING_ROW =
+  "bg-indigo-50 outline-2 -outline-offset-2 outline-indigo-400/70 dark:bg-indigo-500/15 dark:outline-indigo-500/50";
+
 function ListSidebar({
   lists,
   selectedId,
   onSelect,
+  onReorder,
 }: {
   lists: WatchlistSummary[];
   selectedId: string;
   onSelect: (id: string) => void;
+  onReorder: (ids: string[]) => void;
 }) {
+  const ids = useMemo(() => lists.map((list) => list.id), [lists]);
+  const drag = useDragOrder({ ids, onCommit: onReorder });
+  const ordered = useMemo(() => sortByIds(lists, drag.order), [lists, drag.order]);
+
   return (
     <Card className="h-fit p-2">
-      {lists.map((list) => (
-        <button
-          key={list.id}
-          onClick={() => onSelect(list.id)}
-          className={`flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-            list.id === selectedId
-              ? "bg-indigo-50 font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-              : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/60"
-          }`}
-        >
-          <span className="flex min-w-0 items-center gap-2">
-            <Star className="size-3.5 shrink-0" />
-            <span className="truncate">{list.name}</span>
-          </span>
-          <span className="shrink-0 text-xs tabular-nums text-zinc-400">{list.itemCount}</span>
-        </button>
-      ))}
+      {/* A callback ref, so one `RefObject<HTMLElement>` can hold a div here
+          and a `<tbody>` in the table without either side casting. */}
+      <div
+        ref={(node) => {
+          drag.containerRef.current = node;
+        }}
+      >
+        {ordered.map((list) => (
+          <div
+            key={list.id}
+            {...drag.rowProps(list.id)}
+            className={`flex items-center gap-1 rounded-lg pr-2 text-sm transition-colors ${
+              drag.dragging === list.id
+                ? DRAGGING_ROW
+                : list.id === selectedId
+                  ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
+                  : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/60"
+            }`}
+          >
+            <DragHandle
+              label={list.name}
+              active={drag.dragging === list.id}
+              disabled={false}
+              handleProps={drag.handleProps(list.id)}
+            />
+            <button
+              onClick={() => onSelect(list.id)}
+              className={`flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 py-2 text-left ${
+                list.id === selectedId ? "font-medium" : ""
+              }`}
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <Star className="size-3.5 shrink-0" />
+                <span className="truncate">{list.name}</span>
+              </span>
+              <span className="shrink-0 text-xs tabular-nums text-zinc-400">{list.itemCount}</span>
+            </button>
+          </div>
+        ))}
+      </div>
+      {lists.length > 1 && (
+        <p className="px-3 pt-2 pb-1 text-[10px] text-zinc-400">Drag the handles to reorder.</p>
+      )}
     </Card>
   );
 }
@@ -496,6 +657,8 @@ const COLUMNS: {
   /** Folds away while a levels panel is taking a third of the row. */
   secondary?: boolean;
 }[] = [
+  // Unlabelled and as narrow as a fingertip: it is a control, not data.
+  { key: "handle", label: "", align: "w-10" },
   { key: "ref", label: "Item", sortable: true },
   { key: "price", label: "Last", sortable: true, align: "text-right" },
   { key: "change", label: "Change", sortable: true, align: "text-right" },
@@ -517,6 +680,8 @@ function ItemsTable({
   sort,
   openItemId,
   narrow,
+  reorderable,
+  onReorder,
   onSort,
   onOpen,
   onEdit,
@@ -527,12 +692,23 @@ function ItemsTable({
   sort: string;
   openItemId: string;
   narrow: boolean;
+  /** False while a column sort, a search or a filter is deciding the order. */
+  reorderable: boolean;
+  onReorder: (ids: string[]) => void;
   onSort: (next: string) => void;
   onOpen: (id: string) => void;
   onEdit: (item: WatchlistItem) => void;
   onRemove: (id: string) => void;
 }) {
   const [sortField, sortDirection] = sort.split(".");
+  const ids = useMemo(() => items.map((item) => item.id), [items]);
+  const drag = useDragOrder({ ids, onCommit: onReorder, enabled: reorderable });
+  // Only while dragging is on: applying the preview under a column sort would
+  // fight the sort for one frame and lose.
+  const ordered = useMemo(
+    () => (reorderable ? sortByIds(items, drag.order) : items),
+    [items, drag.order, reorderable],
+  );
 
   if (loading) {
     return (
@@ -592,15 +768,32 @@ function ItemsTable({
               ))}
             </tr>
           </thead>
-          <tbody>
-            {items.map((item) => (
+          <tbody
+            ref={(node) => {
+              drag.containerRef.current = node;
+            }}
+          >
+            {ordered.map((item) => (
               <tr
                 key={item.id}
+                {...drag.rowProps(item.id)}
                 onClick={() => onOpen(item.id)}
                 className={`cursor-pointer border-b border-zinc-100 last:border-0 hover:bg-zinc-50 dark:border-zinc-800/60 dark:hover:bg-zinc-800/40 ${
-                  item.id === openItemId ? "bg-indigo-50/60 dark:bg-indigo-500/10" : ""
+                  drag.dragging === item.id
+                    ? DRAGGING_ROW
+                    : item.id === openItemId
+                      ? "bg-indigo-50/60 dark:bg-indigo-500/10"
+                      : ""
                 }`}
               >
+                <td className="w-10 pl-2">
+                  <DragHandle
+                    label={item.ref}
+                    active={drag.dragging === item.id}
+                    disabled={!reorderable}
+                    handleProps={drag.handleProps(item.id)}
+                  />
+                </td>
                 <td className="px-4 py-3">
                   <div className="flex min-w-0 items-center gap-2">
                     <span className="font-mono text-xs font-medium">{item.ref}</span>

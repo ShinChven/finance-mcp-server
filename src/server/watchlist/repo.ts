@@ -25,6 +25,7 @@ import {
   type WatchlistLevel,
 } from "../db/schema.js";
 import {
+  applyOrder,
   MAX_ITEMS_PER_WATCHLIST,
   MAX_LEVELS_PER_ITEM,
   MAX_WATCHLISTS_PER_USER,
@@ -101,7 +102,8 @@ export interface WatchlistItemRow extends WatchlistItem {
 export interface ItemQuery {
   q?: string;
   kind?: WatchlistItemKind;
-  sort?: "added" | "ref";
+  /** `manual` is the user's own drag order; it is the default everywhere. */
+  sort?: "manual" | "added" | "ref";
   limit?: number;
   offset?: number;
 }
@@ -162,6 +164,14 @@ export interface WatchlistRepo {
     itemId: string,
     patch: UpdateItemPatch,
   ): Promise<WatchlistItem | null>;
+  /**
+   * Writes a hand-arranged order. `ids` is the whole order the caller wants,
+   * not a patch; see `applyOrder` for what happens to ids it leaves out.
+   * Returns whether anything actually moved.
+   */
+  reorderWatchlists(userId: string, ids: string[]): Promise<boolean>;
+  reorderItems(userId: string, watchlistId: string, ids: string[]): Promise<boolean>;
+
   /** Removes by item id or by `ref`; returns what actually went away. */
   removeItems(
     userId: string,
@@ -208,6 +218,7 @@ export function createWatchlistRepo(db: Db): WatchlistRepo {
     userId: watchlists.userId,
     name: watchlists.name,
     description: watchlists.description,
+    position: watchlists.position,
     createdAt: watchlists.createdAt,
     updatedAt: watchlists.updatedAt,
     itemCount: sql<number>`coalesce(${counts.n}, 0)`.mapWith(Number),
@@ -301,9 +312,94 @@ export function createWatchlistRepo(db: Db): WatchlistRepo {
     return { added, skipped: rows.length - added.length };
   }
 
+  /**
+   * Renumbers a set of rows to 0..n-1 in one statement.
+   *
+   * One `update … from (values …)` rather than a statement per row: a 500-item
+   * list would otherwise be 500 round trips for a single drag. Positions are
+   * rewritten densely instead of spliced, so they can never drift apart far
+   * enough to collide or run out of room between two neighbours.
+   */
+  async function writePositions(
+    table: typeof watchlists | typeof watchlistItems,
+    ids: string[],
+    scope: SQL,
+  ): Promise<void> {
+    if (ids.length === 0) return;
+    const values = ids.map((id, index) => sql`(${id}::text, ${index}::int)`);
+    await db.execute(
+      sql`update ${table} set "position" = ordered."position" from (values ${sql.join(values, sql`, `)}) as ordered("id", "position") where ${table}."id" = ordered."id" and ${scope}`,
+    );
+  }
+
+  /**
+   * The position a brand-new row takes: ahead of everything already there.
+   *
+   * New things go to the top because that is where the old ordering put them —
+   * lists by recency, items by add date — and because something just added is
+   * the thing the user is looking for. Positions may go negative; only their
+   * order means anything, and the next drag renumbers them from zero.
+   */
+  async function leadingPosition(table: typeof watchlists | typeof watchlistItems, scope: SQL): Promise<number> {
+    const [row] = await db
+      .select({ min: sql<number | null>`min("position")`.mapWith(Number) })
+      .from(table)
+      .where(scope);
+    return (row?.min ?? 0) - 1;
+  }
+
+  /** Same order, already stored densely — nothing to write, nothing to announce. */
+  const unchanged = (current: string[], next: string[]): boolean =>
+    current.every((id, index) => next[index] === id);
+
   return {
     async listWatchlists(userId) {
-      return summaryQuery(eq(watchlists.userId, userId)).orderBy(desc(watchlists.updatedAt));
+      // Position first, then the old recency order as the tiebreak: a list
+      // that has never been dragged still sorts the way it always did.
+      return summaryQuery(eq(watchlists.userId, userId)).orderBy(
+        asc(watchlists.position),
+        desc(watchlists.updatedAt),
+      );
+    },
+
+    async reorderWatchlists(userId, ids) {
+      const rows = await db
+        .select({ id: watchlists.id, position: watchlists.position })
+        .from(watchlists)
+        .where(eq(watchlists.userId, userId))
+        .orderBy(asc(watchlists.position), desc(watchlists.updatedAt));
+
+      const current = rows.map((row) => row.id);
+      const next = applyOrder(current, ids);
+      // A no-op drag still normalizes positions that the backfill left tied,
+      // but only when they are actually not dense yet.
+      const dense = rows.every((row, index) => row.position === index);
+      if (dense && unchanged(current, next)) return false;
+
+      await writePositions(watchlists, next, eq(watchlists.userId, userId));
+      return true;
+    },
+
+    async reorderItems(userId, watchlistId, ids) {
+      await requireOwned(userId, watchlistId);
+      const rows = await db
+        .select({ id: watchlistItems.id, position: watchlistItems.position })
+        .from(watchlistItems)
+        .where(eq(watchlistItems.watchlistId, watchlistId))
+        .orderBy(asc(watchlistItems.position), desc(watchlistItems.createdAt));
+
+      const current = rows.map((row) => row.id);
+      const next = applyOrder(current, ids);
+      const dense = rows.every((row, index) => row.position === index);
+      if (dense && unchanged(current, next)) return false;
+
+      await writePositions(
+        watchlistItems,
+        next,
+        eq(watchlistItems.watchlistId, watchlistId),
+      );
+      await touch(watchlistId);
+      return true;
     },
 
     async getWatchlist(userId, id) {
@@ -336,6 +432,7 @@ export function createWatchlistRepo(db: Db): WatchlistRepo {
             userId,
             name: input.name,
             description: input.description ?? null,
+            position: await leadingPosition(watchlists, eq(watchlists.userId, userId)),
           })
           .returning();
         return { ...row!, itemCount: 0 };
@@ -389,7 +486,12 @@ export function createWatchlistRepo(db: Db): WatchlistRepo {
       const order =
         query.sort === "ref"
           ? [asc(watchlistItems.kind), asc(watchlistItems.ref)]
-          : [desc(watchlistItems.createdAt)];
+          : query.sort === "added"
+            ? [desc(watchlistItems.createdAt)]
+            : // Manual order, the default: what the user dragged, with recency
+              // deciding rows that have never been arranged relative to each
+              // other.
+              [asc(watchlistItems.position), desc(watchlistItems.createdAt)];
 
       const rows = await db
         .select()
@@ -421,13 +523,19 @@ export function createWatchlistRepo(db: Db): WatchlistRepo {
         );
       }
 
+      // Ahead of what is already tracked, in the order they were given. A ref
+      // that turns out to be a duplicate simply leaves a gap in the numbering,
+      // which nothing reads.
+      const lead = await leadingPosition(watchlistItems, eq(watchlistItems.watchlistId, watchlistId));
+
       // `onConflictDoNothing` makes re-adding something already tracked a no-op
       // rather than an error — the common case when an agent re-runs a plan.
       const added = await db
         .insert(watchlistItems)
         .values(
-          rows.map((row) => ({
+          rows.map((row, index) => ({
             watchlistId,
+            position: lead - (rows.length - 1 - index),
             kind: row.kind,
             ref: row.ref,
             name: row.name ?? null,

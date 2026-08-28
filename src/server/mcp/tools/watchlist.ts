@@ -54,7 +54,9 @@ export function registerWatchlistTool(
         const target = await resolveWatchlist(repo, userId, list);
         const { items } = await repo.listItems(userId, target.id, {
           ...(kind !== undefined && { kind }),
-          sort: "added",
+          // The user's own order, so what an agent reads back matches what
+          // they arranged on the page.
+          sort: "manual",
         });
 
         const header = {

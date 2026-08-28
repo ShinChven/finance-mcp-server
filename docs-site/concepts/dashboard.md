@@ -50,6 +50,26 @@ that already throttle.
 Syncs run in the server process, so a restart interrupts one. Jobs left running
 are marked failed at boot rather than appearing stuck forever.
 
+## Watchlists
+
+Lists on the left, the selected list priced in the middle, and one item's price
+levels in a third pane. Which list is open, the search text, the kind and level
+filters, the sort and the open item all live in URL search params, so a
+particular reading of a particular holding is a link.
+
+Both the lists and the items in them are **dragged into order**, and that order
+is stored — it is the one thing about a watchlist no computed column expresses.
+Each row has a grab handle: a handle rather than the whole row, because on a
+phone a draggable row and a scrollable page want the same gesture and only one
+of them can have it. The handle works with mouse, finger and pen alike, scrolls
+the page when a drag reaches the edge of the screen, and takes the arrow keys
+for anyone not using a pointer at all.
+
+Dragging is offered only in that manual order. Sorting by a column, searching or
+filtering hides the rows a dropped item would be placed between, so the handles
+go inert and a **My order** button appears to clear the view and hand them back.
+Something newly added goes to the top, where it can be seen.
+
 ## Notes
 
 Collections on the left with their counts, the tag and symbol facets under them,

@@ -14,6 +14,7 @@ function item(
     note: null,
     entryPrice: null,
     entryAt: null,
+    position: 0,
     levels: [],
     createdAt: new Date("2026-08-01T00:00:00Z"),
     ...overrides,
