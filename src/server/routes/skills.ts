@@ -8,11 +8,14 @@
  * `per_page`, `sort`, `status` — the project rule that lets a shared link
  * reproduce a page exactly.
  *
- * Publishing is audited, and so is deleting. Those are the two actions with
- * consequences outside the dashboard: publishing puts a standing instruction in
- * front of every future agent session, and deleting is the one edit no revision
- * can undo. Ordinary saves are not audited — that would bury the log under
- * routine writing.
+ * Entering and leaving service is audited, and so is deleting. Those are the
+ * actions with consequences outside the dashboard: publishing puts a standing
+ * instruction in front of every future agent session, withdrawing takes one
+ * away, and deleting is the one edit no revision can undo. Ordinary saves are
+ * not audited — that would bury the log under routine writing.
+ *
+ * The same two actions are reachable over MCP (`skillPublish` /
+ * `skillUnpublish`) and write the same rows, tagged `via: "mcp"`.
  */
 
 import { zValidator } from "@hono/zod-validator";
@@ -154,13 +157,26 @@ export const skillRoutes = new Hono<AppEnv>()
       // Publishing an agent-written draft is the moment a conversation's output
       // becomes something every future session is told to follow. That is worth
       // a row in the log; the edits leading up to it are not.
-      if (before.status === "draft" && skill.status === "active") {
+      //
+      // Restoring an archived skill counts the same — it is the same transition
+      // into service — and withdrawing is logged so the pair reads as a history
+      // rather than as publications with unexplained gaps between them.
+      if (before.status !== "active" && skill.status === "active") {
         await audit({
           actorUserId: user.id,
           action: "skill.publish",
           targetType: "skill",
           targetId: skill.id,
-          meta: { slug: skill.slug, source: skill.source },
+          meta: { slug: skill.slug, source: skill.source, from: before.status },
+          ip: clientIp(c),
+        });
+      } else if (before.status === "active" && skill.status !== "active") {
+        await audit({
+          actorUserId: user.id,
+          action: "skill.unpublish",
+          targetType: "skill",
+          targetId: skill.id,
+          meta: { slug: skill.slug, source: skill.source, to: skill.status },
           ip: clientIp(c),
         });
       }

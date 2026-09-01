@@ -539,6 +539,17 @@ export const skills = pgTable(
     /** The procedure itself. Returned by `skillRead` and nothing else. */
     body: text("body").notNull().default(""),
     status: skillStatus("status").notNull().default("active"),
+    /**
+     * When a person first made this skill callable. Null means never.
+     *
+     * This is the re-enable gate, not display metadata. `skillPublish` turns an
+     * archived skill back on over MCP only when this is set, which is what
+     * keeps the draft boundary in `shared/skills.ts` intact: a conversation can
+     * restore something a human already reviewed, and cannot activate anything
+     * a human never saw. Stamped once, on the first transition to `active`, and
+     * never cleared — withdrawing a skill does not un-review it.
+     */
+    publishedAt: timestamp("published_at", { withTimezone: true }),
     source: skillSource("source").notNull().default("web"),
     /** Free-text provenance — a chat id, a client name. Same contract as
      *  `notes.source_ref`; not a foreign key for the same reason. */

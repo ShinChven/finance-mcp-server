@@ -89,6 +89,8 @@ describe("finance MCP server", () => {
         "skills",
         "skillRead",
         "skillSave",
+      "skillUnpublish",
+      "skillPublish",
         "fundExposure",
         "fundsByStock",
         "fundsBySector",
@@ -112,6 +114,8 @@ describe("finance MCP server", () => {
         "noteUpdate",
         "noteDelete",
         "skillSave",
+        "skillUnpublish",
+        "skillPublish",
       ]);
     } finally {
       await mcpClient.close();

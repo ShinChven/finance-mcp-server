@@ -85,6 +85,13 @@
       "when": 1787897989352,
       "tag": "0011_price_bars_and_item_currency",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1788241088606,
+      "tag": "0012_skill_published_at",
+      "breakpoints": true
     }
   ]
 }
