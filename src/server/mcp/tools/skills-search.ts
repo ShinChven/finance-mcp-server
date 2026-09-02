@@ -25,6 +25,11 @@ import { requireSkillsUser, skillHeader } from "./skill-runtime.js";
  * are not the same size: a needless header costs a line of context, a missed
  * skill costs the workflow. So a query that matches nothing falls back to the
  * listing and says so.
+ *
+ * That is also why the description does not argue the point. Prose telling a
+ * model not to read `[]` as final is dead weight once `[]` cannot be returned,
+ * and the reason a fallback fired belongs in the note it comes back with —
+ * paid on the miss, not on every session that loads this tool.
  */
 export function registerSkillsTool(server: McpServer, repo: SkillsRepo, auth: McpAuth | null): void {
   server.registerTool(
@@ -36,11 +41,8 @@ export function registerSkillsTool(server: McpServer, repo: SkillsRepo, auth: Mc
         "Returns names and a one-line description of when each applies, never the procedure " +
         "itself; call skillRead once you know which one you want. " +
         "Use this when the user refers to a skill without naming it exactly, asks what skills " +
-        "they have, or asks an open-ended question you could have a procedure for — the list is " +
-        "small and one call is cheap. When they name one outright, skip this and call skillRead " +
-        "directly. Read the descriptions before concluding none applies: `q` is a filter over " +
-        "the wording, not a judgement about relevance, and a skill whose description covers the " +
-        "question is worth reading even when it is the only one there.",
+        "they have, or asks an open-ended question you could have a procedure for. When they name " +
+        "one outright, skip this and call skillRead directly.",
       inputSchema: {
         q: z
           .string()

@@ -41,8 +41,8 @@ export function registerSkillSaveTool(
         "worked out with them is worth repeating. " +
         "Drafts are not callable: the user reviews and publishes them in the dashboard, and this " +
         "tool cannot edit a skill that is already published. Say so when you save one. " +
-        "Write `whenToUse` as the sentence that should make a future agent reach for this — that " +
-        "line is the only thing search matches on.",
+        "Write `whenToUse` as the sentence that should make a future agent reach for this — it " +
+        "is the line a listing shows, and search weights it above the body.",
       inputSchema: {
         slug: skillSlugArg,
         name: z

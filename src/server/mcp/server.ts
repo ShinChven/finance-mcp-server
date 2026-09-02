@@ -117,10 +117,9 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
         "this user's long-term memory: theses, decisions and context saved out of earlier " +
         "conversations, organized in collections, tagged, and linked to the symbols they are about. " +
         "Search them before answering anything about what the user already thinks, decided or was " +
-        "told — a note beats a guess from the current conversation. notesSearch returns summaries and " +
-        "snippets; call noteRead for the bodies you actually need. When a conversation produces a " +
-        "conclusion worth keeping, save it with noteCreate and write a real summary, because that is " +
-        "what future searches will show. The same notes are readable and editable on the dashboard. " +
+        "told — a note beats a guess from the current conversation. When a conversation produces a " +
+        "conclusion worth keeping, save it with noteCreate. " +
+        "The same notes are readable and editable on the dashboard. " +
         "Skill tools (skills, skillRead, skillSave) hold procedures this user wrote for doing a task " +
         "their way — how they want a question answered, not just what the data says. Check for one " +
         "before you answer anything open-ended: a read on the market, what to make of a position, " +
@@ -128,9 +127,9 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
         "the name they used and follow what it says. When they gesture at one without naming it, ask " +
         "what they have, or ask a question of that open-ended kind, call skills first and read the " +
         "descriptions before deciding none applies — the list is small, one call is cheap, and a " +
-        "procedure the user wrote and you skipped is the expensive outcome. A request for a specific " +
-        "number — a quote, a filing, a chart — does not need one. skillSave writes a draft the user " +
-        "must publish on the dashboard before it can be used. The same skills are also served as `skill://<name>/SKILL.md` " +
+        "skill the user wrote and you skipped is the costly one. A request for a specific number — a " +
+        "quote, a filing, a chart — does not need one. skillSave records a procedure the user asks " +
+        "you to remember. The same skills are also served as `skill://<name>/SKILL.md` " +
         "resources, so a client that reads resources can fetch one that way instead; only skills the user " +
         "marked discoverable are enumerated, and every active skill stays readable at its own URI whether " +
         "or not it was listed.",

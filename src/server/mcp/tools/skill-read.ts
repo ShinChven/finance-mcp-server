@@ -26,7 +26,7 @@ export function registerSkillReadTool(
       title: "Read a Skill",
       description:
         "Load one of the user's skills in full — the procedure they wrote for this task. " +
-        "Call this the moment the user names a skill; pass the name they used and nothing else. " +
+        "Pass the name the user used and nothing else. " +
         "Follow the steps it gives you. If the name does not match, this returns the names that do, " +
         "so read those and try once more rather than guessing at the procedure. " +
         "Drafts are not readable until the user publishes them in the dashboard.",

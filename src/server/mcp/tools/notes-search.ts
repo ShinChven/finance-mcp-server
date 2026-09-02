@@ -51,8 +51,7 @@ export function registerNotesSearchTool(
         "substring matching, so partial words and Chinese phrases both match. Omit `q` to browse by " +
         "filter alone. Filters combine: `tags` narrows (a note must carry every tag), while `symbols` " +
         "widens (a note matches any symbol listed). Returns summaries and a matching snippet, never " +
-        "note bodies — call noteRead with the ids you want in full. " +
-        "Search before answering from memory about what this user thinks or decided earlier.",
+        "note bodies — call noteRead with the ids you want in full.",
       inputSchema: {
         q: z
           .string()
