@@ -15,7 +15,7 @@
 import { and, asc, desc, eq, or, sql, type SQL } from "drizzle-orm";
 import type { db as Database } from "../db/index.js";
 import { skillRevisions, skills, type Skill } from "../db/schema.js";
-import { escapeLike } from "../lib/listing.js";
+import { escapeLike, searchTerms } from "../lib/listing.js";
 import { isUniqueViolation } from "../lib/pg-errors.js";
 import {
   MAX_SEARCH_RESULTS,
@@ -166,10 +166,21 @@ export function createSkillsRepo(db: Db): SkillsRepo {
   /**
    * The filter half of a search, shared by the page query and its count.
    *
+   * Any term, not every term. `websearch_to_tsquery` ANDs the words it is
+   * given and `ilike` matches the phrase literally, so the old shape made
+   * "trending market" harder to satisfy than either word alone — and returned
+   * nothing at all against a store holding one skill that is plainly about
+   * markets. A recall miss here is the expensive direction: the caller reads an
+   * empty array as "no such procedure exists" and proceeds without it, which
+   * costs the whole workflow. An extra row costs one line of a listing.
+   *
+   * Precision is not abandoned, it is moved to `relevance`, which still sorts
+   * an all-terms hit and a name match above an incidental one.
+   *
    * Two matchers for the same reason notes use two: the vector finds whole
    * words and is index-backed, while the substring match catches the partial
-   * name someone half-remembers — "fund scr" should still find `fund-screen`,
-   * and no text-search parser will do that on its own.
+   * name someone half-remembers. That one only works per term — `fund-screen`
+   * is not `ilike '%fund scr%'`, because the phrase spans the hyphen.
    */
   function filters(userId: string, query: SkillQuery): SQL {
     const clauses: SQL[] = [eq(skills.userId, userId)];
@@ -178,36 +189,77 @@ export function createSkillsRepo(db: Db): SkillsRepo {
     if (status !== "any") clauses.push(eq(skills.status, status));
     if (query.listedOnly === true) clauses.push(eq(skills.autoDiscover, true));
 
-    const text = query.q?.trim();
-    if (text !== undefined && text !== "") {
-      const like = `%${escapeLike(text)}%`;
-      clauses.push(
-        or(
-          sql`${skills.searchVector} @@ websearch_to_tsquery('simple', ${text})`,
+    const terms = searchTerms(query.q ?? "");
+    if (terms.length > 0) {
+      const branches: SQL[] = [sql`${skills.searchVector} @@ ${anyTerm(terms)}`];
+      for (const term of terms) {
+        const like = `%${escapeLike(term)}%`;
+        branches.push(
           sql`${skills.slug} ilike ${like}`,
           sql`${skills.name} ilike ${like}`,
           sql`${skills.whenToUse} ilike ${like}`,
           sql`${skills.body} ilike ${like}`,
-        )!,
-      );
+        );
+      }
+      // A whole-phrase branch would be redundant: anything matching the phrase
+      // matches every term in it, so this `or` already covers it. The phrase
+      // earns its keep in the ranking instead.
+      clauses.push(or(...branches)!);
     }
 
     return and(...clauses)!;
   }
 
   /**
-   * Relevance: the vector's rank plus a bump for a substring hit on the name or
-   * slug. The bump matters because the substring branch scores zero from
-   * `ts_rank_cd` — without it an exact-name near-miss sorts below every
-   * incidental body mention, which is the one result order that must not happen.
+   * Every term as one `websearch_to_tsquery` OR-clause.
+   *
+   * Terms are joined rather than parameterised one by one so the whole query is
+   * a single index-backed operand. Each term is whitespace-free and stripped of
+   * a leading `-` by `searchTerms`, which is what makes `OR` between them mean
+   * what it says; `websearch_to_tsquery` never raises on the rest, by design.
+   */
+  function anyTerm(terms: string[]): SQL {
+    return sql`websearch_to_tsquery('simple', ${terms.join(" OR ")})`;
+  }
+
+  /**
+   * Relevance: the vector's rank plus bumps for the matches `ts_rank_cd` scores
+   * at zero. Without them an exact-name near-miss sorts below every incidental
+   * body mention, which is the one result order that must not happen.
+   *
+   * Now that the filter admits any term, this also carries the precision the
+   * filter gave up — an all-terms hit and a whole-phrase hit both outrank a
+   * row that matched on one common word. Per-term bumps are divided by the term
+   * count so a single-word query scores exactly as it did before, and so a long
+   * query cannot outscore a short precise one on volume alone.
    */
   function relevance(text: string): SQL<number> {
-    const like = `%${escapeLike(text)}%`;
+    const terms = searchTerms(text);
+    const phrase = `%${escapeLike(text)}%`;
+    const share = terms.length || 1;
+
+    // Weights are rendered into the statement rather than bound: a parameter
+    // in `case when ... then $1 else 0 end` takes its type from the `else`
+    // branch, so Postgres reads the placeholder as an integer and rejects 0.5
+    // outright. The values are arithmetic over constants, never user input.
+    const weight = (value: number): SQL => sql.raw(value.toFixed(6));
+
+    const perTerm = terms.map((term) => {
+      const like = `%${escapeLike(term)}%`;
+      return sql`(
+        case when ${skills.slug} ilike ${like} then ${weight(1.0 / share)} else 0 end
+        + case when ${skills.name} ilike ${like} then ${weight(0.5 / share)} else 0 end
+        + case when ${skills.whenToUse} ilike ${like} then ${weight(0.25 / share)} else 0 end
+      )`;
+    });
+
     return sql<number>`(
-      ts_rank_cd(${skills.searchVector}, websearch_to_tsquery('simple', ${text}))
-      + case when ${skills.slug} ilike ${like} then 1.0 else 0 end
-      + case when ${skills.name} ilike ${like} then 0.5 else 0 end
-      + case when ${skills.whenToUse} ilike ${like} then 0.25 else 0 end
+      ts_rank_cd(${skills.searchVector}, ${anyTerm(terms)})
+      + case when ${skills.searchVector} @@ websearch_to_tsquery('simple', ${text}) then 0.5 else 0 end
+      + case when ${skills.slug} ilike ${phrase} then 1.0 else 0 end
+      + case when ${skills.name} ilike ${phrase} then 0.5 else 0 end
+      + case when ${skills.whenToUse} ilike ${phrase} then 0.25 else 0 end
+      + ${sql.join(perTerm, sql` + `)}
     )`.mapWith(Number);
   }
 
@@ -264,7 +316,11 @@ export function createSkillsRepo(db: Db): SkillsRepo {
     async searchSkills(userId, query = {}) {
       const where = filters(userId, query);
       const text = query.q?.trim() ?? "";
-      const hasText = text !== "";
+      // Derived from the terms, not from the raw string: a query of only
+      // punctuation trims non-empty but tokenises to nothing, and ranking a
+      // search that filtered on nothing would build a scoring expression with
+      // no operands in it.
+      const hasText = searchTerms(text).length > 0;
 
       const [totalRow] = await db
         .select({ n: sql<number>`count(*)`.mapWith(Number) })

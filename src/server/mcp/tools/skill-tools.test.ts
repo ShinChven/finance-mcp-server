@@ -17,6 +17,7 @@ import {
   type UpdateSkillPatch,
 } from "../../skills/repo.js";
 import { MAX_SKILLS_PER_USER } from "../../../shared/skills.js";
+import { searchTerms } from "../../lib/listing.js";
 import { buildMcpServer } from "../server.js";
 
 const auth = {
@@ -57,9 +58,10 @@ function skill(partial: Partial<SkillRecord> & { slug: string }): SkillRecord {
 
 /**
  * In-memory stand-in for the Drizzle repo, enforcing the two rules the database
- * does: ownership, and `(user_id, slug)` uniqueness. Search is a substring
- * match over the fields the real `search_vector` weights, which is close enough
- * to exercise the tools' behaviour on a hit and on a miss.
+ * does: ownership, and `(user_id, slug)` uniqueness. Search is a per-term
+ * substring match over the fields the real `search_vector` weights — any term,
+ * matching the recall the SQL repo settled on, which is what keeps a tool test
+ * written against this from passing on behaviour Postgres would not produce.
  */
 function memoryRepo(seed: SkillRecord[] = []) {
   const rows: SkillRecord[] = [...seed];
@@ -75,9 +77,12 @@ function memoryRepo(seed: SkillRecord[] = []) {
         if (row.userId !== userId) return false;
         if (status !== "any" && row.status !== status) return false;
         if (query.listedOnly === true && !row.autoDiscover) return false;
-        if (text === "") return true;
-        return [row.slug, row.name, row.whenToUse, row.body].some((field) =>
-          field.toLowerCase().includes(text),
+        const terms = searchTerms(text);
+        if (terms.length === 0) return true;
+        return terms.some((term) =>
+          [row.slug, row.name, row.whenToUse, row.body].some((field) =>
+            field.toLowerCase().includes(term),
+          ),
         );
       });
       const offset = query.offset ?? 0;
@@ -290,6 +295,157 @@ describe("skills", () => {
       const { data } = await call(client, "skills", { q: "China fund" });
       expect(data.returned).toBe(1);
       expect(data.skills[0].slug).toBe("fund-screen");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  /**
+   * The reported failure, reduced: one skill in the store, a query drawn from
+   * the user's wording rather than the author's, and an empty array as the
+   * answer. The agent read that as "nothing here", answered from raw tool calls
+   * and never opened the procedure the user had written for exactly this.
+   */
+  it("answers a query that matched nothing with the whole library", async () => {
+    const { repo } = memoryRepo([
+      skill({
+        slug: "jpm-market-intel",
+        whenToUse: "reading the desk view on near-term US equity direction",
+      }),
+    ]);
+    const { server, client } = await connect(repo);
+
+    try {
+      const { data } = await call(client, "skills", { q: "trending" });
+      expect(data.skills.map((entry: { slug: string }) => entry.slug)).toEqual([
+        "jpm-market-intel",
+      ]);
+      expect(data.total).toBe(1);
+      expect(data.matchedQuery).toBe(false);
+      expect(data.note).toContain("Nothing matched");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("says the store is empty rather than pretending a query was the problem", async () => {
+    const { repo } = memoryRepo();
+    const { server, client } = await connect(repo);
+
+    try {
+      const { data } = await call(client, "skills", { q: "trending" });
+      expect(data.total).toBe(0);
+      expect(data.skills).toEqual([]);
+      expect(data).not.toHaveProperty("matchedQuery");
+      expect(data.note).toContain("no skills yet");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("leaves a browse with no query alone", async () => {
+    // The fallback exists for a miss, not for every call: an unfiltered listing
+    // that is already the whole library must not claim a query failed.
+    const { repo } = memoryRepo([skill({ slug: "fund-screen" })]);
+    const { server, client } = await connect(repo);
+
+    try {
+      const { data } = await call(client, "skills");
+      expect(data).not.toHaveProperty("matchedQuery");
+      expect(data.note).toBeUndefined();
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("does not answer a page past the end of a search with the library", async () => {
+    // The caller has already seen the matches and is asking for more of them;
+    // handing back unrelated skills there would look like page two.
+    const { repo } = memoryRepo([skill({ slug: "fund-screen" })]);
+    const { server, client } = await connect(repo);
+
+    try {
+      const { data } = await call(client, "skills", { q: "trending", offset: 10 });
+      expect(data.skills).toEqual([]);
+      expect(data).not.toHaveProperty("matchedQuery");
+      expect(data.note).toContain("Nothing matched");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("never returns a body, not even on the fallback", async () => {
+    const { repo } = memoryRepo([
+      skill({ slug: "jpm-market-intel", body: "the expensive part" }),
+    ]);
+    const { server, client } = await connect(repo);
+
+    try {
+      const { text, data } = await call(client, "skills", { q: "trending" });
+      expect(data.matchedQuery).toBe(false);
+      expect(text).not.toContain("the expensive part");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("keeps another account's skills out of the fallback", async () => {
+    // The fallback widens what a miss returns, so it is worth proving it did
+    // not widen past the caller.
+    const { repo } = memoryRepo([skill({ slug: "fund-screen", userId: "user-2" })]);
+    const { server, client } = await connect(repo);
+
+    try {
+      const { data } = await call(client, "skills", { q: "trending" });
+      expect(data.skills).toEqual([]);
+      expect(data.total).toBe(0);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("does not offer a draft as a consolation for a miss", async () => {
+    const { repo } = memoryRepo([
+      skill({ slug: "agent-draft", status: "draft", body: "unreviewed" }),
+    ]);
+    const { server, client } = await connect(repo);
+
+    try {
+      const { text, data } = await call(client, "skills", { q: "trending" });
+      expect(data.skills).toEqual([]);
+      expect(text).not.toContain("unreviewed");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  /**
+   * The half of the miss that is a real match, not a fallback. Under the old
+   * all-terms rule "equity outlook" was harder to satisfy than either word
+   * alone and returned nothing, because no description carried both.
+   */
+  it("finds a skill on any word of a query, not only on all of them", async () => {
+    const { repo } = memoryRepo([
+      skill({ slug: "jpm-market-intel", whenToUse: "near-term equity direction" }),
+      skill({ slug: "earnings-review", whenToUse: "reading a quarterly report" }),
+    ]);
+    const { server, client } = await connect(repo);
+
+    try {
+      const { data } = await call(client, "skills", { q: "equity outlook" });
+      // A genuine hit: the library fallback did not have to save this one.
+      expect(data.matchedQuery).toBeUndefined();
+      expect(data.skills.map((entry: { slug: string }) => entry.slug)).toEqual([
+        "jpm-market-intel",
+      ]);
     } finally {
       await client.close();
       await server.close();

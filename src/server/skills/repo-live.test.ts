@@ -14,7 +14,10 @@ import { createSkillsRepo, SkillSlugTakenError } from "./repo.js";
  * statement Postgres rejects at parse time passes the entire suite. Three
  * things here are only real against a server — the generated `search_vector`
  * and its weights, `websearch_to_tsquery` alongside the `ilike` fallback, and
- * the revision trim, which is raw SQL with a correlated subquery.
+ * the revision trim, which is raw SQL with a correlated subquery. The term
+ * splitting the search now does is the same story one level up: the tokeniser
+ * is unit-tested offline, but whether OR-joined terms and a per-term ranking
+ * expression are valid SQL is only answerable here.
  *
  * Skipped unless `DATABASE_URL` is set, so the default suite stays offline.
  * Everything runs inside a transaction that is always rolled back, so pointing
@@ -113,6 +116,57 @@ describe.skipIf(connectionString === undefined)("skills queries against Postgres
           expect(byPhrase.items.map((row) => row.slug)).toEqual(["fund-screen"]);
           const byPartial = await repo.searchSkills(userId, { q: "quarter" });
           expect(byPartial.items.map((row) => row.slug)).toEqual(["earnings-review"]);
+
+          // Any term, not every term. The reported failure was a two-word
+          // query returning nothing against a store that plainly held a match:
+          // `websearch_to_tsquery` ANDs its words, so "quarterly funds" asked
+          // for a skill about both and got neither of the two that exist.
+          const anyTerm = await repo.searchSkills(userId, { q: "quarterly funds" });
+          expect(anyTerm.items.map((row) => row.slug).sort()).toEqual([
+            "earnings-review",
+            "fund-screen",
+          ]);
+
+          // ...and a word no row carries no longer sinks the words that do.
+          const partlyUnknown = await repo.searchSkills(userId, { q: "trending exposure" });
+          expect(partlyUnknown.items.map((row) => row.slug)).toEqual(["fund-screen"]);
+          expect((await repo.searchSkills(userId, { q: "trending" })).total).toBe(0);
+
+          // Recall widened, but the ordering has to earn it. Both rows match
+          // here — "report" is the earnings one, "china" and "stock" the fund
+          // one — and the row carrying more of the query has to come first, or
+          // the wider filter would just be noise at the top of the list.
+          const ranked2 = await repo.searchSkills(userId, { q: "china stock report" });
+          expect(ranked2.items.map((row) => row.slug).sort()).toEqual([
+            "earnings-review",
+            "fund-screen",
+          ]);
+          expect(ranked2.items[0]?.slug).toBe("fund-screen");
+
+          // The `ilike` fallback is per term now. "fund scr" is not a
+          // substring of "fund-screen" — the phrase spans the hyphen — so the
+          // half-remembered name this branch exists for only worked on
+          // single-word queries before.
+          const halfRemembered = await repo.searchSkills(userId, { q: "fund scr" });
+          expect(halfRemembered.items[0]?.slug).toBe("fund-screen");
+
+          // A query that trims non-empty but tokenises to nothing must not
+          // reach the ranking expression, which would have no operands.
+          // Two, not three: no terms means no text filter, and the default
+          // status filter still hides the draft.
+          await expect(repo.searchSkills(userId, { q: "-" })).resolves.toMatchObject({ total: 2 });
+          await expect(
+            repo.searchSkills(userId, { q: "-", sort: "relevance" }),
+          ).resolves.toMatchObject({ total: 2 });
+          // A leading dash is a term, never a negation: this must not exclude
+          // the row it names.
+          expect((await repo.searchSkills(userId, { q: "-quarterly" })).items).toHaveLength(1);
+          // Terms past the cap are dropped rather than refused.
+          await expect(
+            repo.searchSkills(userId, {
+              q: Array.from({ length: 40 }, (_, i) => `w${i}`).join(" "),
+            }),
+          ).resolves.toMatchObject({ total: 0 });
 
           // A name hit must outrank a body mention of the same word.
           await repo.updateSkill(userId, draft.id, { status: "active", body: "mentions earnings" });

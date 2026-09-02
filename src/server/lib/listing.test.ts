@@ -1,12 +1,38 @@
 import { describe, expect, it } from "vitest";
 import { desc } from "drizzle-orm";
 import { users } from "../db/schema.js";
-import { escapeLike, listQuerySchema, parseSort } from "./listing.js";
+import { MAX_SEARCH_TERMS, escapeLike, listQuerySchema, parseSort, searchTerms } from "./listing.js";
 
 describe("escapeLike", () => {
   it("escapes LIKE wildcards", () => {
     expect(escapeLike("50%_done\\x")).toBe("50\\%\\_done\\\\x");
     expect(escapeLike("plain")).toBe("plain");
+  });
+});
+
+describe("searchTerms", () => {
+  it("splits a query into words a search can match one at a time", () => {
+    expect(searchTerms("trending market")).toEqual(["trending", "market"]);
+    expect(searchTerms("  fund   scr  ")).toEqual(["fund", "scr"]);
+    expect(searchTerms("single")).toEqual(["single"]);
+  });
+
+  it("yields nothing for a query with no words in it", () => {
+    // The caller uses this to decide whether to rank at all; a query that
+    // trims non-empty but tokenises to nothing must not look like a search.
+    expect(searchTerms("")).toEqual([]);
+    expect(searchTerms("   ")).toEqual([]);
+    expect(searchTerms("-")).toEqual([]);
+  });
+
+  it("strips a leading dash, which websearch_to_tsquery reads as negation", () => {
+    expect(searchTerms("-market")).toEqual(["market"]);
+    expect(searchTerms("trending -market")).toEqual(["trending", "market"]);
+  });
+
+  it("caps the term count so a long query cannot build an unbounded statement", () => {
+    const many = Array.from({ length: 40 }, (_, i) => `w${i}`).join(" ");
+    expect(searchTerms(many)).toHaveLength(MAX_SEARCH_TERMS);
   });
 });
 
