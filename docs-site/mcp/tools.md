@@ -73,6 +73,8 @@ below.
 | `skills` | Find the user's saved procedures — names and when each applies | |
 | `skillRead` | Read one skill's full procedure | |
 | `skillSave` | Draft a skill (invisible until a person publishes it) | ✓ |
+| `skillUnpublish` | Take a skill out of service | ✓ |
+| `skillPublish` | Put a withdrawn skill back | ✓ |
 
 ## System & Identity
 

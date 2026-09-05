@@ -19,6 +19,10 @@ import {
 import { MAX_SKILLS_PER_USER } from "../../../shared/skills.js";
 import { buildMcpServer } from "../server.js";
 
+// Publishing and withdrawing write audit rows; the log itself is not what these
+// tests are about, and a real insert would want a database.
+vi.mock("../../lib/audit.js", () => ({ audit: vi.fn(async () => {}) }));
+
 const auth = {
   user: {
     id: "user-1",
@@ -46,6 +50,10 @@ function skill(partial: Partial<SkillRecord> & { slug: string }): SkillRecord {
     whenToUse: `use for ${partial.slug}`,
     body: `# ${partial.slug}\n\nDo the thing.`,
     status: "active",
+    // Mirrors the repo: anything active has been made callable by someone, so
+    // it carries the stamp unless a case deliberately overrides it.
+    publishedAt:
+      (partial.status ?? "active") === "active" ? new Date("2026-08-01T00:00:00Z") : null,
     source: "web",
     sourceRef: null,
     autoDiscover: false,
@@ -110,6 +118,7 @@ function memoryRepo(seed: SkillRecord[] = []) {
         whenToUse: input.whenToUse,
         body: input.body ?? "",
         status: input.status ?? "active",
+        publishedAt: (input.status ?? "active") === "active" ? new Date() : null,
         autoDiscover: input.autoDiscover ?? false,
         source: input.source,
         sourceRef: input.sourceRef ?? null,
@@ -121,7 +130,13 @@ function memoryRepo(seed: SkillRecord[] = []) {
     updateSkill: vi.fn(async (userId: string, id: string, patch: UpdateSkillPatch) => {
       const row = rows.find((candidate) => candidate.userId === userId && candidate.id === id);
       if (row === undefined) return null;
-      Object.assign(row, patch, { updatedAt: new Date("2026-08-03T00:00:00Z") });
+      // The repo stamps the first activation and never moves it afterwards;
+      // the tools' whole gate reads that field, so the fake has to do it too.
+      const stamp =
+        patch.status === "active" && row.publishedAt === null
+          ? { publishedAt: new Date("2026-08-03T00:00:00Z") }
+          : {};
+      Object.assign(row, patch, stamp, { updatedAt: new Date("2026-08-03T00:00:00Z") });
       return row;
     }),
 
@@ -409,6 +424,199 @@ describe("skillSave", () => {
  * convention safe here: a listing advertises only what the user opted in, and a
  * read never serves a draft.
  */
+describe("skillUnpublish", () => {
+  it("archives a live skill so it stops being found", async () => {
+    const { repo, rows } = memoryRepo([skill({ slug: "fund-screen" })]);
+    const { server, client } = await connect(repo);
+
+    try {
+      const { data } = await call(client, "skillUnpublish", { skill: "fund-screen" });
+      expect(data.changed).toBe(true);
+      expect(data.status).toBe("archived");
+      expect(rows[0]?.status).toBe("archived");
+
+      const { data: read } = await call(client, "skillRead", { skill: "fund-screen" });
+      expect(read.found).toBe(false);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  /** Withdrawing must not look like un-reviewing: the stamp is what lets the
+   *  user get it back without a second trip to the dashboard. */
+  it("keeps the published stamp, so the skill can be restored", async () => {
+    const { repo, rows } = memoryRepo([skill({ slug: "fund-screen" })]);
+    const { server, client } = await connect(repo);
+
+    try {
+      await call(client, "skillUnpublish", { skill: "fund-screen" });
+      expect(rows[0]?.publishedAt).not.toBeNull();
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("reports an already-withdrawn skill instead of erroring", async () => {
+    const { repo } = memoryRepo([skill({ slug: "fund-screen", status: "archived" })]);
+    const { server, client } = await connect(repo);
+
+    try {
+      const { isError, data } = await call(client, "skillUnpublish", { skill: "fund-screen" });
+      expect(isError).toBe(false);
+      expect(data.changed).toBe(false);
+      expect(data.status).toBe("archived");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("leaves a draft alone — it was never in service", async () => {
+    const { repo, rows } = memoryRepo([skill({ slug: "fund-screen", status: "draft" })]);
+    const { server, client } = await connect(repo);
+
+    try {
+      const { data } = await call(client, "skillUnpublish", { skill: "fund-screen" });
+      expect(data.changed).toBe(false);
+      expect(rows[0]?.status).toBe("draft");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+});
+
+describe("skillPublish", () => {
+  it("restores a skill the user published once before", async () => {
+    const { repo, rows } = memoryRepo([
+      skill({
+        slug: "fund-screen",
+        status: "archived",
+        publishedAt: new Date("2026-07-01T00:00:00Z"),
+      }),
+    ]);
+    const { server, client } = await connect(repo);
+
+    try {
+      const { data } = await call(client, "skillPublish", { skill: "fund-screen" });
+      expect(data.changed).toBe(true);
+      expect(data.status).toBe("active");
+      expect(rows[0]?.status).toBe("active");
+      // Restoring is not a new publication; the original stamp stands.
+      expect(rows[0]?.publishedAt).toEqual(new Date("2026-07-01T00:00:00Z"));
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  /**
+   * The gate. This is the whole reason the tool is a re-enable and not a
+   * publish: a conversation that can write a skill must not also be able to
+   * switch it on, or an injected one installs a standing instruction.
+   */
+  it("refuses a draft it saved itself, and says to use the dashboard", async () => {
+    const { repo, rows } = memoryRepo();
+    const { server, client } = await connect(repo);
+
+    try {
+      await call(client, "skillSave", {
+        slug: "sneaky",
+        name: "Sneaky",
+        whenToUse: "always",
+        body: "do the thing",
+      });
+      expect(rows[0]?.status).toBe("draft");
+
+      const { isError, data } = await call(client, "skillPublish", { skill: "sneaky" });
+      expect(isError).toBe(false);
+      expect(data.changed).toBe(false);
+      expect(data.message).toContain("never been published");
+      expect(rows[0]?.status).toBe("draft");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("refuses an archived skill that was never published", async () => {
+    const { repo, rows } = memoryRepo([
+      skill({ slug: "fund-screen", status: "archived", publishedAt: null }),
+    ]);
+    const { server, client } = await connect(repo);
+
+    try {
+      const { data } = await call(client, "skillPublish", { skill: "fund-screen" });
+      expect(data.changed).toBe(false);
+      expect(rows[0]?.status).toBe("archived");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  /** Moving a skill back to draft on the dashboard is a person withdrawing
+   *  their own review. An agent does not get to reverse that. */
+  it("refuses a published skill the user moved back to draft", async () => {
+    const { repo, rows } = memoryRepo([
+      skill({
+        slug: "fund-screen",
+        status: "draft",
+        publishedAt: new Date("2026-07-01T00:00:00Z"),
+      }),
+    ]);
+    const { server, client } = await connect(repo);
+
+    try {
+      const { data } = await call(client, "skillPublish", { skill: "fund-screen" });
+      expect(data.changed).toBe(false);
+      expect(data.message).toContain("back for review");
+      expect(rows[0]?.status).toBe("draft");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("offers withdrawn skills when the name does not match", async () => {
+    const { repo } = memoryRepo([
+      skill({ slug: "fund-screen", status: "archived" }),
+      skill({ slug: "earnings-review" }),
+    ]);
+    const { server, client } = await connect(repo);
+
+    try {
+      const { data } = await call(client, "skillPublish", { skill: "fund-screener" });
+      expect(data.found).toBe(false);
+      const slugs = data.closest.map((entry: { slug: string }) => entry.slug);
+      expect(slugs).toContain("fund-screen");
+      // An active skill is not a candidate for restoring.
+      expect(slugs).not.toContain("earnings-review");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("does not reach another account's skills", async () => {
+    const { repo, rows } = memoryRepo([
+      skill({ slug: "fund-screen", userId: "user-2", status: "archived" }),
+    ]);
+    const { server, client } = await connect(repo);
+
+    try {
+      const { data } = await call(client, "skillPublish", { skill: "fund-screen" });
+      expect(data.found).toBe(false);
+      expect(rows[0]?.status).toBe("archived");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+});
+
 describe("skill:// resources", () => {
   it("lists only the skills the user marked discoverable", async () => {
     const { repo } = memoryRepo([

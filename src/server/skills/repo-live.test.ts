@@ -194,4 +194,63 @@ describe.skipIf(connectionString === undefined)("skills queries against Postgres
       await pool.end();
     }
   });
+
+  /**
+   * `published_at` is the gate `skillPublish` reads, so what it is worth
+   * depends entirely on it moving exactly once. Stamped on the first
+   * activation, untouched by a withdraw, and not refreshed by a restore —
+   * otherwise "was this ever reviewed by a person" stops being answerable.
+   */
+  it("stamps published_at once and never moves it", async () => {
+    const pool = new pg.Pool({ connectionString });
+    const db = drizzle(pool, { schema });
+
+    try {
+      await expect(
+        db.transaction(async (tx) => {
+          const repo = createSkillsRepo(tx as unknown as typeof Database);
+          const { users } = schema;
+
+          const [owner] = await tx
+            .insert(users)
+            .values({ email: "skills-publish@example.com", name: "Publish Live", role: "user" })
+            .returning({ id: users.id });
+          const userId = owner!.id;
+
+          // Agent-written drafts start unstamped: nobody has reviewed them.
+          const draft = await repo.createSkill(userId, {
+            slug: "agent-draft",
+            name: "Agent draft",
+            whenToUse: "written over mcp",
+            status: "draft",
+            source: "agent",
+          });
+          expect(draft.publishedAt).toBeNull();
+
+          // A skill created straight into service carries the stamp already.
+          const direct = await repo.createSkill(userId, {
+            slug: "web-made",
+            name: "Made on the dashboard",
+            whenToUse: "created active",
+            source: "web",
+          });
+          expect(direct.publishedAt).not.toBeNull();
+
+          const published = await repo.updateSkill(userId, "agent-draft", { status: "active" });
+          const first = published!.publishedAt;
+          expect(first).not.toBeNull();
+
+          const withdrawn = await repo.updateSkill(userId, "agent-draft", { status: "archived" });
+          expect(withdrawn!.publishedAt).toEqual(first);
+
+          const restored = await repo.updateSkill(userId, "agent-draft", { status: "active" });
+          expect(restored!.publishedAt).toEqual(first);
+
+          throw new Rollback();
+        }),
+      ).rejects.toBeInstanceOf(Rollback);
+    } finally {
+      await pool.end();
+    }
+  });
 });

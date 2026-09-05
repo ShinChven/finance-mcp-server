@@ -36,8 +36,10 @@ import { registerNoteDeleteTool } from "./tools/note-delete.js";
 import { registerNoteReadTool } from "./tools/note-read.js";
 import { registerNoteUpdateTool } from "./tools/note-update.js";
 import { registerNotesSearchTool } from "./tools/notes-search.js";
+import { registerSkillPublishTool } from "./tools/skill-publish.js";
 import { registerSkillReadTool } from "./tools/skill-read.js";
 import { registerSkillSaveTool } from "./tools/skill-save.js";
+import { registerSkillUnpublishTool } from "./tools/skill-unpublish.js";
 import { registerSkillsTool } from "./tools/skills-search.js";
 import { registerSkillResources } from "./resources/skills.js";
 import { registerWatchlistTool } from "./tools/watchlist.js";
@@ -169,6 +171,8 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
   registerSkillsTool(server, skills, auth);
   registerSkillReadTool(server, skills, auth);
   registerSkillSaveTool(server, skills, auth);
+  registerSkillUnpublishTool(server, skills, auth);
+  registerSkillPublishTool(server, skills, auth);
   registerSkillResources(server, skills, auth);
 
   registerFundExposureTool(server, repo, fundCache);

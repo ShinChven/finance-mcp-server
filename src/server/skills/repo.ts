@@ -118,6 +118,7 @@ const skillColumns = {
   whenToUse: skills.whenToUse,
   body: skills.body,
   status: skills.status,
+  publishedAt: skills.publishedAt,
   source: skills.source,
   sourceRef: skills.sourceRef,
   autoDiscover: skills.autoDiscover,
@@ -339,6 +340,10 @@ export function createSkillsRepo(db: Db): SkillsRepo {
             whenToUse: input.whenToUse,
             body: input.body ?? "",
             status: input.status ?? "active",
+            // A skill created straight into `active` — the dashboard's default —
+            // was made callable by the person creating it, so it earns the
+            // stamp here rather than only on a later transition.
+            publishedAt: (input.status ?? "active") === "active" ? new Date() : null,
             autoDiscover: input.autoDiscover ?? false,
             source: input.source,
             sourceRef: input.sourceRef ?? null,
@@ -371,6 +376,14 @@ export function createSkillsRepo(db: Db): SkillsRepo {
       if (patch.whenToUse !== undefined) values["whenToUse"] = patch.whenToUse;
       if (patch.body !== undefined) values["body"] = patch.body;
       if (patch.status !== undefined) values["status"] = patch.status;
+      // First time this becomes callable, record it — and only the first time.
+      // `published_at` is what `skillPublish` reads to tell "restore something a
+      // person approved" from "activate something nobody reviewed", so a later
+      // withdraw-and-republish cycle must not move it, and a withdraw must not
+      // clear it.
+      if (patch.status === "active" && existing.publishedAt === null) {
+        values["publishedAt"] = new Date();
+      }
       if (patch.autoDiscover !== undefined) values["autoDiscover"] = patch.autoDiscover;
       if (patch.sourceRef !== undefined) values["sourceRef"] = patch.sourceRef;
 

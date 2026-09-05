@@ -26,6 +26,7 @@ import {
   Send,
   Sparkles,
   Trash2,
+  Undo2,
   Wand2,
 } from "lucide-react";
 import { ConfirmDialog, Modal } from "../components/modal.js";
@@ -128,6 +129,19 @@ export default function SkillsPage() {
     onError: (error: Error) => toast("error", error.message),
   });
 
+  const withdrawSkill = useMutation({
+    mutationFn: (skill: SkillCard) =>
+      api<SkillDetail>(`/api/skills/${skill.id}`, {
+        method: "PATCH",
+        body: { status: "archived" },
+      }),
+    onSuccess: (skill) => {
+      invalidate();
+      toast("success", `“${skill.slug}” is withdrawn — agents will not call it.`);
+    },
+    onError: (error: Error) => toast("error", error.message),
+  });
+
   const deleteSkill = useMutation({
     mutationFn: (skill: SkillCard) => api(`/api/skills/${skill.id}`, { method: "DELETE" }),
     onSuccess: () => {
@@ -214,6 +228,8 @@ export default function SkillsPage() {
               onOpen={() => params.update({ skill: skill.id })}
               onPublish={() => publishSkill.mutate(skill)}
               publishing={publishSkill.isPending && publishSkill.variables?.id === skill.id}
+              onWithdraw={() => withdrawSkill.mutate(skill)}
+              withdrawing={withdrawSkill.isPending && withdrawSkill.variables?.id === skill.id}
               onDelete={() => setDeleting(skill)}
             />
           ))}
@@ -280,12 +296,16 @@ function SkillRow({
   onOpen,
   onPublish,
   publishing,
+  onWithdraw,
+  withdrawing,
   onDelete,
 }: {
   skill: SkillCard;
   onOpen: () => void;
   onPublish: () => void;
   publishing: boolean;
+  onWithdraw: () => void;
+  withdrawing: boolean;
   onDelete: () => void;
 }) {
   const draft = skill.status === "draft";
@@ -329,6 +349,16 @@ function SkillRow({
           {draft && (
             <Button size="sm" busy={publishing} onClick={onPublish}>
               <Send className="size-3.5" /> Publish
+            </Button>
+          )}
+          {skill.status === "active" && (
+            <Button variant="ghost" size="sm" busy={withdrawing} onClick={onWithdraw}>
+              <Undo2 className="size-3.5" /> Withdraw
+            </Button>
+          )}
+          {skill.status === "archived" && (
+            <Button size="sm" busy={publishing} onClick={onPublish}>
+              <Send className="size-3.5" /> Restore
             </Button>
           )}
           <Button variant="ghost" size="sm" aria-label={`Delete ${skill.name}`} onClick={onDelete}>

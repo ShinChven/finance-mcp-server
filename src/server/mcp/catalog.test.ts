@@ -10,6 +10,8 @@ const WRITE_TOOLS = new Set([
   "noteUpdate",
   "noteDelete",
   "skillSave",
+  "skillUnpublish",
+  "skillPublish",
 ]);
 
 describe("mcp tool catalog", () => {
@@ -50,6 +52,8 @@ describe("mcp tool catalog", () => {
       "skills",
       "skillRead",
       "skillSave",
+      "skillUnpublish",
+      "skillPublish",
       "fundExposure",
       "fundsByStock",
       "fundsBySector",

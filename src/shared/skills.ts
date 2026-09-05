@@ -22,7 +22,11 @@ import { z } from "zod";
  * over MCP lands here and is invisible to lookup until a person publishes it in
  * the dashboard, so an injected conversation cannot install one silently.
  *
- * `archived` keeps a skill the user built without keeping it callable.
+ * `archived` keeps a skill the user built without keeping it callable. Unlike a
+ * draft it has been reviewed, which is why `skillUnpublish` may archive a skill
+ * over MCP and `skillPublish` may bring an archived one back: neither direction
+ * activates text a person never read. `skills.published_at` is what tells the
+ * two apart, and nothing an agent can call ever sets it.
  */
 export const SKILL_STATUSES = ["draft", "active", "archived"] as const;
 export type SkillStatus = (typeof SKILL_STATUSES)[number];

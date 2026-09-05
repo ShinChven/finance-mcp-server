@@ -16,7 +16,7 @@
 import { z } from "zod";
 import type { McpAuth } from "../../lib/http.js";
 import { MAX_SUGGESTIONS, skillReferenceSchema } from "../../../shared/skills.js";
-import type { SkillRecord, SkillsRepo } from "../../skills/repo.js";
+import type { SkillQuery, SkillRecord, SkillsRepo } from "../../skills/repo.js";
 
 export function requireSkillsUser(auth: McpAuth | null): string {
   if (auth === null) {
@@ -75,16 +75,34 @@ export async function suggestSkills(
   repo: SkillsRepo,
   userId: string,
   reference: string,
+  /**
+   * Which statuses a suggestion may come from. `active` for the tools that run
+   * skills; `skillPublish` passes `archived`, because the skill it is looking
+   * for is by definition not active and suggesting only active ones would make
+   * a withdrawn skill look deleted.
+   */
+  status: SkillQuery["status"] = "active",
 ): Promise<{ found: false; message: string; closest: ReturnType<typeof skillHeader>[] }> {
   const byText = await repo.searchSkills(userId, {
     q: reference,
-    status: "active",
+    status,
     limit: MAX_SUGGESTIONS,
   });
   const closest =
     byText.items.length > 0
       ? byText.items
-      : (await repo.searchSkills(userId, { status: "active", limit: MAX_SUGGESTIONS })).items;
+      : (await repo.searchSkills(userId, { status, limit: MAX_SUGGESTIONS })).items;
+
+  if (status === "archived") {
+    return {
+      found: false,
+      message:
+        closest.length === 0
+          ? "This user has no withdrawn skills, so there is nothing to restore."
+          : `No withdrawn skill named "${reference}". These are withdrawn and can be restored.`,
+      closest: closest.map(skillHeader),
+    };
+  }
 
   return {
     found: false,
