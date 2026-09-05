@@ -74,8 +74,9 @@ below.
 | `skillRead` | Read one skill's full procedure | |
 | `skillSave` | Draft a skill (invisible until a person publishes it) | ✓ |
 
-## Identity
+## System & Identity
 
 | Tool | Purpose |
 |---|---|
 | `whoami` | Current MCP user and authorization method |
+| `systemInfo` | Server host and basic system information |

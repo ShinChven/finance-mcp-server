@@ -20,6 +20,7 @@ describe("mcp tool catalog", () => {
     expect(catalog.server.instructions).toContain("Yahoo Finance");
     expect(catalog.tools.map((tool) => tool.name)).toEqual([
       "whoami",
+      "systemInfo",
       "search",
       "companyNews",
       "quote",

@@ -114,7 +114,7 @@ export function getCategoryById(id: string): ToolCategory {
 }
 
 export function getToolCategory(name: string): string {
-  if (name === "whoami") return "system";
+  if (name === "whoami" || name === "systemInfo") return "system";
   if (
     name.startsWith("fund") ||
     name.startsWith("funds") ||
