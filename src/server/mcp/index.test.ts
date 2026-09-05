@@ -59,6 +59,7 @@ describe("finance MCP server", () => {
       const result = await mcpClient.listTools();
       expect(result.tools.map((tool) => tool.name)).toEqual([
         "whoami",
+        "systemInfo",
         "search",
       "companyNews",
         "quote",

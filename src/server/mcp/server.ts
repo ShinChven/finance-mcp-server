@@ -47,6 +47,7 @@ import { registerWatchlistRemoveTool } from "./tools/watchlist-remove.js";
 import { registerWatchlistsTool } from "./tools/watchlists.js";
 import { registerTrendingSymbolsTool } from "./tools/trending-symbols.js";
 import { registerWhoamiTool } from "./tools/whoami.js";
+import { registerSystemInfoTool } from "./tools/system-info.js";
 import { MCP_SERVER_NAME } from "../../shared/brand.js";
 
 /**
@@ -134,6 +135,7 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
   );
 
   registerWhoamiTool(server, auth);
+  registerSystemInfoTool(server);
   registerSearchTool(server, client);
   registerCompanyNewsTool(server, client);
   registerQuoteTool(server, client);
