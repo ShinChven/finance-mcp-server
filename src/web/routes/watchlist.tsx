@@ -1,24 +1,27 @@
 /**
  * Watchlists.
  *
- * The page is a two-pane view: the lists on the left, the selected list priced
- * on the right. Which list is open, the search text, the kind filter and the
- * sort all live in the URL, so a particular view is a link.
+ * The lists are a row of tabs across the top and the selected one is priced
+ * underneath, at the full width of the page. Which list is open, the search
+ * text, the kind filter and the sort all live in the URL, so a particular view
+ * is a link.
  *
  * Sorting happens client-side even though the URL drives it, because the
  * interesting columns — price, change, distance to the nearest level — are
  * computed per request and never stored, so the database cannot order by them.
  *
- * Both panes are drag-orderable, and that order is stored: it is the one thing
- * about a watchlist that no computed column can express — why these three sit
- * at the top is in the user's head, not in the data. Dragging is therefore only
- * offered in the manual order, with no search or filter narrowing the view;
- * anything else would write an order the next render immediately overrides.
+ * Both the tabs and the rows are drag-orderable, and that order is stored: it
+ * is the one thing about a watchlist that no computed column can express — why
+ * these three sit at the top is in the user's head, not in the data. Dragging
+ * rows is therefore only offered in the manual order, with no search or filter
+ * narrowing the view; anything else would write an order the next render
+ * immediately overrides.
  *
- * An item's price levels open in a third pane rather than in the row: there can
- * be twenty of them, and a row that tried to show them all would show none of
- * the other items. Which one is open lives in `?item=`, like every other piece
- * of page state, so a particular reading of a particular holding is a link.
+ * An item's price levels open in a pane beside the table rather than in the row
+ * itself: there can be twenty of them, and a row that tried to show them all
+ * would show none of the other items. Which one is open lives in `?item=`, like
+ * every other piece of page state, so a particular reading of a particular
+ * holding is a link.
  */
 
 import { useMemo, useState } from "react";
@@ -32,7 +35,6 @@ import {
   Plus,
   RefreshCw,
   Search,
-  Star,
   Trash2,
 } from "lucide-react";
 import { Modal, ConfirmDialog } from "../components/modal.js";
@@ -300,109 +302,99 @@ export default function WatchlistPage() {
           />
         </Card>
       ) : (
-        <div
-          className={`grid gap-4 ${
-            openItem === null
-              ? "lg:grid-cols-[16rem_1fr]"
-              : "lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[15rem_minmax(0,1fr)_30rem]"
-          }`}
-        >
-          <ListSidebar
+        <>
+          <ListTabs
             lists={lists.data?.items ?? []}
             selectedId={selectedId}
             onSelect={(id) => params.update({ list: id })}
             onReorder={commitListOrder}
+            onRename={setRenaming}
+            onDelete={setDeleting}
           />
 
-          <div className="min-w-0">
-            {items.data?.summary && (
-              <SummaryTiles summary={items.data.summary} compact={openItem !== null} />
-            )}
+          {/* One column until an item is open, and only then a second one. The
+              detail pane keeps the width it always had, so the space the
+              sidebar used to hold now goes to the table in both states. */}
+          <div
+            className={`grid gap-4 ${
+              openItem === null ? "" : "lg:grid-cols-[minmax(0,1fr)_28rem] xl:grid-cols-[minmax(0,1fr)_30rem]"
+            }`}
+          >
+            <div className="min-w-0">
+              {items.data?.summary && (
+                <SummaryTiles summary={items.data.summary} compact={openItem !== null} />
+              )}
 
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <SearchInput params={params} placeholder="Search symbol, name, note…" />
-              <div className="flex flex-wrap items-center gap-2">
-                <FilterPills params={params} paramKey="kind" options={KIND_FILTERS} />
-                <FilterPills params={params} paramKey="level" options={LEVEL_FILTERS} />
-                {narrowed && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    title="Clear the search, filters and column sort to drag rows into your own order"
-                    onClick={() => params.update({ sort: "", q: "", kind: "", level: "" })}
-                  >
-                    <GripVertical className="size-3.5" /> My order
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <SearchInput params={params} placeholder="Search symbol, name, note…" />
+                <div className="flex flex-wrap items-center gap-2">
+                  <FilterPills params={params} paramKey="kind" options={KIND_FILTERS} />
+                  <FilterPills params={params} paramKey="level" options={LEVEL_FILTERS} />
+                  {narrowed && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      title="Clear the search, filters and column sort to drag rows into your own order"
+                      onClick={() => params.update({ sort: "", q: "", kind: "", level: "" })}
+                    >
+                      <GripVertical className="size-3.5" /> My order
+                    </Button>
+                  )}
+                  <Button variant="secondary" size="sm" onClick={() => void items.refetch()}>
+                    <RefreshCw className={`size-3.5 ${items.isFetching ? "animate-spin" : ""}`} />
+                    Refresh
                   </Button>
-                )}
-                <Button variant="secondary" size="sm" onClick={() => void items.refetch()}>
-                  <RefreshCw className={`size-3.5 ${items.isFetching ? "animate-spin" : ""}`} />
-                  Refresh
-                </Button>
-                <Button size="sm" onClick={() => setAdding(true)} disabled={selectedId === ""}>
-                  <Plus className="size-3.5" /> Add
-                </Button>
+                  <Button size="sm" onClick={() => setAdding(true)} disabled={selectedId === ""}>
+                    <Plus className="size-3.5" /> Add
+                  </Button>
+                </div>
               </div>
+
+              {/* The tab says which list is open and carries its actions, so all
+                  that is left here is what a tab has no room for. */}
+              {selected?.description && (
+                <p className="mb-3 text-xs text-zinc-500">{selected.description}</p>
+              )}
+
+              <ItemsTable
+                items={sorted}
+                loading={items.isPending}
+                query={params.q}
+                onSearchEverywhere={() => params.update({ find: params.q, q: "" })}
+                sort={params.sort}
+                openItemId={params.item}
+                narrow={openItem !== null}
+                reorderable={!narrowed}
+                onReorder={commitItemOrder}
+                onSort={(next) => params.update({ sort: next })}
+                onOpen={(id) => params.update({ item: id === params.item ? "" : id })}
+                onEdit={setEditingItem}
+                onRemove={(id) => removeItem.mutate(id)}
+              />
             </div>
 
-            {selected && (
-              <div className="mb-3 flex items-center gap-2 text-xs text-zinc-500">
-                <span className="font-medium text-zinc-700 dark:text-zinc-300">{selected.name}</span>
-                {selected.description && <span>· {selected.description}</span>}
-                <button
-                  onClick={() => setRenaming(selected)}
-                  className="cursor-pointer text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400"
-                  aria-label="Rename watchlist"
-                >
-                  <Pencil className="size-3.5" />
-                </button>
-                <button
-                  onClick={() => setDeleting(selected)}
-                  className="cursor-pointer text-zinc-400 hover:text-red-600 dark:hover:text-red-400"
-                  aria-label="Delete watchlist"
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
-              </div>
+            {openItem && (
+              <ItemDetail
+                item={openItem}
+                listId={selectedId}
+                tab={detailTab}
+                range={isSeriesRange(params.range) ? params.range : DEFAULT_SERIES_RANGE}
+                palette={me.preferences.directionPalette ?? "classic"}
+                busy={addLevels.isPending || updateLevel.isPending || removeLevel.isPending}
+                // Discrete choices, so both push history: the back button steps
+                // through the ranges and tabs a reader tried.
+                onTab={(next) => params.update({ tab: next === "chart" ? "" : next })}
+                onRange={(next) =>
+                  params.update({ range: next === DEFAULT_SERIES_RANGE ? "" : next })
+                }
+                onAddLevels={(levels) => addLevels.mutate({ itemId: openItem.id, levels })}
+                onUpdateLevel={(levelId, patch) => updateLevel.mutate({ levelId, patch })}
+                onRemoveLevel={(levelId) => removeLevel.mutate(levelId)}
+                onClose={() => params.update({ item: "", tab: "" })}
+              />
             )}
-
-            <ItemsTable
-              items={sorted}
-              loading={items.isPending}
-              query={params.q}
-              onSearchEverywhere={() => params.update({ find: params.q, q: "" })}
-              sort={params.sort}
-              openItemId={params.item}
-              narrow={openItem !== null}
-              reorderable={!narrowed}
-              onReorder={commitItemOrder}
-              onSort={(next) => params.update({ sort: next })}
-              onOpen={(id) => params.update({ item: id === params.item ? "" : id })}
-              onEdit={setEditingItem}
-              onRemove={(id) => removeItem.mutate(id)}
-            />
           </div>
-
-          {openItem && (
-            <ItemDetail
-              item={openItem}
-              listId={selectedId}
-              tab={detailTab}
-              range={isSeriesRange(params.range) ? params.range : DEFAULT_SERIES_RANGE}
-              palette={me.preferences.directionPalette ?? "classic"}
-              busy={addLevels.isPending || updateLevel.isPending || removeLevel.isPending}
-              // Discrete choices, so both push history: the back button steps
-              // through the ranges and tabs a reader tried.
-              onTab={(next) => params.update({ tab: next === "chart" ? "" : next })}
-              onRange={(next) =>
-                params.update({ range: next === DEFAULT_SERIES_RANGE ? "" : next })
-              }
-              onAddLevels={(levels) => addLevels.mutate({ itemId: openItem.id, levels })}
-              onUpdateLevel={(levelId, patch) => updateLevel.mutate({ levelId, patch })}
-              onRemoveLevel={(levelId) => removeLevel.mutate(levelId)}
-              onClose={() => params.update({ item: "", tab: "" })}
-            />
-          )}
-        </div>
+        </>
       )}
 
       {creating && (
@@ -523,11 +515,14 @@ function DragHandle({
   active,
   disabled,
   handleProps,
+  compact = false,
 }: {
   label: string;
   active: boolean;
   disabled: boolean;
   handleProps: ReturnType<ReturnType<typeof useDragOrder>["handleProps"]>;
+  /** Inside a tab, where a full-size hit area would be most of the tab. */
+  compact?: boolean;
 }) {
   return (
     <button
@@ -545,7 +540,9 @@ function DragHandle({
       // The default focus ring is suppressed in favour of an indigo one: the
       // handle takes focus on pointer down (see the hook) so that the arrow
       // keys work after a drag, and the browser's own ring on that is loud.
-      className={`-my-1 shrink-0 rounded-md p-2 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 ${
+      className={`-my-1 shrink-0 rounded-md transition-colors outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 ${
+        compact ? "p-1" : "p-2"
+      } ${
         disabled
           ? "cursor-not-allowed text-zinc-200 dark:text-zinc-700"
           : `cursor-grab text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300 ${
@@ -553,7 +550,7 @@ function DragHandle({
             }`
       }`}
     >
-      <GripVertical className="size-4" />
+      <GripVertical className={compact ? "size-3.5" : "size-4"} />
     </button>
   );
 }
@@ -566,40 +563,63 @@ function DragHandle({
 const DRAGGING_ROW =
   "bg-indigo-50 outline-2 -outline-offset-2 outline-indigo-400/70 dark:bg-indigo-500/15 dark:outline-indigo-500/50";
 
-function ListSidebar({
+/**
+ * The lists, as a row of tabs above the table rather than a column beside it.
+ *
+ * A sidebar spent a fixed 16rem of width on a control that is usually two or
+ * three short names — width the table beside it wanted for prices, sparklines
+ * and level rails, which are the reason anyone opens this page. Across the top
+ * the same control costs one line of height and the table gets the whole width.
+ *
+ * The strip scrolls sideways on its own rather than wrapping: wrapping would
+ * make the page's tallest element the one thing that was supposed to get
+ * shorter, and an account with a dozen lists would push the table below the
+ * fold. Reordering survives the move — same hook, `axis="x"` — because the
+ * order of these lists is the one thing about them no computed column can
+ * express. The sidebar's "drag the handles to reorder" line is gone with it:
+ * every tab now starts with a visible grip, which says the same thing without
+ * spending a row on it, and the handle's own tooltip says the rest.
+ */
+function ListTabs({
   lists,
   selectedId,
   onSelect,
   onReorder,
+  onRename,
+  onDelete,
 }: {
   lists: WatchlistSummary[];
   selectedId: string;
   onSelect: (id: string) => void;
   onReorder: (ids: string[]) => void;
+  onRename: (list: WatchlistSummary) => void;
+  onDelete: (list: WatchlistSummary) => void;
 }) {
   const ids = useMemo(() => lists.map((list) => list.id), [lists]);
-  const drag = useDragOrder({ ids, onCommit: onReorder });
+  const drag = useDragOrder({ ids, onCommit: onReorder, axis: "x" });
   const ordered = useMemo(() => sortByIds(lists, drag.order), [lists, drag.order]);
+  const selected = lists.find((list) => list.id === selectedId) ?? null;
 
   return (
-    <Card className="h-fit p-2">
+    <div className="mb-4 flex items-center gap-2 border-b border-zinc-200 pb-2 dark:border-zinc-800">
       {/* A callback ref, so one `RefObject<HTMLElement>` can hold a div here
           and a `<tbody>` in the table without either side casting. */}
       <div
         ref={(node) => {
           drag.containerRef.current = node;
         }}
+        className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto"
       >
         {ordered.map((list) => (
           <div
             key={list.id}
             {...drag.rowProps(list.id)}
-            className={`flex items-center gap-1 rounded-lg pr-2 text-sm transition-colors ${
+            className={`flex shrink-0 items-center rounded-lg border pr-2.5 pl-1 text-sm transition-colors ${
               drag.dragging === list.id
                 ? DRAGGING_ROW
                 : list.id === selectedId
-                  ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-                  : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/60"
+                  ? "border-indigo-600 bg-indigo-50 text-indigo-700 dark:border-indigo-500/60 dark:bg-indigo-500/10 dark:text-indigo-300"
+                  : "border-zinc-200 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800/60"
             }`}
           >
             <DragHandle
@@ -607,26 +627,45 @@ function ListSidebar({
               active={drag.dragging === list.id}
               disabled={false}
               handleProps={drag.handleProps(list.id)}
+              compact
             />
             <button
               onClick={() => onSelect(list.id)}
-              className={`flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 py-2 text-left ${
+              aria-current={list.id === selectedId ? "true" : undefined}
+              className={`flex cursor-pointer items-center gap-2 py-1.5 whitespace-nowrap ${
                 list.id === selectedId ? "font-medium" : ""
               }`}
             >
-              <span className="flex min-w-0 items-center gap-2">
-                <Star className="size-3.5 shrink-0" />
-                <span className="truncate">{list.name}</span>
-              </span>
-              <span className="shrink-0 text-xs tabular-nums text-zinc-400">{list.itemCount}</span>
+              {list.name}
+              <span className="text-xs tabular-nums text-zinc-400">{list.itemCount}</span>
             </button>
           </div>
         ))}
       </div>
-      {lists.length > 1 && (
-        <p className="px-3 pt-2 pb-1 text-[10px] text-zinc-400">Drag the handles to reorder.</p>
+
+      {/* Renaming and deleting act on whichever list is open, so they sit at
+          the end of the strip rather than repeating inside every tab. */}
+      {selected && (
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            onClick={() => onRename(selected)}
+            className="cursor-pointer rounded-md p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-indigo-600 dark:hover:bg-zinc-800 dark:hover:text-indigo-400"
+            aria-label={`Rename ${selected.name}`}
+            title={`Rename ${selected.name}`}
+          >
+            <Pencil className="size-3.5" />
+          </button>
+          <button
+            onClick={() => onDelete(selected)}
+            className="cursor-pointer rounded-md p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-red-600 dark:hover:bg-zinc-800 dark:hover:text-red-400"
+            aria-label={`Delete ${selected.name}`}
+            title={`Delete ${selected.name}`}
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        </div>
       )}
-    </Card>
+    </div>
   );
 }
 
