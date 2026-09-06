@@ -28,10 +28,9 @@ import {
 } from "../../shared/watchlist.js";
 import { yahooFinanceClient } from "../mcp/client.js";
 import { seriesQuerySchema } from "../../shared/series.js";
-import { BarFetchRefused, createBarStore } from "../market/bars.js";
-import { createTokenBucket } from "../market/budget.js";
-import { createYahooMarketProvider } from "../market/providers/yahoo.js";
-import { priceSeries, type SeriesDeps } from "../market/series.js";
+import { BarFetchRefused } from "../market/bars.js";
+import { loadSeriesDeps, seriesBudget } from "../market/deps.js";
+import { priceSeries } from "../market/series.js";
 import { audit } from "../lib/audit.js";
 import { clientIp, type AppEnv } from "../lib/http.js";
 import { requireAuth } from "../middleware/session.js";
@@ -45,28 +44,6 @@ import {
 
 const repo = createLazyWatchlistRepo();
 
-/**
- * Built once so the in-flight de-duplication and the token bucket are shared
- * across requests — a per-request store would de-duplicate nothing.
- *
- * The database import is deferred the same way the repo defers it, so building
- * the routes in a test never requires a configured database.
- */
-const marketProvider = createYahooMarketProvider(yahooFinanceClient);
-const seriesBudget = createTokenBucket();
-
-let seriesDeps: Promise<SeriesDeps> | undefined;
-function loadSeriesDeps(): Promise<SeriesDeps> {
-  seriesDeps ??= import("../db/index.js").then((module) => ({
-    bars: createBarStore(module.db, marketProvider),
-    provider: marketProvider,
-    navHistory: async (code: string, since: string) => {
-      const windows = await repo.getFundNavWindows([code], since);
-      return windows.get(code) ?? [];
-    },
-  }));
-  return seriesDeps;
-}
 
 const itemQuerySchema = z.object({
   q: z.string().trim().max(200).optional(),

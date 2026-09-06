@@ -88,6 +88,16 @@ function memoryRepo(seed: { lists?: WatchlistSummary[]; items?: WatchlistItemRow
     listWatchlists: vi.fn(async (userId: string) =>
       [...lists.values()].filter((list) => list.userId === userId).map(withCounts),
     ),
+    listTrackedRefs: vi.fn(async (userId: string) =>
+      items
+        .filter((item) => ownedList(userId, item.watchlistId) !== null)
+        .map((item) => ({
+          kind: item.kind,
+          ref: item.ref,
+          watchlistId: item.watchlistId,
+          watchlistName: lists.get(item.watchlistId)?.name ?? "",
+        })),
+    ),
     getWatchlist: vi.fn(async (userId: string, id: string) => {
       const list = ownedList(userId, id);
       return list === null ? null : withCounts(list);

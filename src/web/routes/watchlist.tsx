@@ -31,6 +31,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Search,
   Star,
   Trash2,
 } from "lucide-react";
@@ -367,6 +368,8 @@ export default function WatchlistPage() {
             <ItemsTable
               items={sorted}
               loading={items.isPending}
+              query={params.q}
+              onSearchEverywhere={() => params.update({ find: params.q, q: "" })}
               sort={params.sort}
               openItemId={params.item}
               narrow={openItem !== null}
@@ -720,6 +723,8 @@ const SECONDARY_HIDDEN = "hidden 2xl:table-cell";
 function ItemsTable({
   items,
   loading,
+  query,
+  onSearchEverywhere,
   sort,
   openItemId,
   narrow,
@@ -732,6 +737,11 @@ function ItemsTable({
 }: {
   items: WatchlistItem[];
   loading: boolean;
+  /** The list filter currently applied, so an empty result can name it. */
+  query: string;
+  /** Hands the unmatched query to the global search, which searches what you
+   *  do *not* track — the thing this box was mistaken for. */
+  onSearchEverywhere: () => void;
   sort: string;
   openItemId: string;
   narrow: boolean;
@@ -762,11 +772,34 @@ function ItemsTable({
   }
 
   if (items.length === 0) {
+    /**
+     * The one place this page is genuinely misleading: its search box filters
+     * the rows you already track, so a query for something you *don't* track
+     * returns the same empty frame as a list with nothing on it. Naming the
+     * filter, and offering the search that would actually find it, is the
+     * difference between a dead end and a redirect.
+     */
+    if (query !== "") {
+      return (
+        <Card>
+          <EmptyState
+            title={`Nothing on this list matches "${query}"`}
+            description="This box filters what you already track."
+          />
+          <div className="pb-6 text-center">
+            <Button variant="secondary" size="sm" onClick={onSearchEverywhere}>
+              <Search className="size-3.5" /> Search everything for "{query}"
+            </Button>
+          </div>
+        </Card>
+      );
+    }
+
     return (
       <Card>
         <EmptyState
           title="Nothing tracked here yet"
-          description="Add a symbol like NVDA or 0700.HK, or a 6-digit China fund code."
+          description="Add a symbol like NVDA or 0700.HK, or a 6-digit China fund code — or browse Discover to find one."
         />
       </Card>
     );

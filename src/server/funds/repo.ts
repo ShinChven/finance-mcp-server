@@ -6,7 +6,7 @@
  * injected client.
  */
 
-import { and, asc, desc, eq, gte, inArray, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, lte, or, sql, type SQL } from "drizzle-orm";
 import { normalizeFundCode, type ProviderId } from "../../shared/funds.js";
 import type { db as Database } from "../db/index.js";
 import {
@@ -141,6 +141,15 @@ export interface FundRepo {
   getExposureVectors(codes: string[]): Promise<Map<string, Map<string, number>>>;
   similarityCandidates(code: string, limit: number): Promise<string[]>;
   resolveSymbol(query: string): Promise<{ symbol: string; name: string | null } | null>;
+  /**
+   * A random sample of funds worth putting in front of someone.
+   *
+   * Cached funds first, because an uncached one has no NAV to price and no
+   * portfolio to open — a "surprise me" that landed on an empty page would be
+   * the one result the button must never produce. Falls back to the wider
+   * index only when nothing is cached at all, which is a fresh install.
+   */
+  randomFunds(limit: number): Promise<Fund[]>;
 }
 
 type Db = typeof Database;
@@ -513,6 +522,16 @@ export function createFundRepo(db: Db): FundRepo {
         .limit(limit);
 
       return rows.map((row) => row.fundCode).filter((candidate) => candidate !== code);
+    },
+
+    async randomFunds(limit) {
+      // `order by random()` sorts the table, which is affordable here and only
+      // here: this is one row for one click, never a listing or a join.
+      const sample = (where: SQL | undefined) =>
+        db.select().from(funds).where(where).orderBy(sql`random()`).limit(limit);
+
+      const cached = await sample(isNotNull(funds.holdingsSyncedAt));
+      return cached.length > 0 ? cached : sample(undefined);
     },
 
     async resolveSymbol(query) {

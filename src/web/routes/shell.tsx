@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, Outlet, redirect, useNavigate, useRouteLoaderData } from "react-router";
 import {
   BookOpen,
+  Compass,
   History,
   KeyRound,
   Landmark,
@@ -13,6 +14,7 @@ import {
   PanelLeftOpen,
   Plug,
   ScrollText,
+  Search,
   Server,
   Sparkles,
   Settings,
@@ -22,6 +24,11 @@ import {
   X,
 } from "lucide-react";
 import { api, ApiError } from "../lib/api.js";
+import { IdeaPreview } from "../components/idea-preview.js";
+import { parseIdeaParam } from "../lib/discover.js";
+import { SearchPalette } from "../components/search-palette.js";
+import { useListParams } from "../lib/params.js";
+import { DEFAULT_SERIES_RANGE } from "../../shared/series.js";
 import { useRealtime } from "../lib/use-realtime.js";
 import { realtime, type RealtimeStatus } from "../lib/realtime.js";
 import type { Me } from "../lib/types.js";
@@ -140,6 +147,7 @@ export const NAV_SECTIONS: {
   {
     label: "Workspace",
     items: [
+      { to: "/discover", label: "Discover", icon: Compass },
       { to: "/watchlist", label: "Watchlists", icon: Star },
       { to: "/notes", label: "Notes", icon: NotebookPen },
       { to: "/funds", label: "Funds", icon: Landmark },
@@ -186,6 +194,35 @@ export default function Shell() {
   // would paint the full sidebar first and snap it to the rail a frame later.
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const realtimeStatus = useRealtime();
+  const params = useListParams();
+  // Only *whether* the palette is open is local; the query itself is `?find=`.
+  // A ⌘K press that has not been typed into yet has no query to put in a URL.
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const preview = parseIdeaParam(params.idea);
+
+  // A link carrying a query — the watchlist's empty state hands its own
+  // unmatched search over this way — opens the palette on arrival.
+  useEffect(() => {
+    if (params.find !== "") setPaletteOpen(true);
+  }, [params.find]);
+
+  // ⌘K is the shortcut every search palette has; ignoring it inside a field
+  // would make it useless from the one place people press it most.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  function closePalette() {
+    setPaletteOpen(false);
+    if (params.find !== "") params.update({ find: "" }, { replace: true });
+  }
 
   /**
    * The rail is a desktop affordance, and the drawer is the same `<aside>`.
@@ -242,6 +279,13 @@ export default function Shell() {
         </button>
         <Server className="size-5 text-indigo-600 dark:text-indigo-400" />
         <span className="font-semibold">{BRAND_NAME}</span>
+        <button
+          onClick={() => setPaletteOpen(true)}
+          aria-label="Search instruments and funds"
+          className="ml-auto cursor-pointer rounded-lg p-1.5 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          <Search className="size-5" />
+        </button>
       </header>
 
       {navOpen && (
@@ -282,6 +326,30 @@ export default function Shell() {
             <X className="size-4" />
           </button>
         </div>
+        {/* Above the links rather than in them: it opens an overlay, not a
+            page, and it is the one control on this rail that is reached from
+            every page rather than navigated to. */}
+        <div className={railed ? "px-2 pb-1" : "px-3 pb-1"}>
+          <button
+            onClick={() => setPaletteOpen(true)}
+            title={railed ? "Search (⌘K)" : undefined}
+            aria-label="Search instruments and funds"
+            className={`flex w-full cursor-pointer items-center rounded-lg border border-zinc-200 py-2 text-sm text-zinc-500 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800/60 ${
+              railed ? "justify-center px-0" : "gap-2.5 px-3"
+            }`}
+          >
+            <Search className="size-4 shrink-0" />
+            {!railed && (
+              <>
+                <span>Search</span>
+                <kbd className="ml-auto rounded border border-zinc-200 px-1.5 py-0.5 text-[10px] text-zinc-400 dark:border-zinc-700">
+                  ⌘K
+                </kbd>
+              </>
+            )}
+          </button>
+        </div>
+
         {/* Any click inside the nav dismisses the drawer, including a link back
             to the route already open, which no location change would catch. */}
         <nav
@@ -384,6 +452,27 @@ export default function Shell() {
       >
         <Outlet />
       </main>
+
+      {/* Both overlays live here rather than on a page: an instrument can be
+          searched for, and previewed, from anywhere — including from a page
+          that has nothing to do with instruments. */}
+      {paletteOpen && (
+        <SearchPalette
+          params={params}
+          onClose={closePalette}
+          onNavigate={() => setPaletteOpen(false)}
+        />
+      )}
+      {preview !== null && (
+        <IdeaPreview
+          kind={preview.kind}
+          instrumentRef={preview.ref}
+          range={params.range || DEFAULT_SERIES_RANGE}
+          palette={me.preferences.directionPalette ?? "classic"}
+          onRange={(next) => params.update({ range: next })}
+          onClose={() => params.update({ idea: "", range: "" })}
+        />
+      )}
     </div>
   );
 }

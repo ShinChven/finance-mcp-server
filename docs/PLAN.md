@@ -168,17 +168,26 @@ Lifecycle semantics (tokens and grants alike):
 | `/clients` | OAuth clients that have a grant from this user; disable/revoke/delete, last access | `?q=&status=&page=` |
 | `/tools` | Browse the built-in MCP tools: description, annotations, parameter schemas | `?q=&tool=` |
 | `/notes` | Notes: collections, tag/symbol facets, search, markdown editor | `?q=&collection=&tag=&symbol=&status=&sort=&page=&note=` |
+| `/discover` | Discovery: trending, predefined screens, theme → funds, fund browse, and instruments related to what you already track | `?tab=trending\|movers\|themes\|funds\|related&region=&screen=&theme=&idea=` |
 | `/settings` | Account name, preferences | `?tab=profile\|preferences` |
 | `/admin/users` | Admin: list/create users, enable/disable, role | `?q=&status=&role=&page=&sort=` |
 | `/admin/clients` | Admin: all registered OAuth clients | `?q=&status=&page=` |
 | `/admin/audit` | Admin: audit log | `?q=&action=&actor=&page=` |
 | `/admin/funds` | Admin: fund cache console — coverage, per-category sync, per-fund portfolios | `?q=&provider=&scope=&status=&page=&sort=&fund=` |
 
-Layout: sidebar app shell grouped into Overview, **Workspace** (watchlists,
-notes, funds, skills), **Connect** (connector setup, MCP tools, access tokens,
-OAuth clients), **Account** (settings, activity) and **Admin** (visible only to
-admins), route-level auth guards via loader redirects, error boundaries, toast
-notifications.
+Layout: sidebar app shell grouped into Overview, **Workspace** (discover,
+watchlists, notes, funds, skills), **Connect** (connector setup, MCP tools,
+access tokens, OAuth clients), **Account** (settings, activity) and **Admin**
+(visible only to admins), route-level auth guards via loader redirects, error
+boundaries, toast notifications.
+
+Two things live in the shell rather than on a page, because they are reachable
+from every one of them: a **search palette** (⌘K, or the button above the nav)
+over instruments and funds, and the **preview** it opens. Both are driven by
+search params — `?find=` and `?idea=<kind>:<ref>` — so a search and a previewed
+instrument are links like everything else. The distinction they exist to make:
+the watchlist's own search box filters what you already track, and this one
+searches what you do not.
 
 ### Backend API (all under `/api`, JSON, zod-validated, session-cookie auth + CSRF)
 
@@ -195,6 +204,14 @@ notifications.
   The list endpoint takes `q`, `collection`, `tag`, `symbol`, `status`, `pinned`,
   `sort`, `page`, `per_page` — the page's search params 1:1 — and returns
   summaries and snippets, never bodies.
+- `GET /api/search` — one query over the local fund index and Yahoo's search,
+  merged and ranked, marking refs the caller already tracks. Returns results
+  **unpriced**: it runs per keystroke, and a quote batch on each would cost an
+  upstream round trip per character.
+- `GET /api/discover/{trending,movers,themes,theme-funds,related,random,preview}`
+  — the browsing surfaces. Each is one upstream call plus at most one quote
+  batch; `preview` prices and charts a single untracked instrument through the
+  same code the watchlist uses, so the two can never disagree.
 - Admin: `GET|POST /api/admin/users`, `PATCH /api/admin/users/:id`,
   `GET /api/admin/clients`, `PATCH /api/admin/clients/:id`, `GET /api/admin/audit`
 - List endpoints accept `q`, `status`, `page`, `per_page`, `sort` — mirroring the

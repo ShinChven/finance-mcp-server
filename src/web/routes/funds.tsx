@@ -95,8 +95,14 @@ export default function FundsPage() {
   );
 }
 
-/** The fund list itself — search, filters, and the portfolio drill-down. */
-function BrowseFunds({ params }: { params: ReturnType<typeof useListParams> }) {
+/**
+ * The fund list itself — search, filters, and the portfolio drill-down.
+ *
+ * Exported because the Discover page shows the same list as one of its tabs.
+ * Browsing funds is browsing funds; a second implementation of it there would
+ * be a second set of filters to keep in step with these.
+ */
+export function BrowseFunds({ params }: { params: ReturnType<typeof useListParams> }) {
 
   const list = useQuery({
     queryKey: ["funds", params.apiQuery],
