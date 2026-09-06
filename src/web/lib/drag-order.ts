@@ -14,7 +14,13 @@
  * finger is what will be saved. Positions are measured from the rendered rows
  * rather than assumed uniform, because a watchlist row is as tall as its
  * content — an item with a note and a price rail is not the height of one
- * without.
+ * without, and a tab is as wide as its name.
+ *
+ * Both axes, because the same list is arranged both ways: watchlist *items*
+ * are a column, and the watchlists themselves are a row of tabs. Only three
+ * things actually differ — which coordinate is read, which arrow keys move a
+ * row, and what scrolls when the pointer reaches an edge — so the axis is a
+ * parameter rather than a second hook.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -32,18 +38,22 @@ export function moveInOrder<T>(items: T[], from: number, to: number): T[] {
 }
 
 /**
- * The slot a pointer at `y` is over, given each row's vertical midpoint.
+ * The slot a pointer at `position` is over, given each row's midpoint along
+ * the drag axis.
  *
  * Midpoints rather than edges: a row only yields once the pointer is past its
  * centre, which is what stops a drag from flickering between two slots while
  * the finger sits on the boundary between them.
  */
-export function slotForPosition(midpoints: number[], y: number): number {
+export function slotForPosition(midpoints: number[], position: number): number {
   for (let index = 0; index < midpoints.length; index += 1) {
-    if (y < midpoints[index]!) return index;
+    if (position < midpoints[index]!) return index;
   }
   return Math.max(0, midpoints.length - 1);
 }
+
+/** Which way a list runs, and therefore which coordinate a drag reads. */
+export type DragAxis = "x" | "y";
 
 /** How close to the viewport edge a drag has to get before the page follows. */
 const AUTOSCROLL_EDGE_PX = 72;
@@ -78,9 +88,11 @@ export interface DragOrderOptions {
    * write an order the next render immediately hides.
    */
   enabled?: boolean;
+  /** `y` for a column of rows (the default), `x` for a strip of tabs. */
+  axis?: DragAxis;
 }
 
-export function useDragOrder({ ids, onCommit, enabled = true }: DragOrderOptions): DragOrder {
+export function useDragOrder({ ids, onCommit, enabled = true, axis = "y" }: DragOrderOptions): DragOrder {
   const containerRef = useRef<HTMLElement | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [preview, setPreview] = useState<string[] | null>(null);
@@ -91,7 +103,8 @@ export function useDragOrder({ ids, onCommit, enabled = true }: DragOrderOptions
     id: string;
     order: string[];
     midpoints: number[];
-    pointerY: number;
+    /** The pointer along the drag axis: `clientY` down a column, `clientX` across a strip. */
+    pointer: number;
     moved: boolean;
   } | null>(null);
   const frame = useRef<number | null>(null);
@@ -107,9 +120,9 @@ export function useDragOrder({ ids, onCommit, enabled = true }: DragOrderOptions
     if (container === null) return [];
     return [...container.querySelectorAll<HTMLElement>("[data-drag-id]")].map((row) => {
       const rect = row.getBoundingClientRect();
-      return rect.top + rect.height / 2;
+      return axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
     });
-  }, []);
+  }, [axis]);
 
   const stopAutoscroll = useCallback(() => {
     if (frame.current !== null) {
@@ -123,47 +136,61 @@ export function useDragOrder({ ids, onCommit, enabled = true }: DragOrderOptions
     const current = state.current;
     if (current === null) return;
     const from = current.order.indexOf(current.id);
-    const to = slotForPosition(current.midpoints, current.pointerY);
+    const to = slotForPosition(current.midpoints, current.pointer);
     if (from === -1 || from === to) return;
     const next = moveInOrder(current.order, from, to);
     current.order = next;
     current.moved = true;
     setPreview(next);
-    // The rows have just changed height-order; the midpoints that decided this
-    // slot describe the previous layout. Re-read them after the paint.
+    // The rows have just swapped places; the midpoints that decided this slot
+    // describe the previous layout. Re-read them after the paint.
     requestAnimationFrame(() => {
       if (state.current !== null) state.current.midpoints = measure();
     });
   }, [measure]);
 
   /**
-   * Drags near the top or bottom of the screen scroll the page.
+   * Drags that reach an edge scroll whatever the list is inside.
    *
-   * On a phone the list is taller than the viewport and the finger cannot
-   * leave it, so without this a row can only ever be moved as far as one
-   * screenful.
+   * Which box that is depends on the axis, and the difference is not
+   * cosmetic. A column of rows is taller than the viewport and scrolls the
+   * *page*: on a phone the finger cannot leave the list, so without this a row
+   * could only ever be moved one screenful. A strip of tabs scrolls *itself* —
+   * the page does not move sideways at all — so the edges to measure against
+   * are the strip's own, not the window's.
    */
   const autoscroll = useCallback(() => {
     frame.current = requestAnimationFrame(() => {
       const current = state.current;
       if (current === null) return;
-      const top = current.pointerY - AUTOSCROLL_EDGE_PX;
-      const bottom = current.pointerY - (window.innerHeight - AUTOSCROLL_EDGE_PX);
+
+      const container = containerRef.current;
+      const rect = axis === "x" ? container?.getBoundingClientRect() : undefined;
+      const start = axis === "x" ? (rect?.left ?? 0) : 0;
+      const end = axis === "x" ? (rect?.right ?? 0) : window.innerHeight;
+
+      const before = current.pointer - (start + AUTOSCROLL_EDGE_PX);
+      const after = current.pointer - (end - AUTOSCROLL_EDGE_PX);
       const speed =
-        top < 0
-          ? Math.max(-AUTOSCROLL_MAX_SPEED, (top / AUTOSCROLL_EDGE_PX) * AUTOSCROLL_MAX_SPEED)
-          : bottom > 0
-            ? Math.min(AUTOSCROLL_MAX_SPEED, (bottom / AUTOSCROLL_EDGE_PX) * AUTOSCROLL_MAX_SPEED)
+        before < 0
+          ? Math.max(-AUTOSCROLL_MAX_SPEED, (before / AUTOSCROLL_EDGE_PX) * AUTOSCROLL_MAX_SPEED)
+          : after > 0
+            ? Math.min(AUTOSCROLL_MAX_SPEED, (after / AUTOSCROLL_EDGE_PX) * AUTOSCROLL_MAX_SPEED)
             : 0;
+
       if (speed !== 0) {
-        window.scrollBy(0, speed);
+        if (axis === "x") {
+          if (container !== null) container.scrollLeft += speed;
+        } else {
+          window.scrollBy(0, speed);
+        }
         // Scrolling moved every row under a stationary finger.
         current.midpoints = measure();
         reslot();
       }
       autoscroll();
     });
-  }, [measure, reslot]);
+  }, [axis, measure, reslot]);
 
   const finish = useCallback(() => {
     const current = state.current;
@@ -189,7 +216,7 @@ export function useDragOrder({ ids, onCommit, enabled = true }: DragOrderOptions
       // Without this the browser treats the gesture as a scroll or a text
       // selection halfway through it.
       event.preventDefault();
-      current.pointerY = event.clientY;
+      current.pointer = axis === "x" ? event.clientX : event.clientY;
       reslot();
     };
 
@@ -201,7 +228,7 @@ export function useDragOrder({ ids, onCommit, enabled = true }: DragOrderOptions
       window.removeEventListener("pointerup", finish);
       window.removeEventListener("pointercancel", finish);
     };
-  }, [dragging, finish, reslot]);
+  }, [axis, dragging, finish, reslot]);
 
   // A fresh server order supersedes the preview it was produced from. Keyed on
   // the ids themselves, not the array identity: a caller that rebuilds the
@@ -229,7 +256,7 @@ export function useDragOrder({ ids, onCommit, enabled = true }: DragOrderOptions
           id,
           order: [...order],
           midpoints: measure(),
-          pointerY: event.clientY,
+          pointer: axis === "x" ? event.clientX : event.clientY,
           moved: false,
         };
         setDragging(id);
@@ -242,10 +269,15 @@ export function useDragOrder({ ids, onCommit, enabled = true }: DragOrderOptions
        * The same reorder without a pointer at all. A drag handle that only
        * responds to dragging is unusable with a keyboard, and this is also the
        * precise way to move something one slot.
+       *
+       * The keys follow the axis rather than accepting both pairs: in a strip
+       * of tabs, ArrowUp meaning "move left" is a guess the reader has to
+       * make, and guessing wrong writes an order they did not ask for.
        */
       onKeyDown: (event: ReactKeyboardEvent): void => {
         if (!enabled) return;
-        const delta = event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0;
+        const [back, forward] = axis === "x" ? ["ArrowLeft", "ArrowRight"] : ["ArrowUp", "ArrowDown"];
+        const delta = event.key === back ? -1 : event.key === forward ? 1 : 0;
         if (delta === 0) return;
         event.preventDefault();
         const from = order.indexOf(id);
@@ -257,7 +289,7 @@ export function useDragOrder({ ids, onCommit, enabled = true }: DragOrderOptions
       style: { touchAction: "none" as const },
       ...(enabled ? {} : { "aria-disabled": true as const }),
     }),
-    [autoscroll, enabled, measure, onCommit, order],
+    [autoscroll, axis, enabled, measure, onCommit, order],
   );
 
   const rowProps = useCallback((id: string) => ({ "data-drag-id": id }), []);

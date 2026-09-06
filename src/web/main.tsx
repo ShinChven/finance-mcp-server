@@ -20,6 +20,7 @@ import AdminUsersPage from "./routes/admin-users.js";
 import AdminClientsPage from "./routes/admin-clients.js";
 import AdminAuditPage from "./routes/admin-audit.js";
 import FundsPage from "./routes/funds.js";
+import DiscoverPage from "./routes/discover.js";
 import "./app.css";
 
 const queryClient = new QueryClient({
@@ -57,6 +58,7 @@ const router = createBrowserRouter([
       { path: "connectors", element: <Navigate to="/connector-setup" replace /> },
       { path: "tools", element: <ToolsPage /> },
       { path: "funds", element: <FundsPage /> },
+      { path: "discover", element: <DiscoverPage /> },
       { path: "watchlist", element: <WatchlistPage /> },
       { path: "notes", element: <NotesPage /> },
       { path: "skills", element: <SkillsPage /> },

@@ -135,8 +135,26 @@ export class WatchlistNameTakenError extends Error {
   }
 }
 
+/** One tracked instrument and the list it was found on. */
+export interface TrackedRef {
+  kind: WatchlistItemKind;
+  ref: string;
+  watchlistId: string;
+  watchlistName: string;
+}
+
 export interface WatchlistRepo {
   listWatchlists(userId: string): Promise<WatchlistSummary[]>;
+  /**
+   * Every (kind, ref) this user tracks, with the list it sits on.
+   *
+   * Flat and unpaginated across all lists, because its one caller asks the
+   * inverse question the item routes ask: not "what is on this list" but "of
+   * the rows I am about to show, which are already tracked". Bounded by the
+   * per-user caps in `shared/watchlist.ts`, and it selects three columns, so
+   * the worst case is a small table rather than a scan of enriched items.
+   */
+  listTrackedRefs(userId: string): Promise<TrackedRef[]>;
   getWatchlist(userId: string, id: string): Promise<WatchlistSummary | null>;
   /** Case-insensitive; the unique index is on `lower(name)`. */
   findWatchlistByName(userId: string, name: string): Promise<WatchlistSummary | null>;
@@ -479,6 +497,23 @@ export function createWatchlistRepo(db: Db): WatchlistRepo {
     async deleteWatchlist(userId, id) {
       const rows = await db.delete(watchlists).where(owned(userId, id)).returning({ id: watchlists.id });
       return rows.length > 0;
+    },
+
+    async listTrackedRefs(userId) {
+      // Joined from the lists rather than filtered by item, so ownership is
+      // enforced by the same predicate every other read here uses and an item
+      // can never arrive through a list the caller does not own.
+      return db
+        .select({
+          kind: watchlistItems.kind,
+          ref: watchlistItems.ref,
+          watchlistId: watchlists.id,
+          watchlistName: watchlists.name,
+        })
+        .from(watchlistItems)
+        .innerJoin(watchlists, eq(watchlists.id, watchlistItems.watchlistId))
+        .where(eq(watchlists.userId, userId))
+        .orderBy(asc(watchlists.position), asc(watchlistItems.position));
     },
 
     async listItems(userId, watchlistId, query = {}) {

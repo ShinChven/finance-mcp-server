@@ -96,6 +96,7 @@ function mockRepo(overrides: Partial<FundRepo> = {}) {
 
   const repo: FundRepo = {
     getFund: vi.fn(async (code: string) => (code === "999999" ? null : fund(code))),
+    randomFunds: vi.fn(async (limit: number) => [fund("162411")].slice(0, limit)),
     getNavSeries: vi.fn(async () => [
       { navDate: "2025-07-01", nav: 1, accNav: 1 },
       { navDate: "2026-01-01", nav: 1.3, accNav: 1.3 },

@@ -30,6 +30,16 @@ export interface ListParamValues {
   range: string;
   /** Selected watchlist on the Watchlists page. */
   list: string;
+  /** Query in the global search palette; its presence is what opens the palette. */
+  find: string;
+  /** Trending region on the Discover page. */
+  region: string;
+  /** Predefined screen on the Discover page's Movers tab. */
+  screen: string;
+  /** Theme whose funds the Discover page is showing. */
+  theme: string;
+  /** Untracked instrument open in the preview, as `kind:ref` (`symbol:NVDA`). */
+  idea: string;
   /** Watchlist item kind (`symbol`, `fund`). */
   kind: string;
   /** Watchlist level facet: `near`, `hit`, `none`. */
@@ -64,6 +74,9 @@ const FILTER_KEYS = [
   "collection",
   "tag",
   "symbol",
+  "region",
+  "screen",
+  "theme",
 ] as const;
 
 export function useListParams(defaults: Partial<ListParamValues> = {}) {
@@ -87,6 +100,11 @@ export function useListParams(defaults: Partial<ListParamValues> = {}) {
       fund: searchParams.get("fund") ?? "",
       range: searchParams.get("range") ?? "",
       list: searchParams.get("list") ?? "",
+      find: searchParams.get("find") ?? "",
+      region: searchParams.get("region") ?? "",
+      screen: searchParams.get("screen") ?? "",
+      theme: searchParams.get("theme") ?? "",
+      idea: searchParams.get("idea") ?? "",
       kind: searchParams.get("kind") ?? "",
       level: searchParams.get("level") ?? "",
       item: searchParams.get("item") ?? "",
