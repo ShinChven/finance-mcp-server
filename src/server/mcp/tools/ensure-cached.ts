@@ -7,20 +7,29 @@
  * comes back into either silence (it worked) or a sentence the model can act
  * on (it did not).
  *
- * They are no-ops when the data is already there, so the cost falls only on
- * the first touch of a fund.
+ * They are no-ops while the data is inside its freshness window, so the cost
+ * falls on the first touch of a fund and then on whatever has since gone out
+ * of date — never on every call.
  */
 
 import type { FundCache, EnsureResult } from "../../funds/ondemand.js";
 import type { FundRepo } from "../../funds/repo.js";
 
 /**
- * Fetches on demand unless this step has been synced before.
+ * Fetches on demand when this step is missing or past its freshness window.
  *
- * The test is the fund's watermark, not whether the data looks useful. A fund
- * with one NAV point or an empty portfolio has been cached — that is simply
- * what the source published — and re-fetching it on every call would turn a
- * thin fund into a permanent outbound request on every tool invocation.
+ * The freshness test lives in the cache, which reads the fund's own watermark
+ * against its provider's window, so a fund fetched an hour ago costs one query
+ * and no request. What used to be here instead was "has this ever been
+ * synced" — which meant a fund cached once was never refreshed again by any
+ * tool, and a NAV ingested three weeks ago was served as today's number for as
+ * long as nobody ran a batch sync. A stale price is a wrong answer, not a
+ * cheap one.
+ *
+ * Whether a failed fetch is fatal depends on what is already stored: with no
+ * prior data the tool would return an empty shell and should say why, but a
+ * refresh that fails on a fund we already hold leaves the caller with the last
+ * good figures, which beats an error.
  */
 async function ensure(
   cache: FundCache,
@@ -30,8 +39,10 @@ async function ensure(
   synced: (fund: NonNullable<Awaited<ReturnType<FundRepo["getFund"]>>>) => Date | null,
 ): Promise<EnsureResult | null> {
   const fund = await repo.getFund(code);
-  if (fund !== null && synced(fund) !== null) return null;
-  return cache.ensure(code, { steps });
+  const stored = fund !== null && synced(fund) !== null;
+  const result = await cache.ensure(code, { steps });
+  if (!stored) raiseIfUnusable(result);
+  return result;
 }
 
 /** Raises the on-demand failure rather than letting a tool return an empty shell. */
@@ -46,9 +57,7 @@ export async function ensureHoldings(
   repo: FundRepo,
   code: string,
 ): Promise<EnsureResult | null> {
-  const result = await ensure(cache, repo, code, ["details", "holdings"], (fund) => fund.holdingsSyncedAt);
-  raiseIfUnusable(result);
-  return result;
+  return ensure(cache, repo, code, ["details", "holdings"], (fund) => fund.holdingsSyncedAt);
 }
 
 export async function ensureNav(
@@ -56,9 +65,7 @@ export async function ensureNav(
   repo: FundRepo,
   code: string,
 ): Promise<EnsureResult | null> {
-  const result = await ensure(cache, repo, code, ["details", "nav"], (fund) => fund.navSyncedAt);
-  raiseIfUnusable(result);
-  return result;
+  return ensure(cache, repo, code, ["details", "nav"], (fund) => fund.navSyncedAt);
 }
 
 /**
@@ -69,7 +76,7 @@ export function cacheNote(result: EnsureResult | null): string | undefined {
   if (result === null || result.status === "fresh") return undefined;
   const base =
     result.fetched.length === 0
-      ? "Nothing could be cached for this request."
+      ? "Nothing could be cached for this request, so these figures are the last ones stored."
       : `Cached on demand for this request (${result.fetched.join(", ")}).`;
   const parts = [base];
   // A step that failed is the likeliest explanation for a thin answer, so it

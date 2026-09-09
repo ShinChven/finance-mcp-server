@@ -31,6 +31,8 @@ import { seriesQuerySchema } from "../../shared/series.js";
 import { BarFetchRefused } from "../market/bars.js";
 import { loadSeriesDeps, seriesBudget } from "../market/deps.js";
 import { priceSeries } from "../market/series.js";
+import { createLazyFundCache } from "../funds/ondemand.js";
+import { publishChange } from "../realtime/bus.js";
 import { audit } from "../lib/audit.js";
 import { clientIp, type AppEnv } from "../lib/http.js";
 import { requireAuth } from "../middleware/session.js";
@@ -43,6 +45,9 @@ import {
 } from "../watchlist/repo.js";
 
 const repo = createLazyWatchlistRepo();
+/** Shared with the fund routes' cache only by behaviour, not by instance: both
+ *  defer the database import until something actually needs a fund fetched. */
+const fundCache = createLazyFundCache();
 
 
 const itemQuerySchema = z.object({
@@ -187,6 +192,14 @@ export const watchlistRoutes = new Hono<AppEnv>()
       // Read-only: whatever bars are already stored enrich the rows, and a
       // symbol nobody has opened simply falls back to what its quote knows.
       bars: (await loadSeriesDeps()).bars,
+      // Funds are the other way round — their NAV is only ever as fresh as the
+      // last thing that fetched it, and until now nothing on this path did.
+      // The fetch happens behind the response, so the page stays as fast as it
+      // was and the rows it serves say whether they are stale.
+      fundCache,
+      // The list is already on screen when the refresh lands, so the page is
+      // told to refetch rather than left showing the number it was served.
+      onFundsRefreshed: () => publishChange(user.id, "watchlist", "updated", [id]),
     });
     // The summary describes the whole list, not the level facet: "3 of 40
     // approaching" is the number that makes the filter worth clicking.

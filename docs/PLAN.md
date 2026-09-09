@@ -367,9 +367,17 @@ portfolios. `funds/present.ts` builds the caveat every tool response carries.
   the cached NAV for funds) and degrades to `available: false` with a reason
   rather than failing the call — and places every recorded price level against
   that value, so `side`, `distancePercent` and `nearest` are answers to "as of
-  now" rather than stored claims. List deletion is deliberately dashboard-only.
-- On-demand caching (`funds/ondemand.ts`): the dashboard drill-down and the
-  fund tools fetch an uncached fund on first touch rather than failing. Shared
+  now" rather than stored claims. A symbol is quoted live on every read, but a
+  fund's NAV is only as current as the last thing that fetched it, so the read
+  reports `stale` and `checkedAt` alongside the price and hands the stale codes
+  to `watchlist/nav-refresh.ts`, which refreshes them *behind* the response
+  (capped per read) and then publishes a `watchlist` change so the open page
+  refetches. Blocking the read on those fetches would turn one page load into a
+  queue of throttled upstream requests. List deletion is deliberately
+  dashboard-only.
+- On-demand caching (`funds/ondemand.ts`): the dashboard drill-down, the fund
+  tools and the watchlist read path fetch a fund that is uncached or past its
+  freshness window rather than serving an old number as a current one. Shared
   client per provider (the throttle is per instance), in-flight de-duplication,
   watermark-based skip, and a pending-queue ceiling. The fund row names its own
   provider, so a caller holding only a code never has to know which upstream it

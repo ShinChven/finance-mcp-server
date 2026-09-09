@@ -245,6 +245,8 @@ function memoryRepo(seed: { lists?: WatchlistSummary[]; items?: WatchlistItemRow
           accNav: 2,
           dailyReturn: 0.4,
           navDate: "2026-08-15",
+          provider: "eastmoney",
+          navSyncedAt: new Date("2026-08-15T12:00:00Z"),
         });
       }
       return map;

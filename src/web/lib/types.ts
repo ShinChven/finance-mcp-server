@@ -385,6 +385,10 @@ export interface LiveValue {
   asOf: string | null;
   available: boolean;
   unavailableReason?: string;
+  /** When a cached source was last asked upstream; null for a live quote. */
+  checkedAt: string | null;
+  /** The cached value is past due — a refresh is running behind this read. */
+  stale: boolean;
   /** Null for funds — a NAV carries no session, volume or multiple. */
   stats: QuoteStats | null;
   extended: ExtendedQuote | null;

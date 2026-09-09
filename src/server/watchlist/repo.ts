@@ -34,6 +34,7 @@ import {
   type WatchlistLevelSource,
   type WatchlistLevelStatus,
 } from "../../shared/watchlist.js";
+import type { ProviderId } from "../../shared/funds.js";
 import type { NavSeriesPoint } from "../funds/performance.js";
 import { watchlistRepoWithEvents } from "../realtime/repo-events.js";
 
@@ -49,6 +50,16 @@ export interface FundSnapshot {
   accNav: number | null;
   dailyReturn: number | null;
   navDate: string | null;
+  /** Which upstream published it — and therefore how long its NAV stays fresh. */
+  provider: ProviderId;
+  /**
+   * When the NAV step last ran for this fund, which is a different fact from
+   * `navDate`: the date is what the source published, this is when we last
+   * asked. A fund can be checked an hour ago and still carry a week-old NAV
+   * because the source has published nothing since, and a row that conflated
+   * the two would report a dead cache as a quiet market.
+   */
+  navSyncedAt: Date | null;
 }
 
 export interface AddLevelRow {
@@ -763,6 +774,8 @@ export function createWatchlistRepo(db: Db): WatchlistRepo {
           accNav: latest.accNav,
           dailyReturn: latest.dailyReturn,
           navDate: latest.navDate,
+          provider: funds.provider,
+          navSyncedAt: funds.navSyncedAt,
         })
         .from(funds)
         .leftJoin(latest, eq(latest.fundCode, funds.code))

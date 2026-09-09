@@ -2,6 +2,8 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { McpAuth } from "../../lib/http.js";
 import { WATCHLIST_ITEM_KINDS } from "../../../shared/watchlist.js";
+import type { FundCache } from "../../funds/ondemand.js";
+import { publishChange } from "../../realtime/bus.js";
 import { enrichItems, summarize } from "../../watchlist/live.js";
 import type { WatchlistRepo } from "../../watchlist/repo.js";
 import { resolveWatchlist } from "../../watchlist/resolve.js";
@@ -24,6 +26,7 @@ export function registerWatchlistTool(
   server: McpServer,
   repo: WatchlistRepo,
   client: YahooFinanceClient,
+  cache: FundCache,
   auth: McpAuth | null,
 ): void {
   server.registerTool(
@@ -89,7 +92,16 @@ export function registerWatchlistTool(
           };
         }
 
-        const enriched = await enrichItems(items, { client, repo });
+        // Reading a list is as good a reason to refresh a stale fund as
+        // opening its page is, and an agent asking how the holdings are doing
+        // is exactly who a three-week-old NAV misleads. The fetch runs behind
+        // the answer; `live.stale` says what this one was served from.
+        const enriched = await enrichItems(items, {
+          client,
+          repo,
+          fundCache: cache,
+          onFundsRefreshed: () => publishChange(userId, "watchlist", "updated", [target.id]),
+        });
         return {
           watchlist: header,
           summary: summarize(enriched),
@@ -114,7 +126,10 @@ export function registerWatchlistTool(
             "`live.returns.basis` says what the trailing figures measure: `price` is a symbol's " +
             "52-week change and excludes dividends, `accNav` includes a fund's distributions and " +
             "`nav` does not — so a fund's year and a stock's year are not the same measurement. " +
-            "`live.extended` appears only while a pre- or post-market print is the current one.",
+            "`live.extended` appears only while a pre- or post-market print is the current one. " +
+            "On a fund, `live.checkedAt` is when the NAV cache last asked upstream and `live.stale` " +
+            "means it is past due — the price shown is the last one cached, a refresh has been " +
+            "started, and reading the list again shortly will pick up whatever it found.",
         };
       }),
   );
