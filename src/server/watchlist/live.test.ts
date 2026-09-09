@@ -97,6 +97,8 @@ describe("watchlist live values", () => {
           accNav: 2.1,
           dailyReturn: 0.5,
           navDate: "2026-08-15",
+          provider: "eastmoney",
+          navSyncedAt: new Date("2026-08-15T12:00:00Z"),
         },
       ]),
     });
@@ -400,6 +402,8 @@ describe("quote statistics", () => {
             accNav: latest.accNav,
             dailyReturn: 0.1,
             navDate: latest.navDate,
+            provider: "eastmoney",
+            navSyncedAt: new Date(),
           },
         ],
         { "161125": points },
@@ -419,6 +423,88 @@ describe("quote statistics", () => {
     expect(returns?.periods.every((entry) => entry.from !== null && entry.to !== null)).toBe(true);
   });
 
+  it("flags a fund whose NAV cache is past due, and keeps serving what it has", async () => {
+    const enriched = await enrichItems([item({ kind: "fund", ref: "161125" })], {
+      client: fakeClient([]),
+      repo: fakeRepo([
+        {
+          code: "161125",
+          name: "标普500",
+          nav: 1.5,
+          accNav: 2.1,
+          dailyReturn: 0.5,
+          navDate: "2026-08-15",
+          provider: "eastmoney",
+          // Eastmoney NAV is good for a day; this was last asked for weeks ago.
+          navSyncedAt: new Date(Date.now() - 20 * 86_400_000),
+        },
+      ]),
+    });
+
+    // Stale is not unavailable: the last NAV is still the best answer there is,
+    // and a blank row would tell the reader less than a flagged one.
+    expect(enriched[0]?.live).toMatchObject({ available: true, price: 1.5, stale: true });
+    expect(enriched[0]?.live.checkedAt).not.toBeNull();
+  });
+
+  it("never calls a live quote stale — it was fetched on this request", async () => {
+    const enriched = await enrichItems([item({ kind: "symbol", ref: "NVDA" })], {
+      client: fakeClient([nvda]),
+      repo: fakeRepo([]),
+    });
+
+    expect(enriched[0]?.live).toMatchObject({ stale: false, checkedAt: null });
+  });
+
+  it("refreshes a stale fund behind the response, and leaves a fresh one alone", async () => {
+    const ensure = vi.fn(async (code: string) => ({
+      code,
+      status: "cached" as const,
+      fetched: ["nav" as const],
+      symbolsClassified: 0,
+      unclassified: 0,
+      message: "",
+    }));
+
+    const enriched = await enrichItems(
+      [item({ kind: "fund", ref: "161125" }), item({ kind: "fund", ref: "162411" })],
+      {
+        client: fakeClient([]),
+        repo: fakeRepo([
+          {
+            code: "161125",
+            name: "标普500",
+            nav: 1.5,
+            accNav: 2.1,
+            dailyReturn: 0.5,
+            navDate: "2026-08-15",
+            provider: "eastmoney",
+            navSyncedAt: new Date(Date.now() - 20 * 86_400_000),
+          },
+          {
+            code: "162411",
+            name: "华宝油气",
+            nav: 0.8,
+            accNav: 0.9,
+            dailyReturn: -0.2,
+            navDate: "2026-09-07",
+            provider: "eastmoney",
+            navSyncedAt: new Date(Date.now() - 60_000),
+          },
+        ]),
+        fundCache: { ensure },
+      },
+    );
+
+    // The read itself did not wait for anything: both rows are priced from the
+    // cache as it stood when the request arrived.
+    expect(enriched.map((row) => row.live.price)).toEqual([1.5, 0.8]);
+    expect(enriched.map((row) => row.live.stale)).toEqual([true, false]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(ensure).toHaveBeenCalledTimes(1);
+    expect(ensure).toHaveBeenCalledWith("161125", { steps: ["nav"], classify: false });
+  });
+
   it("keeps a fund priced when its NAV history cannot be read", async () => {
     const enriched = await enrichItems([item({ kind: "fund", ref: "161125" })], {
       client: fakeClient([]),
@@ -434,6 +520,8 @@ describe("quote statistics", () => {
                 accNav: 2.1,
                 dailyReturn: 0.5,
                 navDate: "2026-08-15",
+                provider: "eastmoney" as const,
+                navSyncedAt: new Date("2026-08-15T12:00:00Z"),
               },
             ],
           ]),

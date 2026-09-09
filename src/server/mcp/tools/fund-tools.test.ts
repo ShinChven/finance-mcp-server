@@ -460,7 +460,7 @@ describe("on-demand caching", () => {
     expect(calls).toEqual([{ code: "161125", steps: ["details", "holdings"] }]);
   });
 
-  it("does not refetch a fund that has been synced before", async () => {
+  it("still asks the cache for a fund synced long ago, and lets it judge freshness", async () => {
     const { cache, calls } = stubCache();
     const repo = mockRepo({
       getFund: async () => fund("161125", { holdingsSyncedAt: new Date("2026-08-01T00:00:00Z") }),
@@ -468,7 +468,28 @@ describe("on-demand caching", () => {
 
     await call(repo, "fundExposure", { code: "161125" }, cache);
 
-    expect(calls).toEqual([]);
+    // The watermark is not the test any more — data cached once used to be
+    // served for ever. The cache reads the same watermark against the
+    // provider's freshness window and answers `fresh` without a request when
+    // it is still good, so nothing here is a wasted fetch.
+    expect(calls).toEqual([{ code: "161125", steps: ["details", "holdings"] }]);
+  });
+
+  it("serves what is stored when a refresh fails, and only errors with nothing stored", async () => {
+    const failing = stubCache({ status: "failed", message: "Eastmoney timed out" });
+    const stored = mockRepo({
+      getFund: async () => fund("161125", { holdingsSyncedAt: new Date("2026-08-01T00:00:00Z") }),
+    });
+
+    const kept = await call(stored, "fundExposure", { code: "161125" }, failing.cache);
+    expect(kept.isError).toBeFalsy();
+
+    const empty = mockRepo({ getFund: async () => fund("161125", { holdingsSyncedAt: null }) });
+    const refused = await call(empty, "fundExposure", { code: "161125" }, stubCache({
+      status: "failed",
+      message: "Eastmoney timed out",
+    }).cache);
+    expect(refused.isError).toBe(true);
   });
 
   it("asks only for NAV when the tool only measures NAV", async () => {

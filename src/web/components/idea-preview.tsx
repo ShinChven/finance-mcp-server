@@ -68,6 +68,8 @@ function asItem(preview: PreviewResult): WatchlistItem {
       marketState: null,
       asOf: null,
       available: false,
+      checkedAt: null,
+      stale: false,
       stats: null,
       extended: null,
       returns: null,

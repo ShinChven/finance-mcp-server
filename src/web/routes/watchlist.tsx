@@ -52,6 +52,7 @@ import { formatPercent, formatRelative, signClass } from "../lib/format.js";
 import { useListParams } from "../lib/params.js";
 import type {
   AddItemsResult,
+  LiveValue,
   WatchlistItem,
   WatchlistItemsResult,
   WatchlistSummary,
@@ -754,6 +755,42 @@ function returnOver(item: WatchlistItem, period: WatchlistReturnPeriod): number 
 }
 
 /**
+ * The line under a price that says what kind of number it is.
+ *
+ * A fund's NAV and a stock's quote are printed identically — same column, same
+ * arithmetic, same colour — so this line is the only thing telling a reader
+ * that one of them moves once a day and may be days behind. When the cache is
+ * past due it says so in amber rather than in the same grey as everything
+ * else: a stale NAV is at its most misleading exactly when it looks routine.
+ */
+function ValueBasis({ live }: { live: LiveValue }) {
+  const label = live.basis === "nav" ? "NAV" : live.marketState?.toLowerCase() ?? "market";
+  const age = live.asOf ? ` · ${formatRelative(live.asOf)}` : "";
+  if (!live.stale) {
+    return (
+      <div className="text-[10px] text-zinc-400">
+        {label}
+        {age}
+      </div>
+    );
+  }
+  return (
+    <div
+      className="inline-flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400"
+      title={
+        `This is the last NAV cached for this fund${live.asOf ? `, dated ${live.asOf}` : ""}. ` +
+        `The cache was last refreshed ${formatRelative(live.checkedAt)} and is past due; ` +
+        "a refresh is running now, so reloading shortly should pick up anything newer."
+      }
+    >
+      <CircleAlert className="size-3" />
+      {label}
+      {age}
+    </div>
+  );
+}
+
+/**
  * With the panel open the table has roughly half the width it had, and the two
  * columns that go are the ones the panel itself is showing in more detail.
  */
@@ -926,10 +963,7 @@ function ItemsTable({
                   {item.live.available ? (
                     <>
                       <div>{formatPrice(item.live.price, item.live.currency)}</div>
-                      <div className="text-[10px] text-zinc-400">
-                        {item.live.basis === "nav" ? "NAV" : item.live.marketState?.toLowerCase() ?? "market"}
-                        {item.live.asOf ? ` · ${formatRelative(item.live.asOf)}` : ""}
-                      </div>
+                      <ValueBasis live={item.live} />
                     </>
                   ) : (
                     <span

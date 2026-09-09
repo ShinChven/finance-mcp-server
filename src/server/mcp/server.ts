@@ -156,7 +156,7 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
   registerSecFinancialsTool(server, edgar);
 
   registerWatchlistsTool(server, watchlists, auth);
-  registerWatchlistTool(server, watchlists, client, auth);
+  registerWatchlistTool(server, watchlists, client, fundCache, auth);
   registerWatchlistAddTool(server, watchlists, client, auth);
   registerWatchlistLevelsTool(server, watchlists, auth);
   registerWatchlistRemoveTool(server, watchlists, auth);

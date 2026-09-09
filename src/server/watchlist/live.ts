@@ -29,11 +29,13 @@ import {
   type WatchlistLevelStatus,
   type WatchlistReturnPeriod,
 } from "../../shared/watchlist.js";
+import type { FundCache } from "../funds/ondemand.js";
 import { computeTrailingReturns, type NavSeriesPoint } from "../funds/performance.js";
 import { computeTrailingWindows } from "../market/series-math.js";
 import type { YahooFinanceClient } from "../mcp/client.js";
 import { yahooRequestOptions } from "../mcp/tools/runtime.js";
 import type { WatchlistLevel } from "../db/schema.js";
+import { isNavStale, refreshStaleFundNav, type NavRefreshOptions } from "./nav-refresh.js";
 import type { WatchlistItemRow, WatchlistRepo } from "./repo.js";
 
 /**
@@ -91,6 +93,21 @@ export interface LiveValue {
   asOf: string | null;
   available: boolean;
   unavailableReason?: string;
+  /**
+   * When the value source was last asked, for sources that are cached.
+   *
+   * Null for a Yahoo quote, which is fetched on this request and so is only
+   * ever as old as `asOf` says. For a fund it is the NAV sync watermark, which
+   * answers the question `asOf` cannot: whether an old date means the source
+   * has published nothing, or that nothing has looked.
+   */
+  checkedAt: string | null;
+  /**
+   * The cached value is past its freshness window — a refresh has been asked
+   * for, and this number is what was on hand meanwhile. Always false for a
+   * live quote.
+   */
+  stale: boolean;
   /** Null for funds, whose NAV carries none of this. */
   stats: QuoteStats | null;
   /** Present only while a pre- or post-market print is the latest one. */
@@ -177,6 +194,8 @@ const UNAVAILABLE = (reason: string, basis: LiveValue["basis"]): LiveValue => ({
   asOf: null,
   available: false,
   unavailableReason: reason,
+  checkedAt: null,
+  stale: false,
   stats: null,
   extended: null,
   returns: null,
@@ -321,6 +340,10 @@ async function quoteSymbols(
       ...(num(quote["regularMarketPrice"]) === null
         ? { unavailableReason: "Yahoo returned no price for this symbol." }
         : {}),
+      // A quote is fetched on this request, so it is never served from a cache
+      // that could have gone stale behind the reader's back.
+      checkedAt: null,
+      stale: false,
       stats: readStats(quote),
       extended: readExtended(quote),
       returns: symbolReturns(quote),
@@ -394,6 +417,7 @@ async function quoteFunds(
   codes: string[],
   repo: WatchlistRepo,
   today: Date,
+  refresh: FundRefresh | undefined,
 ): Promise<{ values: Map<string, LiveValue>; names: Map<string, string> }> {
   const values = new Map<string, LiveValue>();
   const names = new Map<string, string>();
@@ -410,6 +434,11 @@ async function quoteFunds(
 
   const returns = await fundReturns(codes, repo, today);
 
+  // Behind the response, never inside it: see `nav-refresh.ts`. A list whose
+  // funds are all fresh starts nothing, so the common case costs one predicate.
+  if (refresh !== undefined) refreshStaleFundNav(snapshots.values(), refresh.cache, refresh.options);
+
+  const now = today.getTime();
   for (const code of codes) {
     const snapshot = snapshots.get(code);
     if (snapshot === undefined) {
@@ -420,8 +449,14 @@ async function quoteFunds(
       continue;
     }
     names.set(code, snapshot.name);
+    const checkedAt = snapshot.navSyncedAt?.toISOString() ?? null;
+    const stale = isNavStale(snapshot, now);
     if (snapshot.nav === null) {
-      values.set(code, UNAVAILABLE("No NAV history cached for this fund yet.", "nav"));
+      values.set(code, {
+        ...UNAVAILABLE("No NAV history cached for this fund yet.", "nav"),
+        checkedAt,
+        stale,
+      });
       continue;
     }
     // dailyReturn is already a percentage; the absolute move is derived from it
@@ -439,6 +474,8 @@ async function quoteFunds(
       marketState: null,
       asOf: snapshot.navDate,
       available: true,
+      checkedAt,
+      stale,
       // A NAV carries no session, no volume and no multiple; the fund page is
       // where a fund's own context lives.
       stats: null,
@@ -504,9 +541,26 @@ export interface BarReader {
   ): Promise<Map<string, { date: string; close: number | null }[]>>;
 }
 
+/** How a caller opts into keeping the fund cache warm behind its reads. */
+interface FundRefresh {
+  cache: FundCache;
+  options: NavRefreshOptions;
+}
+
 export interface ValueDeps {
   client: YahooFinanceClient;
   repo: WatchlistRepo;
+  /**
+   * The on-demand fund cache, for callers that want stale NAV refreshed.
+   *
+   * Optional for the same reason `bars` is: not every caller sits on a request
+   * path where a background fetch is welcome, and a read that only needs
+   * today's number should not be the thing that decides to go scrape. Passing
+   * it never delays the response — see `nav-refresh.ts`.
+   */
+  fundCache?: FundCache;
+  /** Called when a background refresh actually took new NAV. */
+  onFundsRefreshed?: () => void;
   /**
    * Stored daily bars, when the caller has them.
    *
@@ -536,7 +590,18 @@ export async function currentValues(
 
   const [symbolValues, fundResult] = await Promise.all([
     quoteSymbols(symbols, deps.client),
-    quoteFunds(codes, deps.repo, new Date()),
+    quoteFunds(
+      codes,
+      deps.repo,
+      new Date(),
+      deps.fundCache === undefined
+        ? undefined
+        : {
+            cache: deps.fundCache,
+            options:
+              deps.onFundsRefreshed === undefined ? {} : { onRefreshed: deps.onFundsRefreshed },
+          },
+    ),
   ]);
 
   const values = new Map<string, LiveValue>();
