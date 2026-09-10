@@ -36,6 +36,8 @@ describe("mcp tool catalog", () => {
       "fundamentalsTimeSeries",
       "earningsAnalysis",
       "cryptoTickers",
+      "economicSeries",
+      "economicRelease",
       "secFilings",
       "secFinancials",
       "watchlists",

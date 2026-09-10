@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createLazyFundCache, type FundCache } from "../funds/ondemand.js";
 import { createLazyFundRepo, type FundRepo } from "../funds/repo.js";
 import { getCoinGeckoClient, type CoinGeckoClient } from "../crypto/coingecko.js";
+import { getDbnomicsClient, type DbnomicsClient } from "../economy/dbnomics.js";
 import type { McpAuth } from "../lib/http.js";
 import { createLazyNotesRepo, type NotesRepo } from "../notes/repo.js";
 import { createLazySkillsRepo, type SkillsRepo } from "../skills/repo.js";
@@ -19,6 +20,8 @@ import { registerThemeToFundsTool } from "./tools/theme-to-funds.js";
 import { registerChartTool } from "./tools/chart.js";
 import { registerCompanyNewsTool } from "./tools/company-news.js";
 import { registerCryptoTickersTool } from "./tools/crypto-tickers.js";
+import { registerEconomicReleaseTool } from "./tools/economic-release.js";
+import { registerEconomicSeriesTool } from "./tools/economic-series.js";
 import { registerEarningsAnalysisTool } from "./tools/earnings-analysis.js";
 import { registerFundamentalsTimeSeriesTool } from "./tools/fundamentals-time-series.js";
 import { registerInsightsTool } from "./tools/insights.js";
@@ -64,6 +67,8 @@ export interface McpDeps {
   fundCache?: FundCache;
   edgar?: EdgarClient;
   crypto?: CoinGeckoClient;
+  /** Keyless macro data via DBnomics; see `economy/dbnomics.ts`. */
+  economy?: DbnomicsClient;
   watchlists?: WatchlistRepo;
   notes?: NotesRepo;
   skills?: SkillsRepo;
@@ -80,6 +85,7 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
   const fundCache = deps.fundCache ?? createLazyFundCache();
   const edgar = deps.edgar ?? getEdgarClient();
   const crypto = deps.crypto ?? getCoinGeckoClient();
+  const economy = deps.economy ?? getDbnomicsClient();
   const watchlists = deps.watchlists ?? createLazyWatchlistRepo();
   const notes = deps.notes ?? createLazyNotesRepo();
   const skills = deps.skills ?? createLazySkillsRepo();
@@ -88,7 +94,7 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
     { name: MCP_SERVER_NAME, version: "0.1.0" },
     {
       instructions:
-        "Six tool families. Yahoo Finance tools return global market data for stocks, ETFs, and indices " +
+        "Seven tool families. Yahoo Finance tools return global market data for stocks, ETFs, and indices " +
         "(CN and HK listings included, via suffixes like 600519.SS and 0700.HK); search for a symbol first " +
         "when it is uncertain, and expect delayed or missing data for delisted symbols. companyNews is the " +
         "one to reach for when the question is what happened rather than what a number is. Crypto is priced " +
@@ -105,6 +111,18 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
         "portfolios. Funds are addressed by code: 6 digits for China (162411), the ticker elsewhere (IVV). " +
         "Mind the `holdingsCompleteness` field before comparing weights across funds — a top_holdings fund " +
         "discloses only its largest positions, a full one publishes its whole book. " +
+        "Economic tools (economicSeries, economicRelease) cover the macro backdrop rather than any " +
+        "one instrument: inflation, unemployment, GDP, policy rates, the Treasury curve, money " +
+        "supply, sentiment and housing. Reach for them when the question is about the economy " +
+        "instead of a company — what inflation is running at, whether the curve is inverted, how " +
+        "the last payrolls print came in. economicRelease takes several indicators at once and is " +
+        "the fastest way to a macro snapshot; economicSeries returns history. Both come from " +
+        "DBnomics, a free aggregator that re-serves FRED, BLS, Eurostat, ECB, IMF and OECD, so " +
+        "anything those publish is reachable by passing a raw seriesId even when it is not in the " +
+        "named indicator catalogue. Two habits matter: read index series such as CPI as a change " +
+        "rather than a level (the tools default to year-over-year for exactly that reason), and " +
+        "check staleDays before calling a figure current, because a release describes a period that " +
+        "ended weeks earlier. " +
         "Earnings tools cover company reporting: earningsAnalysis works for any Yahoo-covered symbol and is " +
         "the fastest way to see surprises, estimate revisions, and the next report date; secFilings and " +
         "secFinancials read SEC EDGAR directly and are the right choice for US issuers when you need " +
@@ -151,6 +169,9 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
   registerFundamentalsTimeSeriesTool(server, client);
   registerEarningsAnalysisTool(server, client);
   registerCryptoTickersTool(server, crypto);
+
+  registerEconomicSeriesTool(server, economy);
+  registerEconomicReleaseTool(server, economy);
 
   registerSecFilingsTool(server, edgar);
   registerSecFinancialsTool(server, edgar);
