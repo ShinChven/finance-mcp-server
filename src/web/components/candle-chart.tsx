@@ -473,10 +473,12 @@ export function CandleChart({
                     y2={totalHeight - TIME_AXIS}
                     className={tick.major ? "stroke-zinc-200 dark:stroke-zinc-700/70" : "stroke-zinc-100 dark:stroke-zinc-800/70"}
                   />
+                  {/* Anchored inward near either edge, so a label centred on
+                      the first or last candle is not cut in half. */}
                   <text
-                    x={Math.min(Math.max(x, 14), plotWidth - 14)}
+                    x={x < 28 ? 2 : x > plotWidth - 28 ? plotWidth - 2 : x}
                     y={totalHeight - 7}
-                    textAnchor="middle"
+                    textAnchor={x < 28 ? "start" : x > plotWidth - 28 ? "end" : "middle"}
                     className={`text-[10px] ${tick.major ? "fill-zinc-600 dark:fill-zinc-300" : "fill-zinc-400"}`}
                   >
                     {tick.label}
