@@ -54,7 +54,11 @@ function fakeProvider(overrides: Partial<MarketDataProvider> = {}): MarketDataPr
       previousClose: 100,
       points: Array.from({ length: 12 }, (_, index) => ({
         at: Date.parse("2026-08-25T13:30:00Z") + index * 300_000,
+        open: null,
+        high: null,
+        low: null,
         close: 100 + index * 0.05,
+        volume: null,
       })),
     })),
     ...overrides,

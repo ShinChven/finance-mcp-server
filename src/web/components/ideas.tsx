@@ -55,9 +55,11 @@ export function useAddIdea() {
         // US ETF is the case where guessing from the ref alone is ambiguous.
         body: { items: [{ ref: idea.ref, kind: idea.kind }] },
       }),
-    onSuccess: (result, { idea, listId }) => {
+    onSuccess: (result, { idea }) => {
       void queryClient.invalidateQueries({ queryKey: ["watchlists"] });
-      void queryClient.invalidateQueries({ queryKey: ["watchlist-items", listId] });
+      // The whole prefix, not just this list: a symbol page keys its own
+      // "which lists hold this" read under it too, and its star must fill.
+      void queryClient.invalidateQueries({ queryKey: ["watchlist-items"] });
       // Both discovery surfaces carry a `tracked` array that is now stale.
       void queryClient.invalidateQueries({ queryKey: ["discover"] });
       void queryClient.invalidateQueries({ queryKey: ["search"] });

@@ -9,6 +9,8 @@ database rows, same vocabulary.
 | `/activity` | Recent activity |
 | `/connector-setup` | Copy-ready setup guides per MCP client, OAuth and token both |
 | `/tools` | Every registered MCP tool with its full input schema, read live from the server |
+| `/markets` | Benchmarks across regions and your watchlist, priced live |
+| `/symbol/:symbol` | One listing in depth: candles, indicators, statements, earnings, analysts, options, news, holders, filings |
 | `/watchlist` | Saved lists, priced per request |
 | `/notes` | Notes, collections, tag and symbol facets |
 | `/skills` | Saved procedures — and where a draft written over MCP gets published |
@@ -49,6 +51,47 @@ that already throttle.
 
 Syncs run in the server process, so a restart interrupts one. Jobs left running
 are marked failed at boot rather than appearing stuck forever.
+
+## Markets and the symbol page
+
+`/markets` is the board: US, Asian and European indices, rates, the dollar,
+gold, oil and crypto, priced in one batched quote every thirty seconds, with
+your watchlist beside it. Every tile opens that symbol's page.
+
+`/symbol/NVDA` (or `0700.HK`, `600519.SS`, `BTC-USD`, `%5EGSPC`) is the page for
+watching one name. Top to bottom:
+
+- **Header** — price, change, pre/post-market print, session figures and the
+  day and 52-week ranges. The quote refreshes every 15 seconds while its
+  exchange is trading and every two minutes when it is not.
+- **Chart** — candles or a line over 1D…Max. Daily candles up to a year,
+  weekly over five, monthly over the whole history (or pick the width). MA
+  20/50/200, EMA 20, Bollinger bands and VWAP (intraday) overlay the price;
+  volume, MACD and RSI get their own panes. Indicators are computed in the
+  browser from candles that include 200 periods of history before the window,
+  so a 200-day average is defined at the left edge and toggling one never
+  fetches. Your own levels, entry price, and the research provider's
+  support/resistance are drawn across it. The forming daily candle follows the
+  live quote.
+- **Tabs** — Summary (key statistics, the business, a fund's holdings and
+  sectors, your levels and notes, headlines, related names), Financials
+  (income/balance/cash flow, annual or quarterly), Earnings (surprises,
+  consensus, revisions), Analysis (targets, rating trend, technical outlook,
+  bull/bear case, rating changes), Options (straddle chain, put/call ratios,
+  max pain), News, Held by funds (the local holdings index plus institutional
+  and insider tables) and SEC filings. Tabs a listing cannot fill — options or
+  EDGAR outside the US, statements on an index — are not offered.
+
+Every setting is a URL param (`tab`, `range`, `interval`, `style`, `ind`,
+`statement`, `period`, `expiry`, `form`, `list`), so any view is a link. The
+watchlist rides along the left; <kbd>j</kbd> / <kbd>k</kbd> step through it,
+carrying the chart settings to the next name.
+
+Each upstream read is cached in the server process for as long as it plausibly
+stays the same (a quote for ten seconds, an options chain for a minute, a
+profile for half an hour, statements for six hours), concurrent readers share
+one fetch, and a per-user budget is charged only on a cache miss. Quotes come
+from Yahoo Finance and may be delayed.
 
 ## Watchlists
 

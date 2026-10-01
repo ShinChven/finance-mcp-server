@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { NavLink, Outlet, redirect, useNavigate, useRouteLoaderData } from "react-router";
+import { NavLink, Outlet, redirect, useLocation, useNavigate, useRouteLoaderData } from "react-router";
 import {
   BookOpen,
+  ChartCandlestick,
   Compass,
   History,
   KeyRound,
@@ -141,12 +142,20 @@ function writeCollapsed(collapsed: boolean): void {
 export const NAV_SECTIONS: {
   label?: string;
   adminOnly?: boolean;
-  items: { to: string; label: string; icon: typeof LayoutDashboard; end?: boolean }[];
+  items: {
+    to: string;
+    label: string;
+    icon: typeof LayoutDashboard;
+    end?: boolean;
+    /** Another path prefix that counts as this link being open — a detail page under it. */
+    alsoActive?: string;
+  }[];
 }[] = [
   { items: [{ to: "/", label: "Overview", icon: LayoutDashboard, end: true }] },
   {
     label: "Workspace",
     items: [
+      { to: "/markets", label: "Markets", icon: ChartCandlestick, alsoActive: "/symbol/" },
       { to: "/discover", label: "Discover", icon: Compass },
       { to: "/watchlist", label: "Watchlists", icon: Star },
       { to: "/notes", label: "Notes", icon: NotebookPen },
@@ -188,6 +197,7 @@ export const NAV_SECTIONS: {
 export default function Shell() {
   const me = useMe();
   const navigate = useNavigate();
+  const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   // Read synchronously on first render rather than in an effect: an effect
@@ -377,13 +387,17 @@ export default function Shell() {
                       {section.label}
                     </div>
                   ))}
-                {section.items.map(({ to, label, icon: Icon, end }) => (
+                {section.items.map(({ to, label, icon: Icon, end, alsoActive }) => (
                   <NavLink
                     key={to}
                     to={to}
                     end={end}
                     title={railed ? label : undefined}
-                    className={navItemClass(railed)}
+                    className={({ isActive }) =>
+                      navItemClass(railed)({
+                        isActive: isActive || (alsoActive !== undefined && location.pathname.startsWith(alsoActive)),
+                      })
+                    }
                   >
                     <Icon className="size-4 shrink-0" />
                     {/* Kept in the accessibility tree on the rail, where the

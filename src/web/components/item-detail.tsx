@@ -12,7 +12,9 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { X } from "lucide-react";
+import { ArrowUpRight, X } from "lucide-react";
+import { Link } from "react-router";
+import { symbolPath } from "../../shared/symbol.js";
 import {
   DEFAULT_SERIES_RANGE,
   isSeriesRange,
@@ -100,7 +102,17 @@ export function ItemDetail({
     <Card className="h-fit p-4">
       <div className="mb-3 flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="font-mono text-sm font-medium">{item.ref}</div>
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-sm font-medium">{item.ref}</span>
+            {item.kind === "symbol" && (
+              <Link
+                to={symbolPath(item.ref)}
+                className="inline-flex items-center gap-0.5 text-xs text-indigo-600 hover:underline dark:text-indigo-400"
+              >
+                Full page <ArrowUpRight className="size-3" />
+              </Link>
+            )}
+          </div>
           {item.name && <div className="truncate text-xs text-zinc-400">{item.name}</div>}
         </div>
         <button

@@ -16,6 +16,7 @@ import { meRoutes } from "./routes/me.js";
 import { searchRoutes } from "./routes/search.js";
 import { noteCollectionRoutes, noteRoutes } from "./routes/notes.js";
 import { skillRoutes } from "./routes/skills.js";
+import { symbolRoutes } from "./routes/symbols.js";
 import { overviewRoutes } from "./routes/overview.js";
 import { tokenRoutes } from "./routes/tokens.js";
 import { toolRoutes } from "./routes/tools.js";
@@ -67,6 +68,7 @@ export function createApp(): Hono<AppEnv> {
   api.route("/watchlists", watchlistRoutes);
   api.route("/search", searchRoutes);
   api.route("/discover", discoverRoutes);
+  api.route("/symbols", symbolRoutes);
   api.route("/notes", noteRoutes);
   api.route("/note-collections", noteCollectionRoutes);
   api.route("/skills", skillRoutes);

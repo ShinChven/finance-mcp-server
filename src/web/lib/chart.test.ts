@@ -128,6 +128,14 @@ describe("domainWithLevels", () => {
     expect(domain.high).toBeGreaterThan(110);
   });
 
+  it("judges every level against the window, not against levels already admitted", () => {
+    // 85 is within three spans of the window and widens the domain; 60 is
+    // five spans below it and must stay clamped rather than ride in behind 85.
+    const domain = domainWithLevels([110, 120], [85, 60], { maxSpanMultiple: 3 });
+    expect(domain.clamped).toEqual([60]);
+    expect(domain.low).toBeGreaterThan(60);
+  });
+
   it("gives a flat series a usable domain", () => {
     const domain = domainWithLevels([50, 50, 50], []);
     expect(domain.high).toBeGreaterThan(domain.low);

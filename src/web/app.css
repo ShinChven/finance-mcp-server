@@ -9,3 +9,26 @@
 body {
   @apply bg-zinc-50 text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100;
 }
+
+/*
+ * Indicator line colours on the symbol chart — the reference categorical
+ * palette's first five hues, stepped per theme and validated as a set
+ * (adjacent CVD ΔE ≥ 13 in both modes). Two light steps sit under 3:1 against
+ * the surface, which is why the chart's legend always prints each line's value
+ * as text beside its swatch rather than leaving the line to speak alone.
+ */
+:root {
+  --viz-1: #2a78d6;
+  --viz-2: #eb6834;
+  --viz-3: #4a3aa7;
+  --viz-4: #e87ba4;
+  --viz-5: #eda100;
+}
+
+.dark {
+  --viz-1: #3987e5;
+  --viz-2: #d95926;
+  --viz-3: #9085e9;
+  --viz-4: #d55181;
+  --viz-5: #c98500;
+}
