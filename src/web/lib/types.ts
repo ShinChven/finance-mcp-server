@@ -10,6 +10,8 @@ import type {
 } from "../../shared/watchlist.js";
 
 import type { PriceSeries } from "../../shared/series.js";
+import type { TrackedIn } from "../../shared/discover.js";
+import type { SymbolIdentity, SymbolSession } from "../../shared/symbol.js";
 import type { JsonSchemaNode } from "./json-schema.js";
 import type { UserPreferences } from "../../shared/preferences.js";
 
@@ -551,4 +553,30 @@ export interface SkillRevision {
   body: string;
   source: SkillSource;
   createdAt: string;
+}
+
+/*
+ * Symbol page
+ */
+
+export interface SymbolQuoteResult {
+  identity: SymbolIdentity;
+  live: LiveValue;
+  session: SymbolSession;
+}
+
+export interface SymbolTrackingResult {
+  lists: TrackedIn[];
+  /** The first list holding the symbol — the one whose levels are drawn. */
+  listId: string | null;
+  item: WatchlistItem | null;
+}
+
+export interface BoardResult {
+  groups: {
+    id: string;
+    label: string;
+    items: { identity: SymbolIdentity; live: LiveValue }[];
+  }[];
+  missing: string[];
 }

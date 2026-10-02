@@ -14,6 +14,9 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router";
+import { ArrowUpRight } from "lucide-react";
+import { symbolPath } from "../../shared/symbol.js";
 import { DEFAULT_SERIES_RANGE, isSeriesRange, type SeriesRangeId } from "../../shared/series.js";
 import type { DiscoverIdea, TrackedIn } from "../../shared/discover.js";
 import type { DirectionPalette } from "../../shared/preferences.js";
@@ -152,7 +155,15 @@ export function IdeaPreview({
                   : `${live?.basis === "nav" ? "NAV" : "Quote"} · ${formatRelative(live?.asOf)}`}
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              {kind === "symbol" && (
+                <Link
+                  to={symbolPath(instrumentRef)}
+                  className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                >
+                  Full page <ArrowUpRight className="size-3.5" />
+                </Link>
+              )}
               <span className="text-sm text-zinc-500">Track it</span>
               <TrackButton idea={idea} compact />
             </div>

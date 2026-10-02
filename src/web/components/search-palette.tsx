@@ -18,9 +18,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { Compass, Search, X } from "lucide-react";
 import type { DiscoverIdea, IdeaListResult } from "../../shared/discover.js";
+import { symbolPath } from "../../shared/symbol.js";
 import { api } from "../lib/api.js";
 import { fallbackIdea, ideaParam, looksLikeRef } from "../lib/discover.js";
 import type { useListParams } from "../lib/params.js";
@@ -45,6 +46,7 @@ export function SearchPalette({
    */
   onNavigate: () => void;
 }) {
+  const navigate = useNavigate();
   const [text, setText] = useState(params.find);
   const [cursor, setCursor] = useState(0);
   const input = useRef<HTMLInputElement>(null);
@@ -100,7 +102,14 @@ export function SearchPalette({
     } else if (event.key === "Enter") {
       event.preventDefault();
       const chosen = items[cursor];
-      if (chosen !== undefined) open(chosen);
+      if (chosen === undefined) return;
+      // Shift+Enter goes straight to an instrument's own page; Enter previews.
+      if (event.shiftKey && chosen.kind === "symbol") {
+        onNavigate();
+        navigate(symbolPath(chosen.ref));
+        return;
+      }
+      open(chosen);
     }
   }
 
@@ -171,7 +180,7 @@ export function SearchPalette({
         </div>
 
         <div className="flex items-center justify-between gap-3 border-t border-zinc-200 px-4 py-2 text-xs text-zinc-400 dark:border-zinc-800">
-          <span>↑↓ to move · ↵ to open · esc to close</span>
+          <span>↑↓ to move · ↵ to preview · ⇧↵ full page · esc to close</span>
           <Link
             to="/discover"
             // The destination carries no query, so `find` goes with it.

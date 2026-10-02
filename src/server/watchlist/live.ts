@@ -307,6 +307,35 @@ function symbolReturns(quote: Record<string, unknown>): ItemReturns | null {
   };
 }
 
+/**
+ * One row of a Yahoo `quote()` response, as the live value every surface shows.
+ *
+ * Exported so the symbol page prices from exactly this reading rather than a
+ * second one of its own: a header that disagreed with the watchlist row it was
+ * opened from would be wrong in one of the two places.
+ */
+export function liveFromQuote(quote: Record<string, unknown>): LiveValue {
+  const price = num(quote["regularMarketPrice"]);
+  return {
+    basis: "market",
+    price,
+    change: num(quote["regularMarketChange"]),
+    changePercent: num(quote["regularMarketChangePercent"]),
+    currency: str(quote["currency"]),
+    marketState: str(quote["marketState"]),
+    asOf: isoTime(quote["regularMarketTime"]),
+    available: price !== null,
+    ...(price === null ? { unavailableReason: "Yahoo returned no price for this symbol." } : {}),
+    // A quote is fetched on this request, so it is never served from a cache
+    // that could have gone stale behind the reader's back.
+    checkedAt: null,
+    stale: false,
+    stats: readStats(quote),
+    extended: readExtended(quote),
+    returns: symbolReturns(quote),
+  };
+}
+
 async function quoteSymbols(
   symbols: string[],
   client: YahooFinanceClient,
@@ -328,26 +357,7 @@ async function quoteSymbols(
     const quote = row as Record<string, unknown>;
     const symbol = str(quote["symbol"]);
     if (symbol === null) continue;
-    values.set(symbol, {
-      basis: "market",
-      price: num(quote["regularMarketPrice"]),
-      change: num(quote["regularMarketChange"]),
-      changePercent: num(quote["regularMarketChangePercent"]),
-      currency: str(quote["currency"]),
-      marketState: str(quote["marketState"]),
-      asOf: isoTime(quote["regularMarketTime"]),
-      available: num(quote["regularMarketPrice"]) !== null,
-      ...(num(quote["regularMarketPrice"]) === null
-        ? { unavailableReason: "Yahoo returned no price for this symbol." }
-        : {}),
-      // A quote is fetched on this request, so it is never served from a cache
-      // that could have gone stale behind the reader's back.
-      checkedAt: null,
-      stale: false,
-      stats: readStats(quote),
-      extended: readExtended(quote),
-      returns: symbolReturns(quote),
-    });
+    values.set(symbol, liveFromQuote(quote));
   }
 
   // Yahoo drops unknown symbols from the response rather than erroring, so

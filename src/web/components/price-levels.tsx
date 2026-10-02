@@ -12,6 +12,7 @@ import { Check, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { Modal } from "./modal.js";
 import { Button, Input, Label, Select } from "./ui.js";
 import { formatRelative } from "../lib/format.js";
+import { formatPrice } from "../lib/candles.js";
 import { parseLevelLines, type LevelDraft, type LevelPatch } from "../lib/levels.js";
 import type { WatchlistItem, WatchlistLevel } from "../lib/types.js";
 import {
@@ -227,7 +228,7 @@ export function LevelsPanel({
 
           <div className="flex items-center gap-2 py-1.5 text-[11px] text-zinc-400">
             <span className="h-px flex-1 bg-indigo-200 dark:bg-indigo-500/40" />
-            <span className="tabular-nums">{price === null ? "no price" : price}</span>
+            <span className="tabular-nums">{price === null ? "no price" : formatPrice(price)}</span>
             <span className="h-px flex-1 bg-indigo-200 dark:bg-indigo-500/40" />
           </div>
 

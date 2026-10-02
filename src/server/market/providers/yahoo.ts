@@ -129,14 +129,14 @@ export function createYahooMarketProvider(client: YahooFinanceClient): MarketDat
       return { timezone, currency, bars, events: readEvents(result, timezone) };
     },
 
-    async fetchIntraday(symbol, { days }) {
+    async fetchIntraday(symbol, { days, intervalMinutes }) {
       // Yahoo serves intraday over a short window only — a few days at
       // 5-minute granularity — so this is the whole of what it can answer, and
       // the reason nothing here is persisted.
       const start = new Date(Date.now() - (days + 2) * 86_400_000);
       const result = await chart(symbol, {
         period1: start.toISOString().slice(0, 10),
-        interval: "5m",
+        interval: intervalMinutes === 15 ? "15m" : "5m",
       });
       const { timezone, currency } = readMeta(result);
       const meta = (result["meta"] ?? {}) as Record<string, unknown>;
@@ -151,7 +151,14 @@ export function createYahooMarketProvider(client: YahooFinanceClient): MarketDat
         // A gap inside the session is dropped rather than carried forward: a
         // flat run invented from nulls is a claim the feed never made.
         if (at === null || close === null) continue;
-        points.push({ at, close });
+        points.push({
+          at,
+          open: num(quote["open"]),
+          high: num(quote["high"]),
+          low: num(quote["low"]),
+          close,
+          volume: num(quote["volume"]),
+        });
       }
 
       return {

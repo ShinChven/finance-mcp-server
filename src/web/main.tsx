@@ -21,6 +21,8 @@ import AdminClientsPage from "./routes/admin-clients.js";
 import AdminAuditPage from "./routes/admin-audit.js";
 import FundsPage from "./routes/funds.js";
 import DiscoverPage from "./routes/discover.js";
+import MarketsPage from "./routes/markets.js";
+import SymbolPage from "./routes/symbol.js";
 import "./app.css";
 
 const queryClient = new QueryClient({
@@ -59,6 +61,9 @@ const router = createBrowserRouter([
       { path: "tools", element: <ToolsPage /> },
       { path: "funds", element: <FundsPage /> },
       { path: "discover", element: <DiscoverPage /> },
+      { path: "markets", element: <MarketsPage /> },
+      { path: "symbol", element: <Navigate to="/markets" replace /> },
+      { path: "symbol/:symbol", element: <SymbolPage /> },
       { path: "watchlist", element: <WatchlistPage /> },
       { path: "notes", element: <NotesPage /> },
       { path: "skills", element: <SkillsPage /> },

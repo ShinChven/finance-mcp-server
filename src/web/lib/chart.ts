@@ -155,10 +155,16 @@ export function domainWithLevels(
   // reach is taken from the level of the price itself.
   const span = high - low || Math.abs(high) * 0.02 || 1;
   const reach = span * maxSpanMultiple;
+  // Fixed before the loop: every level is judged against the window's own
+  // span. Measured against the running bounds instead, each level that fits
+  // would widen the test for the next one, and a near level would drag a far
+  // one in behind it.
+  const floor = low - reach;
+  const ceiling = high + reach;
 
   const clamped: number[] = [];
   for (const level of levels) {
-    if (level < low - reach || level > high + reach) {
+    if (level < floor || level > ceiling) {
       clamped.push(level);
       continue;
     }

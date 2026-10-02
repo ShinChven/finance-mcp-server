@@ -26,11 +26,20 @@ export interface DailyBar {
   volume: number | null;
 }
 
-/** A point inside a session, carried as an instant rather than a date. */
+/**
+ * A point inside a session, carried as an instant rather than a date.
+ *
+ * The full candle travels with it so the symbol page can draw intraday
+ * candlesticks and volume; the line chart reads `close` alone.
+ */
 export interface IntradayPoint {
   /** Epoch milliseconds; the axis renders it in the exchange's zone. */
   at: number;
+  open: number | null;
+  high: number | null;
+  low: number | null;
   close: number | null;
+  volume: number | null;
 }
 
 export interface PriceEvent {
@@ -72,6 +81,13 @@ export interface MarketDataProvider {
   readonly id: string;
   /** Daily bars from `from` (inclusive) to the latest available. */
   fetchDailyBars(symbol: string, options: { from: string }): Promise<DailyBarsResult>;
-  /** Intraday points over the last session, or the last five. */
-  fetchIntraday(symbol: string, options: { days: 1 | 5 }): Promise<IntradayResult>;
+  /**
+   * Intraday points over the last session, or the last five, at five minutes
+   * unless a coarser step is asked for — five days of five-minute candles is
+   * more than a chart can draw legibly.
+   */
+  fetchIntraday(
+    symbol: string,
+    options: { days: 1 | 5; intervalMinutes?: 5 | 15 },
+  ): Promise<IntradayResult>;
 }
