@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Search } from "lucide-react";
-import { Button, Card, EmptyState, Input, Spinner } from "./ui.js";
+import { Button, Card, EmptyState, Input, Skeleton } from "./ui.js";
 import type { useListParams } from "../lib/params.js";
 
 type ListParams = ReturnType<typeof useListParams>;
@@ -147,7 +147,7 @@ export function DataTable<T>({
   return (
     <Card>
       {loading && !rows ? (
-        <Spinner />
+        <TableSkeleton columns={columns} />
       ) : !rows || rows.length === 0 ? (
         <EmptyState {...empty} />
       ) : (
@@ -199,5 +199,45 @@ export function DataTable<T>({
       )}
       <Pagination params={params} total={total} totalPages={totalPages} />
     </Card>
+  );
+}
+
+/**
+ * The table's own header over rows of placeholder bars.
+ *
+ * The header is real because it is already known: the reader can see which
+ * columns are coming, and the table does not change shape when they arrive.
+ */
+function TableSkeleton<T>({ columns }: { columns: Column<T>[] }) {
+  return (
+    <div className="overflow-x-auto" aria-busy="true">
+      <table className="w-full min-w-[34rem] text-sm">
+        <thead>
+          <tr className="border-b border-zinc-200 text-left text-xs text-zinc-500 uppercase dark:border-zinc-800">
+            {columns.map((column) => (
+              <th
+                key={column.key}
+                className={`px-4 py-3 font-medium ${column.align === "right" ? "text-right" : ""} ${column.className ?? ""}`}
+              >
+                {column.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: 6 }, (_, row) => (
+            <tr key={row} className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60">
+              {columns.map((column, index) => (
+                <td key={column.key} className={`px-4 py-3 ${column.className ?? ""}`}>
+                  <Skeleton
+                    className={`h-4 ${column.align === "right" ? "ml-auto w-12" : index === 0 ? "w-16" : "w-full max-w-48"}`}
+                  />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

@@ -9,9 +9,9 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { completenessNote, PROVIDERS, TRAILING_PERIODS } from "../../shared/funds.js";
-import { Modal } from "./modal.js";
 import { NavChart } from "./nav-chart.js";
-import { EmptyState, Spinner } from "./ui.js";
+import { SidePanel } from "./side-panel.js";
+import { EmptyState, Skeleton } from "./ui.js";
 import { api } from "../lib/api.js";
 import { formatPercent, formatRelative, signClass } from "../lib/format.js";
 import type { FundHoldingsResult, TrailingReturns } from "../lib/types.js";
@@ -28,7 +28,7 @@ import type { FundHoldingsResult, TrailingReturns } from "../lib/types.js";
  * The fetch is a POST (it has side effects and outbound cost), fired once per
  * open, and the holdings query is invalidated when it lands.
  */
-export function HoldingsDialog({
+export function FundPanel({
   code,
   highlight,
   onClose,
@@ -38,8 +38,20 @@ export function HoldingsDialog({
   highlight: string;
   onClose: () => void;
 }) {
+  const query = useQuery({
+    queryKey: ["fund-holdings", code],
+    queryFn: () => api<FundHoldingsResult>(`/api/funds/${code}/holdings`),
+  });
+
   return (
-    <FundDetailModal code={code} highlight={highlight} onClose={onClose} />
+    <SidePanel
+      title={query.data?.fund.name ?? code}
+      subtitle={query.data === undefined ? undefined : code}
+      onClose={onClose}
+      scrollKey={code}
+    >
+      <FundDetail code={code} highlight={highlight} />
+    </SidePanel>
   );
 }
 
@@ -50,14 +62,17 @@ export function HoldingsDialog({
  * portfolio that the Funds page shows. Two renderings of the same fund that
  * could disagree would be one rendering too many, and the drill-down and the
  * watchlist pane are the same act — reading the cache.
+ *
+ * Keyed by code because every pane that shows it stays open while the reader
+ * moves to the next fund. Without the key the one-shot cache fetch would count
+ * as already fired for a fund it never ran for, and a fetch still in flight
+ * would read as the new fund's.
  */
-export function FundDetail({
-  code,
-  highlight = "",
-}: {
-  code: string;
-  highlight?: string;
-}) {
+export function FundDetail({ code, highlight = "" }: { code: string; highlight?: string }) {
+  return <FundDetailBody key={code} code={code} highlight={highlight} />;
+}
+
+function FundDetailBody({ code, highlight }: { code: string; highlight: string }) {
   const queryClient = useQueryClient();
   const [triggered, setTriggered] = useState(false);
 
@@ -77,7 +92,7 @@ export function FundDetail({
     },
   });
 
-  // NAV counts as much as holdings here: the dialog now opens with a row of
+  // NAV counts as much as holdings here: the detail opens with a row of
   // trailing returns, and a fund whose NAV step never ran would show eight em
   // dashes with no way for the reader to ask for the data.
   const uncached =
@@ -92,17 +107,21 @@ export function FundDetail({
   return (
     <>
       {query.isPending ? (
-        <Spinner />
+        <FundDetailSkeleton />
       ) : query.isError ? (
         <p className="text-sm text-red-600 dark:text-red-400">{(query.error as Error).message}</p>
       ) : cacheNow.isPending ? (
-        <div className="py-16 text-center">
-          <Spinner />
-          <p className="mt-2 text-sm text-zinc-500">
-            Not cached yet — fetching this fund's holdings and NAV now.
-          </p>
-          <p className="mt-1 text-xs text-zinc-400">Requests are throttled, so this takes a few seconds.</p>
-        </div>
+        <>
+          {/* Said in words as well as shapes: this wait is seconds rather than
+              a blink, and a skeleton alone would read as a slow page. */}
+          <div className="mb-3 rounded-lg bg-zinc-50 p-2 text-xs dark:bg-zinc-800/50">
+            <p className="text-zinc-600 dark:text-zinc-300">
+              Not cached yet — fetching this fund's holdings and NAV now.
+            </p>
+            <p className="mt-0.5 text-zinc-400">Requests are throttled, so this takes a few seconds.</p>
+          </div>
+          <FundDetailSkeleton />
+        </>
       ) : cacheNow.isError ? (
         <p className="text-sm text-red-600 dark:text-red-400">
           {(cacheNow.error as Error).message}
@@ -114,25 +133,30 @@ export function FundDetail({
   );
 }
 
-/** The Funds page drill-down: the same body, in a dialog. */
-function FundDetailModal({
-  code,
-  highlight,
-  onClose,
-}: {
-  code: string;
-  highlight: string;
-  onClose: () => void;
-}) {
-  const query = useQuery({
-    queryKey: ["fund-holdings", code],
-    queryFn: () => api<FundHoldingsResult>(`/api/funds/${code}/holdings`),
-  });
-
+/** What `FundHoldings` draws — meta line, returns, NAV chart, positions — before it can. */
+function FundDetailSkeleton() {
   return (
-    <Modal title={query.data?.fund.name ?? code} onClose={onClose} size="xl">
-      <FundDetail code={code} highlight={highlight} />
-    </Modal>
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap gap-x-6 gap-y-1">
+        {["w-20", "w-16", "w-28", "w-24"].map((width) => (
+          <Skeleton key={width} className={`h-3 ${width}`} />
+        ))}
+      </div>
+      <Skeleton className="h-28 rounded-lg" />
+      <Skeleton className="h-48 rounded-lg" />
+      <div className="flex flex-col">
+        {Array.from({ length: 6 }, (_, index) => (
+          <div
+            key={index}
+            className="flex items-center gap-3 border-b border-zinc-100 px-3 py-2.5 last:border-0 dark:border-zinc-800/60"
+          >
+            <Skeleton className="h-3 w-14" />
+            <Skeleton className="h-3 flex-1" />
+            <Skeleton className="h-3 w-12" />
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -282,14 +306,16 @@ function TrailingReturnsStrip({ returns }: { returns: TrailingReturns | null }) 
   const measured = new Map(returns.periods.map((entry) => [entry.period, entry]));
 
   return (
-    <div className="mb-3 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
-      {/* Four across in two rows until the dialog is wide enough for eight
-          columns to hold a figure like +126.40% without clipping it — the row
-          must never make the modal scroll sideways to reach the 5Y number. The
-          rules are the grid's own gap showing through, not `divide-*`, which
-          draws its borders in DOM order and would strand a vertical rule down
-          the left of the second row. */}
-      <div className="grid grid-cols-4 gap-px bg-zinc-200 md:grid-cols-8 dark:bg-zinc-800">
+    <div className="@container mb-3 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
+      {/* Four across in two rows until the strip itself is wide enough for
+          eight columns to hold a figure like +126.40% without clipping it —
+          the row must never make its pane scroll sideways to reach the 5Y
+          number. Measured against the container rather than the viewport,
+          because this renders in side panels that stay narrow on any screen.
+          The rules are the grid's own gap showing through, not `divide-*`,
+          which draws its borders in DOM order and would strand a vertical rule
+          down the left of the second row. */}
+      <div className="grid grid-cols-4 gap-px bg-zinc-200 @2xl:grid-cols-8 dark:bg-zinc-800">
         {TRAILING_PERIODS.map((period) => {
           const entry = measured.get(period.id);
           return (

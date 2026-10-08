@@ -22,7 +22,7 @@ import { KIND_LABELS } from "../../shared/watchlist.js";
 import { api } from "../lib/api.js";
 import { formatPercent, signClass } from "../lib/format.js";
 import type { AddItemsResult, WatchlistSummary } from "../lib/types.js";
-import { EmptyState, Spinner } from "./ui.js";
+import { EmptyState, Skeleton } from "./ui.js";
 import { useToast } from "./toast.js";
 
 /** Prices span four orders of magnitude here; small ones need the extra digits. */
@@ -121,7 +121,18 @@ export function TrackButton({ idea, compact = false }: { idea: DiscoverIdea; com
     : `Track ${idea.ref}`;
 
   return (
-    <div ref={wrapper} className="relative">
+    <div
+      ref={wrapper}
+      className="relative"
+      // Handled here as well as on the document so the key stops at the menu:
+      // a star inside the preview panel would otherwise close the panel too.
+      onKeyDown={(event) => {
+        if (open && event.key === "Escape") {
+          event.stopPropagation();
+          setOpen(false);
+        }
+      }}
+    >
       <button
         type="button"
         title={title}
@@ -156,8 +167,13 @@ export function TrackButton({ idea, compact = false }: { idea: DiscoverIdea; com
             Add to list
           </div>
           {lists.isPending ? (
-            <div className="p-3">
-              <Spinner />
+            <div className="flex flex-col gap-1 p-1">
+              {["w-32", "w-24"].map((width) => (
+                <div key={width} className="flex items-center gap-2 px-1 py-1.5">
+                  <Skeleton className="size-3.5" />
+                  <Skeleton className={`h-3.5 ${width}`} />
+                </div>
+              ))}
             </div>
           ) : options.length === 0 ? (
             <Link
@@ -268,10 +284,10 @@ export function IdeaList({
   loading: boolean;
   empty: { title: string; description?: string };
   onOpen: (idea: DiscoverIdea) => void;
-  /** `kind:ref` of the row the keyboard is on, in the palette. */
+  /** `kind:ref` of the row to mark — the one open in the preview beside the list. */
   activeKey?: string;
 }) {
-  if (loading) return <Spinner />;
+  if (loading) return <IdeaListSkeleton />;
   if (ideas === undefined || ideas.length === 0) {
     return <EmptyState title={empty.title} {...(empty.description !== undefined && { description: empty.description })} />;
   }
@@ -285,6 +301,33 @@ export function IdeaList({
           active={activeKey === `${idea.kind}:${idea.ref}`}
           onOpen={onOpen}
         />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Rows in `IdeaRow`'s shape — ref and badge over a name, price over change,
+ * and the star — so the list does not reflow when the real ones land.
+ */
+export function IdeaListSkeleton({ rows = 8 }: { rows?: number }) {
+  return (
+    <div className="flex flex-col" aria-busy="true">
+      {Array.from({ length: rows }, (_, index) => (
+        <div key={index} className="flex items-center gap-3 px-3 py-2.5">
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-4 w-16" />
+              <Skeleton className="h-4 w-12" />
+            </div>
+            <Skeleton className={`h-3.5 ${index % 3 === 0 ? "w-2/3" : index % 3 === 1 ? "w-1/2" : "w-3/5"}`} />
+          </div>
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            <Skeleton className="h-4 w-20" />
+            <Skeleton className="h-3 w-12" />
+          </div>
+          <Skeleton className="size-7 rounded-md" />
+        </div>
       ))}
     </div>
   );

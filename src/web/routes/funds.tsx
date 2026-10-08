@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { PROVIDERS, selectableScopes, type ProviderId } from "../../shared/funds.js";
-import { HoldingsDialog } from "../components/fund-holdings.js";
+import { FundPanel } from "../components/fund-holdings.js";
 import { fundColumns } from "../components/fund-table.js";
 import { DataTable, FilterPills, SearchInput } from "../components/table.js";
 import { EmptyState, PageHeader } from "../components/ui.js";
@@ -185,7 +185,7 @@ export function BrowseFunds({ params }: { params: ReturnType<typeof useListParam
       />
 
       {params.fund && (
-        <HoldingsDialog
+        <FundPanel
           code={params.fund}
           highlight={params.q}
           onClose={() => params.update({ fund: "" })}

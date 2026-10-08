@@ -4,7 +4,9 @@
  * A discovery page whose only verb is "add" makes the reader commit to a row
  * they have seen four fields of. This is the pane that answers "what is this,
  * actually" — priced now, charted over the same windows the watchlist uses, and
- * with the star right there once they have decided.
+ * with the star right there once they have decided. It opens beside the list
+ * rather than over it, so the next row is one click away instead of a close
+ * and a click.
  *
  * It deliberately renders the *same* components a tracked item renders:
  * `QuoteStatsPanel` and `PriceChart` for an instrument, `FundDetail` for a
@@ -28,9 +30,9 @@ import type { PriceSeries } from "../../shared/series.js";
 import { FundDetail } from "./fund-holdings.js";
 import { formatIdeaPrice, TrackButton } from "./ideas.js";
 import { QuoteStatsPanel } from "./instrument-stats.js";
-import { Modal } from "./modal.js";
 import { PriceChart } from "./price-chart.js";
-import { Spinner } from "./ui.js";
+import { SidePanel } from "./side-panel.js";
+import { Skeleton } from "./ui.js";
 
 interface PreviewResult {
   item: { kind: WatchlistItemKind; ref: string; name: string | null };
@@ -105,6 +107,13 @@ export function IdeaPreview({
       api<PreviewResult>(
         `/api/discover/preview?kind=${kind}&ref=${encodeURIComponent(instrumentRef)}&range=${usable}`,
       ),
+    // A new range is the same instrument redrawn, so the price and statistics
+    // stay up while only the chart waits. A new instrument starts clean: its
+    // predecessor's numbers under its name would be worse than a skeleton.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[2] === kind && previousQuery.queryKey[3] === instrumentRef
+        ? previous
+        : undefined,
   });
 
   const preview = query.data;
@@ -127,53 +136,66 @@ export function IdeaPreview({
   };
 
   return (
-    <Modal title={instrumentRef} onClose={onClose} size="xl">
-      {query.isPending ? (
-        <Spinner />
-      ) : query.isError ? (
+    <SidePanel
+      title={instrumentRef}
+      subtitle={preview === undefined ? undefined : (preview.item.name ?? "Unnamed")}
+      onClose={onClose}
+      scrollKey={`${kind}:${instrumentRef}`}
+    >
+      {query.isError ? (
         <p className="text-sm text-red-600 dark:text-red-400">{(query.error as Error).message}</p>
-      ) : preview === undefined ? null : (
+      ) : (
         <div className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="text-sm text-zinc-500 dark:text-zinc-400">
-                {preview.item.name ?? "Unnamed"}
+          {preview === undefined ? (
+            <QuoteHeaderSkeleton />
+          ) : (
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="text-2xl font-semibold tabular-nums">
+                    {formatIdeaPrice(live?.price ?? null, live?.currency ?? null)}
+                  </span>
+                  <span className={`text-sm tabular-nums ${signClass(live?.changePercent)}`}>
+                    {live?.changePercent === null || live?.changePercent === undefined
+                      ? ""
+                      : formatPercent(live.changePercent)}
+                  </span>
+                </div>
+                <div className="text-xs text-zinc-400">
+                  {live?.available === false
+                    ? (live.unavailableReason ?? "No price available.")
+                    : `${live?.basis === "nav" ? "NAV" : "Quote"} · ${formatRelative(live?.asOf)}`}
+                </div>
+                {kind === "symbol" && (
+                  <Link
+                    to={symbolPath(instrumentRef)}
+                    className="mt-1 inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                  >
+                    Full page <ArrowUpRight className="size-3.5" />
+                  </Link>
+                )}
               </div>
-              <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-semibold tabular-nums">
-                  {formatIdeaPrice(live?.price ?? null, live?.currency ?? null)}
-                </span>
-                <span className={`text-sm tabular-nums ${signClass(live?.changePercent)}`}>
-                  {live?.changePercent === null || live?.changePercent === undefined
-                    ? ""
-                    : formatPercent(live.changePercent)}
-                </span>
-              </div>
-              <div className="text-xs text-zinc-400">
-                {live?.available === false
-                  ? (live.unavailableReason ?? "No price available.")
-                  : `${live?.basis === "nav" ? "NAV" : "Quote"} · ${formatRelative(live?.asOf)}`}
+              <div className="flex shrink-0 items-center gap-1">
+                <span className="text-sm text-zinc-500">Track it</span>
+                {/* Aligned to the right, unlike the inline star elsewhere: this
+                    one sits against the panel's edge, and a menu that opened
+                    rightwards from it would open off the screen. */}
+                <TrackButton idea={idea} />
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              {kind === "symbol" && (
-                <Link
-                  to={symbolPath(instrumentRef)}
-                  className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-                >
-                  Full page <ArrowUpRight className="size-3.5" />
-                </Link>
-              )}
-              <span className="text-sm text-zinc-500">Track it</span>
-              <TrackButton idea={idea} compact />
-            </div>
-          </div>
+          )}
 
           {/* A fund's own page already shows its NAV chart, trailing returns and
               portfolio — the three things worth previewing — so it is shown
-              whole rather than partially rebuilt here. */}
+              whole rather than partially rebuilt here. It fetches on its own,
+              so it starts loading alongside the quote rather than after it. */}
           {kind === "fund" ? (
             <FundDetail code={instrumentRef} />
+          ) : preview === undefined ? (
+            <>
+              <Skeleton className="h-40" />
+              <StatsSkeleton />
+            </>
           ) : (
             <>
               <PriceChart
@@ -181,7 +203,7 @@ export function IdeaPreview({
                 series={preview.series}
                 range={usable}
                 onRange={onRange}
-                pending={query.isFetching}
+                pending={query.isPlaceholderData}
                 palette={palette}
               />
               <QuoteStatsPanel
@@ -194,6 +216,41 @@ export function IdeaPreview({
           )}
         </div>
       )}
-    </Modal>
+    </SidePanel>
+  );
+}
+
+/** The price block's shape — a figure, its change, its timestamp — and the star. */
+function QuoteHeaderSkeleton() {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-2">
+        <Skeleton className="h-8 w-36" />
+        <Skeleton className="h-3 w-28" />
+      </div>
+      <Skeleton className="h-8 w-24" />
+    </div>
+  );
+}
+
+/** The two range meters and the tile grid, as `QuoteStatsPanel` lays them out. */
+function StatsSkeleton() {
+  return (
+    <div className="flex flex-col gap-3">
+      {[0, 1].map((meter) => (
+        <div key={meter} className="flex flex-col gap-1.5">
+          <Skeleton className="h-2.5 w-20" />
+          <Skeleton className="h-2 w-full" />
+        </div>
+      ))}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+        {Array.from({ length: 6 }, (_, index) => (
+          <div key={index} className="flex flex-col gap-1">
+            <Skeleton className="h-2.5 w-14" />
+            <Skeleton className="h-4 w-20" />
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

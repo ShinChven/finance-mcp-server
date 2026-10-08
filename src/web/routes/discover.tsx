@@ -35,7 +35,7 @@ import {
 
 import { IdeaList } from "../components/ideas.js";
 import { useToast } from "../components/toast.js";
-import { Button, Card, EmptyState, PageHeader, Spinner } from "../components/ui.js";
+import { Button, Card, EmptyState, PageHeader, Skeleton } from "../components/ui.js";
 import { api } from "../lib/api.js";
 import { ideaParam } from "../lib/discover.js";
 import { useListParams } from "../lib/params.js";
@@ -147,7 +147,7 @@ export default function DiscoverPage() {
       {tab === "movers" && <MoversTab params={params} onOpen={open} />}
       {tab === "themes" && <ThemesTab params={params} onOpen={open} />}
       {tab === "funds" && <BrowseFunds params={params} />}
-      {tab === "related" && <RelatedTab onOpen={open} />}
+      {tab === "related" && <RelatedTab params={params} onOpen={open} />}
     </>
   );
 }
@@ -160,11 +160,13 @@ function IdeaPanel({
   controls,
   query,
   empty,
+  params,
   onOpen,
 }: {
   controls?: React.ReactNode;
   query: { data: IdeaListResult | undefined; isPending: boolean; isError: boolean; error: unknown };
   empty: { title: string; description?: string };
+  params: Params;
   onOpen: OnOpen;
 }) {
   return (
@@ -182,6 +184,9 @@ function IdeaPanel({
             loading={query.isPending}
             empty={empty}
             onOpen={onOpen}
+            // The preview sits beside the list now, so the row it belongs to
+            // stays in view and is marked as the one being read.
+            activeKey={params.idea}
           />
         </Card>
       )}
@@ -211,6 +216,7 @@ function TrendingTab({ params, onOpen }: { params: Params; onOpen: OnOpen }) {
         title: "Nothing trending here",
         description: "The upstream list is empty for this market right now. Try another one.",
       }}
+      params={params}
       onOpen={onOpen}
     />
   );
@@ -235,6 +241,7 @@ function MoversTab({ params, onOpen }: { params: Params; onOpen: OnOpen }) {
       }
       query={query}
       empty={{ title: "This screen returned nothing", description: "Try another screen." }}
+      params={params}
       onOpen={onOpen}
     />
   );
@@ -253,11 +260,15 @@ function ThemesTab({ params, onOpen }: { params: Params; onOpen: OnOpen }) {
     enabled: theme !== "",
   });
 
-  if (themes.isPending) return <Spinner />;
-
   return (
     <>
       <div className="mb-4 flex flex-wrap gap-1.5">
+        {/* Only the pills wait on the theme list: a theme already in the URL
+            fetches its funds alongside it rather than after it. */}
+        {themes.isPending &&
+          ["w-16", "w-24", "w-20", "w-28", "w-14", "w-20", "w-24", "w-16", "w-28", "w-20"].map(
+            (width, index) => <Skeleton key={index} className={`h-[26px] rounded-full ${width}`} />,
+          )}
         {(themes.data?.items ?? []).map((entry) => (
           <button
             key={entry.id}
@@ -289,6 +300,7 @@ function ThemesTab({ params, onOpen }: { params: Params; onOpen: OnOpen }) {
             description:
               "Theme matching reads disclosed holdings, so it only sees funds whose portfolios have been cached. Open a few on the Funds tab, or ask an administrator to sync a category.",
           }}
+          params={params}
           onOpen={onOpen}
         />
       )}
@@ -296,7 +308,7 @@ function ThemesTab({ params, onOpen }: { params: Params; onOpen: OnOpen }) {
   );
 }
 
-function RelatedTab({ onOpen }: { onOpen: OnOpen }) {
+function RelatedTab({ params, onOpen }: { params: Params; onOpen: OnOpen }) {
   const query = useQuery({
     queryKey: ["discover", "related"],
     queryFn: () => api<IdeaListResult>("/api/discover/related"),
@@ -310,6 +322,7 @@ function RelatedTab({ onOpen }: { onOpen: OnOpen }) {
         description:
           "This tab is seeded from the instruments on your own lists — add a couple and it will have something to work from. Funds are not seeds: the upstream relates listings, not fund codes.",
       }}
+      params={params}
       onOpen={onOpen}
     />
   );
