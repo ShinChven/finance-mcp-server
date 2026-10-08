@@ -25,8 +25,7 @@ import { symbolPath } from "../../shared/symbol.js";
 import { api } from "../lib/api.js";
 import { fallbackIdea, ideaParam, looksLikeRef } from "../lib/discover.js";
 import type { useListParams } from "../lib/params.js";
-import { IdeaRow } from "./ideas.js";
-import { Spinner } from "./ui.js";
+import { IdeaListSkeleton, IdeaRow } from "./ideas.js";
 
 const DEBOUNCE_MS = 250;
 
@@ -153,7 +152,7 @@ export function SearchPalette({
               Type a name or a code. Searches this server's fund index and Yahoo Finance at once.
             </p>
           ) : results.isPending ? (
-            <Spinner />
+            <IdeaListSkeleton rows={5} />
           ) : items.length === 0 ? (
             <p className="px-3 py-6 text-center text-sm text-zinc-500">
               Nothing matched "{query}".

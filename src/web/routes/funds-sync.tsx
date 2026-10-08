@@ -7,7 +7,7 @@ import {
   selectableScopes,
   type ProviderId,
 } from "../../shared/funds.js";
-import { HoldingsDialog } from "../components/fund-holdings.js";
+import { FundPanel } from "../components/fund-holdings.js";
 import { fundColumns } from "../components/fund-table.js";
 import { Modal } from "../components/modal.js";
 import { DataTable, FilterPills, SearchInput } from "../components/table.js";
@@ -206,7 +206,7 @@ export function SyncConsole() {
       )}
 
       {params.fund && (
-        <HoldingsDialog
+        <FundPanel
           code={params.fund}
           highlight={params.q}
           onClose={() => params.update({ fund: "" })}

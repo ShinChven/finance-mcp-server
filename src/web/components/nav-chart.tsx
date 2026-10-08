@@ -35,7 +35,7 @@ import {
 import { formatPercent, signClass } from "../lib/format.js";
 import { useListParams } from "../lib/params.js";
 import type { FundNavResult, NavChartSeries } from "../lib/types.js";
-import { Spinner } from "./ui.js";
+import { Skeleton } from "./ui.js";
 
 /**
  * The chart's own coordinate space.
@@ -91,9 +91,7 @@ export function NavChart({ code }: { code: string }) {
       </div>
 
       {query.isPending ? (
-        <div className="py-12">
-          <Spinner />
-        </div>
+        <Skeleton className="h-36" />
       ) : query.isError ? (
         <p className="py-8 text-center text-sm text-red-600 dark:text-red-400">
           {(query.error as Error).message}

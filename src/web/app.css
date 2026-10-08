@@ -4,6 +4,41 @@
 
 @theme {
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --animate-slide-in: slide-in 160ms ease-out;
+
+  @keyframes slide-in {
+    from {
+      transform: translateX(1.5rem);
+      opacity: 0;
+    }
+  }
+}
+
+/*
+ * The detail side panel (`components/side-panel.tsx`). One width for the panel
+ * and for the room the page makes for it, so the two cannot drift apart.
+ */
+:root {
+  --side-panel-width: 32rem;
+}
+
+@media (width >= 96rem) {
+  :root {
+    --side-panel-width: 36rem;
+  }
+}
+
+/*
+ * Wide enough to dock: the page gives up the panel's width instead of being
+ * covered by it. Keyed on the panel being in the document rather than on React
+ * state, because panels open from the shell (the instrument preview) and from
+ * pages (a fund's portfolio) alike, and neither should have to tell the other.
+ */
+@media (width >= 80rem) {
+  body:has([data-side-panel]) [data-shell-main] {
+    margin-right: var(--side-panel-width);
+  }
 }
 
 body {

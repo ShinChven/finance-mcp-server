@@ -139,6 +139,19 @@ export function Spinner() {
   );
 }
 
+/**
+ * A placeholder bar in the shape of what is loading.
+ *
+ * Preferred over `Spinner` wherever the eventual layout is known: the page
+ * keeps its shape while the data arrives, so nothing jumps when it does, and
+ * the reader can already see what kind of thing is coming.
+ */
+export function Skeleton({ className }: { className?: string }) {
+  return (
+    <div aria-hidden="true" className={cx("animate-pulse rounded bg-zinc-100 dark:bg-zinc-800/60", className)} />
+  );
+}
+
 export function EmptyState({ title, description }: { title: string; description?: string }) {
   return (
     <div className="py-16 text-center">

@@ -460,6 +460,7 @@ export default function Shell() {
         </div>
       </aside>
       <main
+        data-shell-main=""
         className={`min-w-0 flex-1 px-4 py-5 transition-[margin] duration-200 sm:px-6 sm:py-6 lg:px-8 lg:py-8 ${
           railed ? "lg:ml-16" : "lg:ml-60"
         }`}
@@ -467,9 +468,9 @@ export default function Shell() {
         <Outlet />
       </main>
 
-      {/* Both overlays live here rather than on a page: an instrument can be
-          searched for, and previewed, from anywhere — including from a page
-          that has nothing to do with instruments. */}
+      {/* Both live here rather than on a page: an instrument can be searched
+          for, and previewed, from anywhere — including from a page that has
+          nothing to do with instruments. */}
       {paletteOpen && (
         <SearchPalette
           params={params}
