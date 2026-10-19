@@ -5,15 +5,17 @@ import { describe, expect, it, vi } from "vitest";
 import type { McpAuth } from "../../lib/http.js";
 import { applyOrder } from "../../../shared/watchlist.js";
 import type { WatchlistLevel } from "../../db/schema.js";
-import type {
-  AddItemRow,
-  AddLevelRow,
-  FundSnapshot,
-  ItemQuery,
-  UpdateLevelPatch,
-  WatchlistItemRow,
-  WatchlistRepo,
-  WatchlistSummary,
+import {
+  type AddItemRow,
+  type AddLevelRow,
+  type FundSnapshot,
+  type ItemQuery,
+  type UpdateItemPatch,
+  type UpdateLevelPatch,
+  WatchlistNameTakenError,
+  type WatchlistItemRow,
+  type WatchlistRepo,
+  type WatchlistSummary,
 } from "../../watchlist/repo.js";
 import type { YahooFinanceClient } from "../client.js";
 import { buildMcpServer } from "../server.js";
@@ -122,7 +124,31 @@ function memoryRepo(seed: { lists?: WatchlistSummary[]; items?: WatchlistItemRow
       lists.set(list.id, list);
       return list;
     }),
-    updateWatchlist: vi.fn(async () => null),
+    updateWatchlist: vi.fn(
+      async (userId: string, id: string, patch: { name?: string; description?: string | null }) => {
+        const list = ownedList(userId, id);
+        if (list === null) return null;
+        // The database has a unique index on (userId, lower(name)); the tool is
+        // relied on to surface that rather than silently merging two lists.
+        if (patch.name !== undefined) {
+          const clash = [...lists.values()].find(
+            (candidate) =>
+              candidate.userId === userId &&
+              candidate.id !== id &&
+              candidate.name.toLowerCase() === patch.name!.toLowerCase(),
+          );
+          if (clash !== undefined) throw new WatchlistNameTakenError(patch.name);
+        }
+        const updated: WatchlistSummary = {
+          ...list,
+          ...(patch.name !== undefined && { name: patch.name }),
+          ...(patch.description !== undefined && { description: patch.description }),
+          updatedAt: new Date("2026-08-03T00:00:00Z"),
+        };
+        lists.set(id, updated);
+        return withCounts(updated);
+      },
+    ),
     deleteWatchlist: vi.fn(async () => false),
     listItems: vi.fn(async (userId: string, watchlistId: string, query: ItemQuery = {}) => {
       if (ownedList(userId, watchlistId) === null) throw new Error("Watchlist not found.");
@@ -165,7 +191,19 @@ function memoryRepo(seed: { lists?: WatchlistSummary[]; items?: WatchlistItemRow
       }
       return { added, skipped };
     }),
-    updateItem: vi.fn(async () => null),
+    updateItem: vi.fn(
+      async (userId: string, watchlistId: string, itemId: string, patch: UpdateItemPatch) => {
+        if (ownedList(userId, watchlistId) === null) throw new Error("Watchlist not found.");
+        const item = items.find(
+          (candidate) => candidate.id === itemId && candidate.watchlistId === watchlistId,
+        );
+        if (item === undefined) return null;
+        // An empty patch is nothing to write, exactly as in the SQL repo.
+        if (Object.keys(patch).length === 0) return null;
+        Object.assign(item, patch);
+        return item;
+      },
+    ),
     // Ordering is not something the MCP tools write, but the interface carries
     // it; the stand-in honours it so a tool that started to would be caught.
     reorderWatchlists: vi.fn(async (userId: string, ids: string[]) => {
@@ -567,6 +605,110 @@ describe("watchlist tools", () => {
     }
   });
 
+  it("renames a list and rewrites an item's note in one call", async () => {
+    const { repo, lists, items } = memoryRepo({ lists: [list("list-1", "AI")] });
+    const { server, client } = await connect(repo);
+
+    try {
+      await call(client, "watchlistAdd", {
+        list: "AI",
+        items: [{ ref: "NVDA", note: "AI capex" }],
+      });
+
+      const result = await call(client, "watchlistUpdate", {
+        list: "AI",
+        name: "Semis",
+        description: "Fabs and the tools that fill them",
+        items: [{ ref: "nvda", note: "Datacenter GPU share" }],
+      });
+
+      expect(result.data.watchlist).toMatchObject({ name: "Semis", previousName: "AI" });
+      expect(result.data.revised).toEqual([
+        { ref: "NVDA", note: "Datacenter GPU share", entryPrice: 100 },
+      ]);
+      expect(lists.get("list-1")?.name).toBe("Semis");
+      expect(items[0]?.note).toBe("Datacenter GPU share");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("clears a note with null and leaves the entry price alone", async () => {
+    const { repo, items } = memoryRepo({ lists: [list("list-1", "Core")] });
+    const { server, client } = await connect(repo);
+
+    try {
+      await call(client, "watchlistAdd", {
+        list: "Core",
+        items: [{ ref: "NVDA", note: "AI capex", entryPrice: 80 }],
+      });
+
+      const result = await call(client, "watchlistUpdate", {
+        list: "Core",
+        items: [{ ref: "NVDA", note: null }],
+      });
+
+      expect(result.data.revised).toEqual([{ ref: "NVDA", note: null, entryPrice: 80 }]);
+      expect(items[0]?.entryPrice).toBe(80);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("reports an item it cannot find instead of failing the whole call", async () => {
+    const { repo, lists } = memoryRepo({ lists: [list("list-1", "Core")] });
+    const { server, client } = await connect(repo);
+
+    try {
+      await call(client, "watchlistAdd", { list: "Core", items: [{ ref: "NVDA" }] });
+
+      const result = await call(client, "watchlistUpdate", {
+        list: "Core",
+        name: "Core holdings",
+        items: [{ ref: "NVDA", note: "kept" }, { ref: "TSLA", note: "never tracked" }],
+      });
+
+      // The rename still landed: the two halves of the call are independent.
+      expect(lists.get("list-1")?.name).toBe("Core holdings");
+      expect(result.data.revised).toHaveLength(1);
+      expect(result.data.notFound).toEqual(["TSLA"]);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("refuses a rename that collides with another list, and an empty patch", async () => {
+    const { repo, lists } = memoryRepo({
+      lists: [list("list-1", "Core"), list("list-2", "Speculative")],
+    });
+    const { server, client } = await connect(repo);
+
+    try {
+      const taken = await call(client, "watchlistUpdate", { list: "Core", name: "speculative" });
+      expect(taken.isError).toBe(true);
+      expect(taken.text).toContain("already exists");
+      expect(lists.get("list-1")?.name).toBe("Core");
+
+      const empty = await call(client, "watchlistUpdate", { list: "Core" });
+      expect(empty.isError).toBe(true);
+      expect(empty.text).toContain("watchlistAdd");
+
+      // An item naming no field to change is rejected by the schema rather
+      // than reported as a silent no-op.
+      const noFields = await call(client, "watchlistUpdate", {
+        list: "Core",
+        items: [{ ref: "NVDA" }],
+      });
+      expect(noFields.isError).toBe(true);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it("removes by ref and reports what was not there", async () => {
     const { repo, items } = memoryRepo({ lists: [list("list-1", "Core")] });
     const { server, client } = await connect(repo);
@@ -605,8 +747,13 @@ describe("watchlist tools", () => {
     const { server, client } = await connect(repo, null);
 
     try {
-      for (const tool of ["watchlists", "watchlist", "watchlistRemove"]) {
-        const args = tool === "watchlistRemove" ? { refs: ["NVDA"] } : {};
+      for (const tool of ["watchlists", "watchlist", "watchlistUpdate", "watchlistRemove"]) {
+        const args =
+          tool === "watchlistRemove"
+            ? { refs: ["NVDA"] }
+            : tool === "watchlistUpdate"
+              ? { name: "Renamed" }
+              : {};
         const result = await call(client, tool, args);
         expect(result.isError, tool).toBe(true);
         expect(result.text, tool).toContain("authenticated");

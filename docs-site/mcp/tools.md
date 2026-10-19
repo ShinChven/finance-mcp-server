@@ -53,6 +53,8 @@ below.
 | `watchlists` | The user's lists, with item counts | |
 | `watchlist` | One list, priced: quotes, NAV, notes, targets, breadth summary | |
 | `watchlistAdd` | Add instruments or funds, with a note saying why | ✓ |
+| `watchlistLevels` | Record, revise and retire the price levels on one item | ✓ |
+| `watchlistUpdate` | Rename a list, change its description, rewrite an item's note or entry price | ✓ |
 | `watchlistRemove` | Drop items by symbol or fund code | ✓ |
 
 ## Notes — [details](/mcp/notes)
