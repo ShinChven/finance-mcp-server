@@ -10,6 +10,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import type { DiscoverIdea } from "../../../shared/discover.js";
+import { platformLinksFor } from "../../../shared/platforms.js";
+import type { SymbolIdentity } from "../../../shared/symbol.js";
 import { formatCompact, formatPercent, formatRelative, signClass } from "../../lib/format.js";
 import { formatPrice } from "../../lib/candles.js";
 import { isTrading } from "../../lib/symbol-queries.js";
@@ -40,6 +42,34 @@ function MarketState({ state }: { state: string | null }) {
       <span className={`size-1.5 rounded-full ${trading ? "animate-pulse bg-emerald-500" : "bg-zinc-400"}`} />
       {STATE_LABELS[state] ?? state.toLowerCase()}
     </span>
+  );
+}
+
+/**
+ * Where else this listing can be read, for the step after reading it here.
+ *
+ * Only the platforms that can actually address the symbol are shown, so an
+ * index offers one and a Shanghai listing six. They open in a new tab: someone
+ * checking a price on their broker is not done with the page they left.
+ */
+function OpenIn({ identity }: { identity: SymbolIdentity }) {
+  const links = platformLinksFor(identity);
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+      <span className="text-zinc-400 dark:text-zinc-500">Open in</span>
+      {links.map((link) => (
+        <a
+          key={link.id}
+          href={link.url}
+          target="_blank"
+          rel="noreferrer noopener"
+          title={`${identity.symbol} on ${link.label}`}
+          className="rounded border border-zinc-200 px-1.5 py-0.5 text-zinc-600 transition-colors hover:border-indigo-300 hover:text-indigo-600 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-indigo-500/50 dark:hover:text-indigo-400"
+        >
+          {link.label}
+        </a>
+      ))}
+    </div>
   );
 }
 
@@ -144,6 +174,7 @@ export function SymbolHeader({
           <div className="mt-0.5 truncate text-sm text-zinc-500 dark:text-zinc-400">
             {[identity.name, identity.exchange, identity.currency].filter(Boolean).join(" · ")}
           </div>
+          <OpenIn identity={identity} />
         </div>
 
         <div className="text-right">
