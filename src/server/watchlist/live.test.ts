@@ -74,6 +74,47 @@ function fakeRepo(
   } as unknown as WatchlistRepo;
 }
 
+/** A `YYYY-MM-DD` date `days` before the current UTC day. */
+function daysAgo(days: number): string {
+  return new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * `days` of daily NAV, ending today.
+ *
+ * Dated relative to now rather than from a literal, because the read a row
+ * makes is bounded to the last `WATCHLIST_NAV_WINDOW_DAYS` days measured from
+ * the current date: a fixture pinned to fixed dates describes a fund that goes
+ * on getting staler, and the windows it was written to cover drop away one by
+ * one as the clock moves past it.
+ */
+function navSeries(days: number): { navDate: string; nav: number; accNav: number }[] {
+  return Array.from({ length: days + 1 }, (_, day) => ({
+    navDate: daysAgo(days - day),
+    nav: 1 + day * 0.001,
+    accNav: 1.5 + day * 0.001,
+  }));
+}
+
+/** The cache row a fund series would have left behind, freshly synced. */
+function fundSnapshot(
+  code: string,
+  name: string,
+  points: { navDate: string; nav: number; accNav: number }[],
+): FundSnapshot {
+  const latest = points.at(-1)!;
+  return {
+    code,
+    name,
+    nav: latest.nav,
+    accNav: latest.accNav,
+    dailyReturn: 0.1,
+    navDate: latest.navDate,
+    provider: "eastmoney",
+    navSyncedAt: new Date(),
+  };
+}
+
 const nvda = {
   symbol: "NVDA",
   regularMarketPrice: 120.5,
@@ -381,34 +422,28 @@ describe("quote statistics", () => {
   });
 
   it("quotes a fund's trailing windows from cached NAV, and only the covered ones", async () => {
+    // Fixtures are dated against the clock the row is read on, not against a
+    // calendar date written into the test: the windows themselves are anchored
+    // to the fund's latest NAV, but the read that feeds them is bounded to the
+    // last `WATCHLIST_NAV_WINDOW_DAYS` days *from now*, so NAV dates pinned to
+    // a literal in the past describe an ever-staler fund as time passes.
+    //
     // A year and a bit of daily NAV: enough for every window the row offers,
     // and deliberately not enough for the multi-year ones the fund page shows.
-    const points: { navDate: string; nav: number; accNav: number }[] = [];
-    const start = Date.UTC(2025, 6, 1);
-    for (let day = 0; day <= 420; day++) {
-      const date = new Date(start + day * 86_400_000).toISOString().slice(0, 10);
-      points.push({ navDate: date, nav: 1 + day * 0.001, accNav: 1.5 + day * 0.001 });
-    }
-    const latest = points.at(-1)!;
+    const mature = navSeries(420);
+    // Four months, so the long end of the row genuinely cannot be covered.
+    const young = navSeries(120);
 
-    const enriched = await enrichItems([item({ kind: "fund", ref: "161125" })], {
-      client: fakeClient([]),
-      repo: fakeRepo(
-        [
-          {
-            code: "161125",
-            name: "标普500",
-            nav: latest.nav,
-            accNav: latest.accNav,
-            dailyReturn: 0.1,
-            navDate: latest.navDate,
-            provider: "eastmoney",
-            navSyncedAt: new Date(),
-          },
-        ],
-        { "161125": points },
-      ),
-    });
+    const enriched = await enrichItems(
+      [item({ kind: "fund", ref: "161125" }), item({ kind: "fund", ref: "007339" })],
+      {
+        client: fakeClient([]),
+        repo: fakeRepo(
+          [fundSnapshot("161125", "标普500", mature), fundSnapshot("007339", "易方达蓝筹", young)],
+          { "161125": mature, "007339": young },
+        ),
+      },
+    );
 
     const returns = enriched[0]?.live.returns;
     expect(returns?.basis).toBe("accNav");
@@ -421,6 +456,15 @@ describe("quote statistics", () => {
     expect(periods).not.toContain("3y");
     // Every window names the observations it really spans.
     expect(returns?.periods.every((entry) => entry.from !== null && entry.to !== null)).toBe(true);
+
+    // The other half of the rule, on a fund too young to answer the long
+    // windows: they are dropped rather than measured from whatever the series
+    // happens to start on.
+    const youngPeriods = enriched[1]?.live.returns?.periods.map((entry) => entry.period) ?? [];
+    expect(youngPeriods).toContain("1m");
+    expect(youngPeriods).toContain("3m");
+    expect(youngPeriods).not.toContain("6m");
+    expect(youngPeriods).not.toContain("1y");
   });
 
   it("flags a fund whose NAV cache is past due, and keeps serving what it has", async () => {
