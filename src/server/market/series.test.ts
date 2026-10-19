@@ -68,19 +68,25 @@ function fakeProvider(overrides: Partial<MarketDataProvider> = {}): MarketDataPr
 const noNav = async (): Promise<NavSeriesPoint[]> => [];
 
 describe("windowStart", () => {
-  it("starts YTD at the exchange's own new year", () => {
-    // Not UTC's, and not the reader's: the year turns over on the exchange.
-    expect(windowStart("ytd", "2026-08-25", "America/New_York")).toBe("2026-01-01");
+  it("starts YTD at the new year of the series' own last observation", () => {
+    // The end date is already an exchange-local date, so its year is the
+    // exchange's year: the window turns over when the exchange does, not when
+    // UTC or the reader's laptop does — and not when this test happens to run.
+    expect(windowStart("ytd", "2026-08-25")).toBe("2026-01-01");
+    expect(windowStart("ytd", "2025-12-31")).toBe("2025-01-01");
+    // The last session of a year belongs to that year, whatever the UTC
+    // instant of its close happened to be.
+    expect(windowStart("ytd", "2024-12-31")).toBe("2024-01-01");
   });
 
   it("reaches to the beginning of time for max", () => {
-    expect(windowStart("max", "2026-08-25", "UTC")).toBe("0001-01-01");
+    expect(windowStart("max", "2026-08-25")).toBe("0001-01-01");
   });
 
   it("clamps a month step to the end of the target month", () => {
     // Without the clamp, 31 March minus one month is 3 March and a two-month
     // window gets drawn as 1M.
-    expect(windowStart("1m", "2026-03-31", "UTC")).toBe("2026-02-28");
+    expect(windowStart("1m", "2026-03-31")).toBe("2026-02-28");
   });
 });
 
@@ -167,6 +173,29 @@ describe("symbolSeries", () => {
     // A year back from that last bar, not a year back from now.
     expect(series?.startDate.slice(0, 4)).toBe("2024");
     expect(series?.observations).toBeGreaterThan(300);
+  });
+
+  it("draws a YTD window for a series whose last bar is in a past year", async () => {
+    // Read on 5 January, a listing whose last bar is 30 December. Taking YTD
+    // from wall-clock time asks for a window starting after every observation
+    // the series has, and the chart disappears instead of showing the year
+    // that just closed.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2027-01-05T15:00:00Z"));
+    try {
+      const lastYear = bars(360, { start: "2026-01-05" });
+      const series = await symbolSeries("PAUSED", "ytd", {
+        bars: fakeStore({ bars: lastYear }),
+        provider: fakeProvider(),
+        navHistory: noNav,
+      });
+
+      expect(series).not.toBeNull();
+      expect(series?.endDate).toBe(lastYear.at(-1)!.date);
+      expect(series?.startDate.slice(0, 4)).toBe("2026");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns null rather than a flat rule when there is nothing to draw", async () => {

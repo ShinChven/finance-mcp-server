@@ -233,10 +233,10 @@ export async function symbolCandles(
   // As in `symbolSeries`: bring the tail current first, then measure the window
   // back from the series' own last bar, so a stale listing does not lose days
   // off the left edge for a reason nobody can see.
-  const nominal = windowStart(range, toExchangeDate(Date.now(), "UTC"), "UTC");
+  const nominal = windowStart(range, toExchangeDate(Date.now(), "UTC"));
   const current = await deps.bars.ensure(symbol, warmupStart(nominal, resolved));
   const anchored =
-    current.lastBar === null ? nominal : windowStart(range, current.lastBar, current.timezone);
+    current.lastBar === null ? nominal : windowStart(range, current.lastBar);
   const needed = warmupStart(anchored, resolved);
   const nominalNeeded = warmupStart(nominal, resolved);
   const stored =

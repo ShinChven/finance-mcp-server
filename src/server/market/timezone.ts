@@ -68,17 +68,6 @@ export function toExchangeDate(epochMs: number, zone: string): string {
 }
 
 /**
- * The first day of the current year, at the exchange.
- *
- * This is what makes a YTD window mean the same thing to a reader in Shanghai
- * and one in Chicago: the year turns over when it turns over on the exchange,
- * not when it turns over in UTC or on the reader's laptop.
- */
-export function yearStartInZone(zone: string, now: Date = new Date()): string {
-  return `${toExchangeDate(now.getTime(), zone).slice(0, 4)}-01-01`;
-}
-
-/**
  * A short label for the zone, for the caption under a chart.
  *
  * The zone is named on screen because an intraday axis is meaningless without

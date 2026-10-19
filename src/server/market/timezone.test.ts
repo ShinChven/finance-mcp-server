@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isKnownTimeZone, toExchangeDate, yearStartInZone, zoneLabel } from "./timezone.js";
+import { isKnownTimeZone, toExchangeDate, zoneLabel } from "./timezone.js";
 
 describe("toExchangeDate", () => {
   it("keeps a US evening print on the trading day it belongs to", () => {
@@ -32,16 +32,6 @@ describe("toExchangeDate", () => {
     expect(toExchangeDate(Date.parse("2026-03-04T21:00:00Z"), "Mars/Olympus")).toBe("2026-03-04");
     expect(isKnownTimeZone("Mars/Olympus")).toBe(false);
     expect(isKnownTimeZone("America/New_York")).toBe(true);
-  });
-});
-
-describe("yearStartInZone", () => {
-  it("turns the year over when the exchange does, not when UTC does", () => {
-    // 31 December 2025, 19:00 in New York — still 2025 there, already 2026 in
-    // UTC. A YTD window must start from the exchange's own new year.
-    const instant = new Date("2026-01-01T00:00:00Z");
-    expect(yearStartInZone("America/New_York", instant)).toBe("2025-01-01");
-    expect(yearStartInZone("Asia/Shanghai", instant)).toBe("2026-01-01");
   });
 });
 
