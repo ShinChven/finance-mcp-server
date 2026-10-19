@@ -46,6 +46,7 @@ import { registerWatchlistTool } from "./tools/watchlist.js";
 import { registerWatchlistAddTool } from "./tools/watchlist-add.js";
 import { registerWatchlistLevelsTool } from "./tools/watchlist-levels.js";
 import { registerWatchlistRemoveTool } from "./tools/watchlist-remove.js";
+import { registerWatchlistUpdateTool } from "./tools/watchlist-update.js";
 import { registerWatchlistsTool } from "./tools/watchlists.js";
 import { registerTrendingSymbolsTool } from "./tools/trending-symbols.js";
 import { registerWhoamiTool } from "./tools/whoami.js";
@@ -159,6 +160,7 @@ export function buildMcpServer(auth: McpAuth | null, deps: McpDeps = {}): McpSer
   registerWatchlistTool(server, watchlists, client, fundCache, auth);
   registerWatchlistAddTool(server, watchlists, client, auth);
   registerWatchlistLevelsTool(server, watchlists, auth);
+  registerWatchlistUpdateTool(server, watchlists, auth);
   registerWatchlistRemoveTool(server, watchlists, auth);
 
   registerNoteCollectionsTool(server, notes, auth);

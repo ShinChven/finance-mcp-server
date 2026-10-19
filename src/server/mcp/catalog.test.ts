@@ -5,6 +5,7 @@ import { getMcpToolCatalog, toolMatches } from "./catalog.js";
 const WRITE_TOOLS = new Set([
   "watchlistAdd",
   "watchlistLevels",
+  "watchlistUpdate",
   "watchlistRemove",
   "noteCreate",
   "noteUpdate",
@@ -42,6 +43,7 @@ describe("mcp tool catalog", () => {
       "watchlist",
       "watchlistAdd",
       "watchlistLevels",
+      "watchlistUpdate",
       "watchlistRemove",
       "noteCollections",
       "notesSearch",

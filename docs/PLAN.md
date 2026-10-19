@@ -359,8 +359,8 @@ portfolios. `funds/present.ts` builds the caveat every tool response carries.
   shape knowledge in `parseMarkets`. The free tier allows only a few requests a
   minute, so pages are cached for minutes and one tool call costs one request.
   No key is required; `COINGECKO_API_KEY` is optional and only raises the limit.
-- Watchlist tools: `watchlists`, `watchlist`, `watchlistAdd`, `watchlistLevels`
-  and `watchlistRemove` are the only tools that write. They are scoped to `auth.user.id` — never to a
+- Watchlist tools: `watchlists`, `watchlist`, `watchlistAdd`, `watchlistLevels`,
+  `watchlistUpdate` and `watchlistRemove` are the only tools that write. They are scoped to `auth.user.id` — never to a
   user id in the arguments — and go through `watchlist/repo.ts`, which takes the
   owner on every call so the MCP and dashboard paths cannot diverge on access
   control. `watchlist/live.ts` attaches values at read time (Yahoo for symbols,

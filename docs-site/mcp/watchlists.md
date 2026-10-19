@@ -9,6 +9,7 @@ assistant and the dashboard are never looking at different things.
 | `watchlist` | One list, priced: live quotes, fund NAV, notes, price levels and a breadth summary | |
 | `watchlistAdd` | Add instruments or funds, with a note saying why | ✓ |
 | `watchlistLevels` | Record, revise and retire the price levels on one item | ✓ |
+| `watchlistUpdate` | Rename a list, change its description, rewrite an item's note or entry price | ✓ |
 | `watchlistRemove` | Drop items by symbol or fund code | ✓ |
 
 ## One list holds both kinds of thing
@@ -29,6 +30,25 @@ exchange suffix (`600519.SS`); a `kind` argument overrides the guess.
   automatically; there is nothing to confuse it with.
 - **It will not guess between several lists.** With more than one and no name
   given, the call fails and names the candidates.
+
+## Revising what a list says
+
+`watchlistUpdate` is the only tool that changes wording rather than membership:
+a list's name and description, and an item's `note`, `entryPrice` and `entryAt`.
+It exists because a stale note is worse than no note — later reads trust it —
+and until now fixing one meant sending the user to the dashboard.
+
+Membership stays with `watchlistAdd` and `watchlistRemove`, and levels with
+`watchlistLevels`, so a rename can never take an item with it. Items are named
+by symbol or fund code, as everywhere else; `null` clears a field and an omitted
+field is left untouched. A rename that collides with another of the user's lists
+is rejected — the unique index is on `lower(name)`, so "Core" and "core" are the
+same list.
+
+The list half and the item half are applied independently: a rename still lands
+when one of the refs turns out not to be on the list, and that ref comes back in
+`notFound` rather than failing the call. Re-running the same call with the ref
+fixed stays correct.
 
 ## Price levels: what the analysis concluded
 
