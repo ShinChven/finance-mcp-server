@@ -30,15 +30,27 @@ import {
   round,
   type ValuePoint,
 } from "./series-math.js";
-import { toExchangeDate, yearStartInZone, zoneLabel } from "./timezone.js";
+import { toExchangeDate, zoneLabel } from "./timezone.js";
 import type { BarStore } from "./bars.js";
 import type { DailyBar, MarketDataProvider } from "./provider.js";
 import type { NavSeriesPoint } from "../funds/performance.js";
 
-/** How far back the store must reach for a range, as an exchange-local date. */
-export function windowStart(range: SeriesRangeId, endDate: string, timezone: string): string {
+/**
+ * How far back the store must reach for a range, as an exchange-local date.
+ *
+ * Every range is measured from `endDate` and nothing here reads the clock —
+ * including YTD. `endDate` is already an exchange-local date (a bar is stored
+ * under the exchange's own calendar day, a NAV date is a Shanghai one), so its
+ * year *is* the exchange's year: YTD still turns over when the exchange does
+ * rather than when UTC or the reader's laptop does. Taking the current year
+ * from wall-clock time instead would break the rule the rest of this module
+ * keeps — on 2 January a listing whose last bar is 30 December would be asked
+ * for a window starting after its own last observation, and its YTD chart
+ * would vanish rather than show the year that just closed.
+ */
+export function windowStart(range: SeriesRangeId, endDate: string): string {
   const descriptor = seriesRange(range);
-  if (descriptor.id === "ytd") return yearStartInZone(timezone);
+  if (descriptor.id === "ytd") return `${endDate.slice(0, 4)}-01-01`;
   if (descriptor.months === null) return "0001-01-01";
   return monthsBefore(endDate, descriptor.months);
 }
@@ -98,7 +110,7 @@ function build(input: BuildInput): PriceSeries | null {
   const intraday = input.intraday ?? false;
   const from = intraday
     ? (input.drawn[0]?.date ?? end.date)
-    : windowStart(input.range, end.date, input.timezone);
+    : windowStart(input.range, end.date);
   const window = input.drawn.slice(anchorIndex(input.drawn, from));
   const start = window[0];
   if (start === undefined || window.length < 2) return null;
@@ -204,10 +216,10 @@ export async function symbolSeries(
   // whenever a listing is stale — a symbol whose last bar is a week old would
   // otherwise lose a week off the left edge of every range, for a reason the
   // reader cannot see anywhere on the chart.
-  const nominal = windowStart(range, toExchangeDate(Date.now(), "UTC"), "UTC");
+  const nominal = windowStart(range, toExchangeDate(Date.now(), "UTC"));
   const current = await deps.bars.ensure(symbol, nominal);
   const anchored =
-    current.lastBar === null ? nominal : windowStart(range, current.lastBar, current.timezone);
+    current.lastBar === null ? nominal : windowStart(range, current.lastBar);
   // Re-read only when anchoring actually reaches further back; a symbol quoted
   // today is answered by the read that already happened.
   const stored =
