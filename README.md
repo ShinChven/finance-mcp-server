@@ -10,7 +10,7 @@ authorization server.
 Drizzle ORM · PostgreSQL · TypeScript. One process serves everything — in dev,
 Hono runs inside the Vite dev server; in production, Hono serves the built SPA.
 
-**Documentation:** <https://shinchven.github.io/finance-mcp-server/> — built from
+**Documentation:** <https://shinchven.github.io/fintools/> — built from
 [`docs-site/`](docs-site/) with VitePress and deployed to GitHub Pages on every
 push to `main`.
 
@@ -82,8 +82,8 @@ docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 `docker-compose.ghcr.yml` defaults to
-`ghcr.io/shinchven/finance-mcp-server:latest`, which tracks `main`; pin a release
-with `APP_IMAGE=ghcr.io/shinchven/finance-mcp-server:0.1.0` in `.env`. CI builds
+`ghcr.io/shinchven/fintools:latest`, which tracks `main`; pin a release
+with `APP_IMAGE=ghcr.io/shinchven/fintools:0.1.0` in `.env`. CI builds
 multi-arch (`linux/amd64`, `linux/arm64`) images on every push to `main` and
 publishes SemVer tags plus a GitHub Release for every `v*` tag — see
 [`.github/workflows/docker.yml`](.github/workflows/docker.yml).
@@ -528,6 +528,6 @@ See [`docs/PLAN.md`](docs/PLAN.md) for the full design and [`CLAUDE.md`](CLAUDE.
 for project conventions (notably: URL search params are the source of truth for
 all page-level UI state).
 
-The [documentation site](https://shinchven.github.io/finance-mcp-server/) covers
+The [documentation site](https://shinchven.github.io/fintools/) covers
 deployment, configuration, every tool group and the fund pipeline in more depth;
 its sources are in [`docs-site/`](docs-site/README.md).

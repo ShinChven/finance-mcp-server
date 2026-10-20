@@ -5,8 +5,8 @@ Requirements: **Node 22+** and a **PostgreSQL** database you can reach.
 ## 1. Clone and configure
 
 ```bash
-git clone https://github.com/ShinChven/finance-mcp-server.git
-cd finance-mcp-server
+git clone https://github.com/ShinChven/fintools.git
+cd fintools
 cp .env.example .env
 ```
 

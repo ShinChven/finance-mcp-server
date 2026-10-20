@@ -52,7 +52,7 @@ npm start        # or restart the service unit
 Pin the previous image tag and bring the stack back up:
 
 ```bash
-APP_IMAGE=ghcr.io/shinchven/finance-mcp-server:1.2.2 \
+APP_IMAGE=ghcr.io/shinchven/fintools:1.2.2 \
   docker compose -f docker-compose.ghcr.yml up -d
 ```
 

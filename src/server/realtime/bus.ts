@@ -55,7 +55,7 @@ interface BusState {
   timer: ReturnType<typeof setTimeout> | null;
 }
 
-const STATE_KEY = Symbol.for("finance-mcp.realtime.bus");
+const STATE_KEY = Symbol.for("fintools.realtime.bus");
 
 function state(): BusState {
   const holder = globalThis as typeof globalThis & { [STATE_KEY]?: BusState };

@@ -6,7 +6,7 @@ export default defineConfig({
   description:
     'A self-hosted Model Context Protocol server for market data, SEC filings, cross-market fund relationships, watchlists and notes.',
   lang: 'en-US',
-  // Served from a sub-path on GitHub Pages (e.g. /finance-mcp-server/).
+  // Served from a sub-path on GitHub Pages (e.g. /fintools/).
   // CI sets DOCS_BASE; local builds and root-domain hosts default to '/'.
   base: process.env.DOCS_BASE || '/',
   cleanUrls: true,
@@ -47,19 +47,19 @@ export default defineConfig({
         items: [
           {
             text: 'GitHub',
-            link: 'https://github.com/ShinChven/finance-mcp-server',
+            link: 'https://github.com/ShinChven/fintools',
           },
           {
             text: 'Releases',
-            link: 'https://github.com/ShinChven/finance-mcp-server/releases',
+            link: 'https://github.com/ShinChven/fintools/releases',
           },
           {
             text: 'Report an Issue',
-            link: 'https://github.com/ShinChven/finance-mcp-server/issues',
+            link: 'https://github.com/ShinChven/fintools/issues',
           },
           {
             text: 'Docker Image',
-            link: 'https://github.com/ShinChven/finance-mcp-server/pkgs/container/finance-mcp-server',
+            link: 'https://github.com/ShinChven/fintools/pkgs/container/fintools',
           },
         ],
       },
@@ -158,7 +158,7 @@ export default defineConfig({
     },
 
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/ShinChven/finance-mcp-server' },
+      { icon: 'github', link: 'https://github.com/ShinChven/fintools' },
     ],
 
     search: {
@@ -167,7 +167,7 @@ export default defineConfig({
 
     editLink: {
       pattern:
-        'https://github.com/ShinChven/finance-mcp-server/edit/main/docs-site/:path',
+        'https://github.com/ShinChven/fintools/edit/main/docs-site/:path',
       text: 'Edit this page on GitHub',
     },
 

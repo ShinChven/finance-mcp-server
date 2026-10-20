@@ -14,7 +14,7 @@ hero:
       link: /guide/docker-deployment
     - theme: alt
       text: View on GitHub
-      link: https://github.com/ShinChven/finance-mcp-server
+      link: https://github.com/ShinChven/fintools
 
 features:
   - icon: 📈
@@ -67,5 +67,5 @@ local tables that an explicit ingest run populated.
 ## Found a bug or have a request?
 
 Please report it on
-[GitHub Issues](https://github.com/ShinChven/finance-mcp-server/issues). Clear
+[GitHub Issues](https://github.com/ShinChven/fintools/issues). Clear
 reports with steps to reproduce help the most.
