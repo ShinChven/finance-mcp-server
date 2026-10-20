@@ -43,7 +43,7 @@ function mockYahooClient() {
 
 async function connect(client: YahooFinanceClient) {
   const server = buildMcpServer(auth, { client });
-  const mcpClient = new Client({ name: "finance-mcp-test", version: "0.1.0" });
+  const mcpClient = new Client({ name: "fintools-test", version: "0.1.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   await mcpClient.connect(clientTransport);

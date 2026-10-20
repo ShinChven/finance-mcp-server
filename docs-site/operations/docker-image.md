@@ -1,11 +1,11 @@
 # Docker Image Publishing
 
 Images are built and pushed by
-[`.github/workflows/docker.yml`](https://github.com/ShinChven/finance-mcp-server/blob/main/.github/workflows/docker.yml)
+[`.github/workflows/docker.yml`](https://github.com/ShinChven/fintools/blob/main/.github/workflows/docker.yml)
 to the GitHub Container Registry:
 
 ```
-ghcr.io/shinchven/finance-mcp-server
+ghcr.io/shinchven/fintools
 ```
 
 ## When it runs, and what it produces
@@ -64,9 +64,9 @@ pushes keep the setting.
 ## Pulling and running
 
 ```bash
-docker pull ghcr.io/shinchven/finance-mcp-server:latest
+docker pull ghcr.io/shinchven/fintools:latest
 
-APP_IMAGE=ghcr.io/shinchven/finance-mcp-server:1.2.3 \
+APP_IMAGE=ghcr.io/shinchven/fintools:1.2.3 \
   docker compose -f docker-compose.ghcr.yml up -d
 ```
 

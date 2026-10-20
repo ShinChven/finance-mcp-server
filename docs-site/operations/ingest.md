@@ -122,6 +122,6 @@ A reasonable baseline is a nightly run per provider over the scopes you care
 about, sized first with `--dry-run`:
 
 ```text
-30 2 * * *  cd /srv/finance-mcp-server && npm run ingest -- --provider=ishares --scope=all
-0  3 * * *  cd /srv/finance-mcp-server && npm run ingest -- --provider=eastmoney --scope=qdii
+30 2 * * *  cd /srv/fintools && npm run ingest -- --provider=ishares --scope=all
+0  3 * * *  cd /srv/fintools && npm run ingest -- --provider=eastmoney --scope=qdii
 ```

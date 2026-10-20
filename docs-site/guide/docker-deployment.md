@@ -13,8 +13,8 @@ Multi-arch images (`linux/amd64`, `linux/arm64`) are published to GHCR by CI. Se
 [Docker Image Publishing](/operations/docker-image) for the tag scheme.
 
 ```bash
-git clone https://github.com/ShinChven/finance-mcp-server.git
-cd finance-mcp-server
+git clone https://github.com/ShinChven/fintools.git
+cd fintools
 cp .env.example .env      # set SESSION_SECRET, Google credentials, ADMIN_EMAILS, APP_URL
 
 docker compose -f docker-compose.ghcr.yml pull
@@ -22,12 +22,12 @@ docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 `docker-compose.ghcr.yml` defaults to
-`ghcr.io/shinchven/finance-mcp-server:latest`, which tracks the default branch
+`ghcr.io/shinchven/fintools:latest`, which tracks the default branch
 and may be newer than the latest release. For a stable deployment, pin a version
 in `.env`:
 
 ```ini
-APP_IMAGE=ghcr.io/shinchven/finance-mcp-server:0.1.0
+APP_IMAGE=ghcr.io/shinchven/fintools:0.1.0
 ```
 
 ## Option B — build from source

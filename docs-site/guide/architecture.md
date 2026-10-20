@@ -64,6 +64,6 @@ Drizzle migrations, seeds `ADMIN_EMAILS` and then listens.
 ## Further reading
 
 The full design document lives in the repository at
-[`docs/PLAN.md`](https://github.com/ShinChven/finance-mcp-server/blob/main/docs/PLAN.md),
+[`docs/PLAN.md`](https://github.com/ShinChven/fintools/blob/main/docs/PLAN.md),
 and project conventions in
-[`CLAUDE.md`](https://github.com/ShinChven/finance-mcp-server/blob/main/CLAUDE.md).
+[`CLAUDE.md`](https://github.com/ShinChven/fintools/blob/main/CLAUDE.md).

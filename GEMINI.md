@@ -8,4 +8,4 @@
 - **Coding & Project Conventions**:
   - Always keep URL search parameters as the single source of truth for page-level state.
   - For Python projects/scripts, always use a virtual environment (`venv`).
-  - Follow all guidelines detailed in [`CLAUDE.md`](file:///Users/shinchven/workshop/finance-mcp-server/CLAUDE.md).
+  - Follow all guidelines detailed in [`CLAUDE.md`](./CLAUDE.md).
