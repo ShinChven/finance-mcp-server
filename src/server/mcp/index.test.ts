@@ -73,6 +73,8 @@ describe("finance MCP server", () => {
         "fundamentalsTimeSeries",
         "earningsAnalysis",
       "cryptoTickers",
+      "economicSeries",
+      "economicRelease",
         "secFilings",
         "secFinancials",
         "watchlists",

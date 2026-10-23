@@ -33,6 +33,13 @@ below.
 | `secFilings` | An issuer's filing index, newest first, with direct document URLs |
 | `secFinancials` | As-reported XBRL financials as a time series, with the filing behind every value |
 
+## Economic data — [details](/mcp/economy)
+
+| Tool | Purpose |
+|---|---|
+| `economicSeries` | History for one economic indicator, with optional year-over-year transform |
+| `economicRelease` | The latest print for up to eight indicators at once, with change and staleness |
+
 ## Fund relationships — [details](/mcp/funds)
 
 | Tool | Purpose |

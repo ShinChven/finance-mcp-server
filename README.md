@@ -136,6 +136,15 @@ CoinGecko's public tier and hands back the Yahoo symbol for each asset to chain
 into the tools above. No API key: `COINGECKO_API_KEY` is optional and only
 raises the rate limit.
 
+Macro data is a separate family. `economicSeries` returns history for an
+economic indicator and `economicRelease` the latest print for up to eight at
+once — inflation, unemployment, GDP, policy rates, the Treasury curve, money
+supply, sentiment, housing. Both read [DBnomics](https://db.nomics.world), a
+free aggregator that re-serves FRED, BLS, Eurostat, ECB, IMF and OECD, so no API
+key is involved. Index series such as CPI come back year-over-year by default,
+because the index level answers no question anyone asked, and every release
+reports how stale it is — economic data lags the period it measures.
+
 Yahoo covers CN and HK listings through symbol suffixes (`600519.SS`,
 `0700.HK`), so the tools above already span the A-share, Hong Kong and US
 markets. What Yahoo does not carry is the *inside* of a fund: it publishes a

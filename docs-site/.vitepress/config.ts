@@ -106,6 +106,7 @@ export default defineConfig({
           items: [
             { text: 'Market Data', link: '/mcp/market-data' },
             { text: 'SEC EDGAR', link: '/mcp/sec-edgar' },
+            { text: 'Economic Data', link: '/mcp/economy' },
             { text: 'Fund Relationships', link: '/mcp/funds' },
             { text: 'Watchlists', link: '/mcp/watchlists' },
             { text: 'Notes', link: '/mcp/notes' },
